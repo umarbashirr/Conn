@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 
 import { clock, useTick } from '@/lib/clock';
+import { useDictation } from '@/lib/dictation';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
@@ -274,6 +275,11 @@ export default function App() {
   const keyRef = useRef(key);
   keyRef.current = key;
 
+  // Held here rather than in the composer because the dictation chord works
+  // from anywhere in the window, and its words go through this box.
+  const input = useRef(null);
+  const dictation = useDictation({ input, chat: key, command: settings?.dictation?.command });
+
   const editDraft = useCallback((field, next) => {
     const k = keyRef.current;
     setDrafts((all) => {
@@ -321,9 +327,10 @@ export default function App() {
       settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
+      dictate: dictation.toggle,
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle]);
 
   // A release that landed while the window was open, said where the person
   // already is. Update starts the download; Install is a second toast once the
@@ -500,7 +507,9 @@ export default function App() {
         attachments={attachments}
         setAttachments={setAttachments}
         onNote={setNote}
-        onSubmit={submit} />
+        onSubmit={submit}
+        inputRef={input}
+        dictation={dictation} />
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}

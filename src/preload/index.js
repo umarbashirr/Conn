@@ -114,7 +114,7 @@ contextBridge.exposeInMainWorld('conn', {
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
     subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
-    models: (chat) => ipcRenderer.invoke('agent:models', { chat }),
+    models: (chat, provider) => ipcRenderer.invoke('agent:models', { chat, provider }),
     setModel: (chat, model) => ipcRenderer.invoke('agent:setModel', { chat, model }),
     setProvider: (chat, provider) => ipcRenderer.invoke('agent:setProvider', { chat, provider }),
     // How hard the model thinks. The CLI takes this when a session starts and
@@ -168,6 +168,13 @@ contextBridge.exposeInMainWorld('conn', {
     // Chromium stopped putting a path on dropped File objects, and this is the
     // sanctioned way back to one.
     pathFor: (file) => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
+  },
+
+  // Speech to text through the command on the Chat settings page. The audio is
+  // 16 kHz mono Int16 and never leaves the machine.
+  dictation: {
+    arm: () => ipcRenderer.invoke('dictation:arm'),
+    transcribe: (audio) => ipcRenderer.invoke('dictation:transcribe', { audio }),
   },
 
   // Skills and MCP servers, read off disk so the lists draw without a session.

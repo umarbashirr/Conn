@@ -1,4 +1,5 @@
 import { chatTitle } from '../../shared/chat-title';
+import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
@@ -535,7 +536,7 @@ export function useAgent() {
         };
       });
       if (pendingTitle) conn().agent.rename(sessionId, pendingTitle);
-      if (m) setModel((cur) => cur || m);
+      if (m) setModel((cur) => shownModel(cur, m, chat === activeRef.current));
       window.connRail?.refresh();
     }));
 
@@ -616,9 +617,9 @@ export function useAgent() {
         // The chat on screen at first paint was built before main had said which
         // CLI it prefers. One that has said nothing yet still belongs to nobody,
         // so it follows; one with a transcript keeps what it has.
-        setChats((cur) => cur.map((c) => (c.items.length || c.session
-          ? c
-          : { ...c, provider: d.provider })));
+        setChats((cur) => cur.map((c) => (followsWindowProvider(c)
+          ? { ...c, provider: d.provider }
+          : c)));
       }
       if (d.efforts?.length) setEfforts(d.efforts);
       if (typeof d.effort === 'string') setEffort(d.effort);
@@ -890,6 +891,13 @@ export function useAgent() {
     const next = chatsRef.current.find((c) => c.key === key);
     if (next?.provider) setProvider(next.provider);
     if (next?.usage?.model) setModel(next.usage.model);
+    else if (next?.provider) {
+      conn().agent.models(key, next.provider).then((res) => {
+        if (activeRef.current !== key || !res?.current) return;
+        setModel(res.current);
+        if (res.provider) setProvider(res.provider);
+      }).catch(() => {});
+    }
     if (typeof next?.effort === 'string') setEffort(next.effort);
     if (prev && prev.key !== key && !prev.busy && prev.session) {
       conn().agent.reset(prev.key, { idleOnly: true }).catch(() => {});
@@ -906,7 +914,8 @@ export function useAgent() {
     const cur = chatsRef.current.find((c) => c.key === activeRef.current);
     if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
     const next = blankChat(dir, providerRef.current, startMode.current);
-    setChats((all) => [...all, next]);
+    chatsRef.current = [...chatsRef.current, next];
+    setChats(chatsRef.current);
     switchTo(next.key);
   }, [switchTo]);
 
@@ -1002,7 +1011,8 @@ export function useAgent() {
       session: s.id,
       title: s.title.slice(0, 80),
     };
-    setChats((all) => [...all, chat]);
+    chatsRef.current = [...chatsRef.current, chat];
+    setChats(chatsRef.current);
     switchTo(chat.key);
 
     try {
@@ -1082,8 +1092,13 @@ export function useAgent() {
     const crossing = want && chat?.provider && want !== chat.provider;
 
     if (crossing && chat.items.length) {
-      const next = { ...blankChat(chat.project, want, chat.mode), title: chat.title };
-      setChats((all) => [...all, next]);
+      const next = {
+        ...blankChat(chat.project, want, chat.mode),
+        title: chat.title,
+        usage: { ...blankUsage(), model: value },
+      };
+      chatsRef.current = [...chatsRef.current, next];
+      setChats(chatsRef.current);
       switchTo(next.key);
       setModel(value);
       setProvider(want);
@@ -1098,12 +1113,29 @@ export function useAgent() {
     setModel(value);
     if (want) setProvider(want);
     const followsPicker = (c) => c.key === key || !c.items.length;
-    setChats((cur) => cur.map((c) => (followsPicker(c)
-      ? { ...c, ...(want ? { provider: want } : {}), usage: { ...c.usage, model: value, window: 0 } }
-      : c)));
+    setChats((cur) => {
+      const next = cur.map((c) => (followsPicker(c)
+        ? { ...c, ...(want ? { provider: want } : {}), usage: { ...c.usage, model: value, window: 0 } }
+        : c));
+      chatsRef.current = next;
+      return next;
+    });
     // A name typed by hand comes back as part of the list, so the picker has it
     // the next time it opens rather than only while it is selected.
     const res = await conn().agent.setModel(key, value);
+    if (res?.busy) {
+      if (res.model) setModel(res.model);
+      if (res.provider) setProvider(res.provider);
+      setChats((cur) => {
+        const next = cur.map((c) => (c.key === key
+          ? { ...c, provider: res.provider || chat?.provider || c.provider, usage: { ...c.usage, model: res.model || c.usage.model } }
+          : c));
+        chatsRef.current = next;
+        return next;
+      });
+      return;
+    }
+    if (res?.model) setModel(res.model);
     if (res?.models?.length) setModels(res.models);
     if (res?.provider) setProvider(res.provider);
     if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });

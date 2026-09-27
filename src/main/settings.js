@@ -85,6 +85,11 @@ const DEFAULTS = {
     // the free ones.
     shown: null,
   },
+  // Optional replacement for Conn's own speech model. Empty uses that model.
+  // A command reads a 16 kHz mono WAV at {file} and prints what was said.
+  dictation: {
+    command: '',
+  },
   // The last version each notice was dismissed for, the what's new dialog
   // included. A person who waved away the news about 0.6.0 should not be told
   // about 0.6.0 again every time they open a window; 0.6.1 is news again. Kept

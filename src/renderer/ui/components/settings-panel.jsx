@@ -558,7 +558,6 @@ function ChatPrefs({ settings, set }) {
   const known = [DEFAULT_SANS, DEFAULT_STACK,
     ...sans.map((f) => `"${f}", ${DEFAULT_SANS}`), ...mono.map((f) => `"${f}", ${DEFAULT_STACK}`)];
   const custom = known.includes(c.fontFamily) ? null : c.fontFamily;
-
   return (
     <Section
       title="Chat"

@@ -174,7 +174,7 @@ browser, wired in already: no MCP config, no restart, no setup step.
   same mode. It can look in every mode except Ask confirmation always, and it can change the page
   only in Full bypass, because a terminal has no permission card to answer.
 - **Stop** interrupts mid-turn.
-- **Earlier sessions** are in the rail, one section per open folder. `Ctrl+Shift+S` shows or hides it.
+- **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
   a conversation you started in the terminal shows up in the rail, and a chat you started here shows
   up in `claude --resume`. Codex chats appear in that rail too. Cursor, Grok and OpenCode chats live in this
@@ -295,13 +295,14 @@ Screenshots come back as images, so the model sees the layout instead of a descr
 
 ## Keys
 
-The chords below belong to the app. In the terminal, plain `Ctrl+B`, `Ctrl+L` and the rest still go
-to your shell, so tmux keeps working.
+The chords below belong to the app. In the terminal, plain `Ctrl+L` and the rest still go
+to your shell. `Ctrl+B` and `Ctrl+D` are the app's: the sidebar and dictation.
 
 | | |
 |---|---|
 | `Ctrl+\`` | show or hide the terminal panel |
-| `Ctrl+Shift+S` | show or hide the session rail |
+| `Ctrl+B` | show or hide the session rail |
+| `Ctrl+D` | dictate into the chat box |
 | `Shift+Tab` | cycle the permission modes, from the prompt |
 | `Ctrl+Shift+B` | show or hide the preview |
 | `Ctrl+Shift+E` | pick an element |

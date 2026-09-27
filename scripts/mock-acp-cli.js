@@ -12,6 +12,7 @@ const AUTH = process.env.MOCK_ACP_AUTH === '1';
 const ASK = process.env.MOCK_ACP_ASK === '1';
 // Answer the way OpenCode does: model and mode as session config options.
 const CONFIG = process.env.MOCK_ACP_CONFIG === '1';
+const REJECT_MODEL = process.env.MOCK_ACP_REJECT_MODEL === '1';
 const chosen = { model: 'mock-1', mode: 'build' };
 let seq = 0;
 let promptId = null;
@@ -190,7 +191,11 @@ function onMessage(msg) {
     return result(id, {});
   }
   if (CONFIG && /^session\/set_(model|mode)$/.test(method)) return fail(id, `${method} is not how this agent is configured`);
-  if (method === 'session/set_model') return result(id, {});
+  if (method === 'session/set_model') {
+    if (REJECT_MODEL) return fail(id, 'unknown model');
+    chosen.model = params?.modelId || chosen.model;
+    return result(id, {});
+  }
   if (method === 'session/set_mode') return result(id, {});
   if (method === 'session/close') return result(id, {});
 

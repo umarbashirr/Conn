@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, shell, dialog, webContents } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeImage, Menu } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { BrowserPane, normalizeUrl } = require('./browser');
@@ -18,6 +18,7 @@ const diff = require('./diff');
 const editors = require('./editors');
 const files = require('./files');
 const attachments = require('./attachments');
+const dictation = require('./dictation');
 const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
@@ -25,6 +26,7 @@ const completed = require('./completed');
 const chatTitles = require('./chat-titles');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
+const { reuseLive } = require('../shared/run-choice');
 const { ensurePrivateDir } = require('./private-dir');
 const { createUsageLedger } = require('./usage-ledger');
 const { createUsageHistory } = require('./usage-history');
@@ -42,6 +44,7 @@ const HOME_URL = 'about:blank';
 const isDev = process.argv.includes('--dev');
 
 let win = null;
+let tray = null;
 // One preview per preview tab. The right column is a strip of tabs and a folder
 // can have several previews open at once, so the tab is what a page belongs to;
 // the folder it is filed under is only what decides whether it goes when that
@@ -680,7 +683,13 @@ function lighten(msg) {
 // belongs to.
 async function ensureAgent({ chat = 'main', resume, project, provider: want } = {}) {
   const live = sessions.get(chat);
-  if (live && !live.closed) return live;
+  const started = live && !live.closed ? (live.provider || chatPrefs.providerOf(chat, provider)) : null;
+  const requested = isProviderId(want) ? want : null;
+  if (live && !live.closed && reuseLive(started, requested)) return live;
+  if (live && !live.closed) {
+    if (live.working ?? live.busy) return live;
+    stopChat(chat);
+  }
 
   // The panel says which CLI this chat is on, because it knows whether the chat
   // was just forked. Failing that it is whatever the chat already ran on, and
@@ -720,6 +729,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
       return driveTool(tool, args, { cwd, actor: who });
     } : null,
   });
+  agent.provider = runs;
   sessions.set(chat, agent);
 
   agent.on('message', (m) => {
@@ -807,6 +817,47 @@ async function learnCatalog() {
   return next;
 }
 
+// The panel, the window, and the desktop menu all use this file. The tray
+// cannot read a path inside the asar, so the packaged copy is unpacked.
+function iconPath() {
+  const inside = path.join(ROOT, 'build', 'icon.png');
+  const unpacked = inside.replace(`${path.sep}app.asar${path.sep}`, `${path.sep}app.asar.unpacked${path.sep}`);
+  return fs.existsSync(unpacked) ? unpacked : inside;
+}
+
+function connIcon(size) {
+  const image = nativeImage.createFromPath(iconPath());
+  if (image.isEmpty()) return null;
+  return size ? image.resize({ width: size, height: size }) : image;
+}
+
+function showWindow() {
+  if (!win || win.isDestroyed()) return createWindow();
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  return null;
+}
+
+function attachTray() {
+  if (tray) return;
+  const image = connIcon(22);
+  if (!image) return;
+  try {
+    tray = new Tray(image);
+  } catch (e) {
+    console.error(`conn: no tray icon (${e.message})`);
+    return;
+  }
+  tray.setToolTip('Conn');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show Conn', click: () => { showWindow(); } },
+    { type: 'separator' },
+    { label: 'Quit', click: () => app.quit() },
+  ]));
+  tray.on('click', () => { showWindow(); });
+}
+
 async function createWindow() {
   win = new BrowserWindow({
     width: 1600,
@@ -819,7 +870,7 @@ async function createWindow() {
     minWidth: 800,
     minHeight: 520,
     backgroundColor: '#141414',
-    icon: path.join(ROOT, 'build', 'icon.png'),
+    icon: iconPath(),
     title: `${path.basename(focusedCwd())} · Conn`,
     // The window draws its own title bar: the menu, the folder, the view tabs
     // and the three window buttons all live in one strip at the top.
@@ -832,6 +883,10 @@ async function createWindow() {
       sandbox: false,
     },
   });
+
+  const icon = connIcon();
+  if (icon) win.setIcon(icon);
+  attachTray();
 
   // The renderer is a Vite build: the chat pane is React, the shell is not.
   await win.loadFile(path.join(ROOT, 'build', 'renderer', 'index.html'));
@@ -1030,7 +1085,7 @@ function registerIpc() {
   });
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.
-  ipcMain.handle('agent:models', (_e, { chat } = {}) => {
+  ipcMain.handle('agent:models', (_e, { chat, provider: hint } = {}) => {
     // Both drivers, so the picker can offer both. current() refreshes a stale
     // snapshot behind the caller; the idle one costs a spawn every six hours
     // and nothing at all when its CLI is not installed.
@@ -1039,7 +1094,7 @@ function registerIpc() {
       if (row.id !== provider) row.driver.current();
     }
     const d = { ...activeDriver().current({ refresh: false }), models: allModels() };
-    const runs = chat ? chatPrefs.providerOf(chat, provider) : provider;
+    const runs = chat ? chatPrefs.providerOf(chat, isProviderId(hint) ? hint : provider) : provider;
     const fallback = modelFor(runs) || anySession()?.model || '';
     const current = (chat
       ? chatPrefs.modelOf(chat, sessions.get(chat)?.model || fallback)
@@ -1127,9 +1182,18 @@ function registerIpc() {
     // Picking a codex model while claude is running is how someone switches
     // CLI. Doing it here rather than behind a separate control is the whole
     // point of one list: the model is the choice, the CLI follows it.
-    if (next) await applyProvider(providerOf(next));
+    const nextProvider = next ? providerOf(next) : null;
+    const had = chatPrefs.providerOf(key, provider);
+    const live = sessions.get(key);
+    if (live && !live.closed && nextProvider && nextProvider !== had) {
+      if (live.working ?? live.busy) {
+        return { model: live.model || chatPrefs.modelOf(key, settleModel()) || '', provider: had, models: allModels(), busy: true };
+      }
+      stopChat(key);
+    }
+    if (next) await applyProvider(nextProvider);
     chatPrefs.setModel(key, next);
-    if (next) chatPrefs.setProvider(key, providerOf(next));
+    if (next) chatPrefs.setProvider(key, nextProvider);
     chosenModels[provider] = next;
     rememberModel(provider, next);
     if (provider === 'claude' && next) rowOf('claude').driver.remember(next);
@@ -1297,6 +1361,12 @@ function registerIpc() {
   ipcMain.handle('attach:pick', () => attachments.pick(win));
   ipcMain.handle('attach:add', (_e, { paths } = {}) => attachments.add(paths));
   ipcMain.handle('attach:paste', (_e, payload = {}) => attachments.fromDataUrl(payload));
+
+  // --- dictation ---
+  // The command comes from settings, never from the renderer, so a page cannot
+  // name a program for main to run.
+  ipcMain.handle('dictation:arm', () => dictation.arm(settings.all().dictation.command));
+  ipcMain.handle('dictation:transcribe', (_e, { audio } = {}) => dictation.transcribe(settings.all().dictation.command, audio));
 
   // --- skills and MCP servers ---
   // Read off disk, so the panel can draw the list before any session exists.

@@ -817,6 +817,7 @@ export function runCommand(name, arg) {
     case 'appearance': return window.connChat?.settings?.('appearance');
     case 'focusComposer':
       return document.querySelector('#agent-root [contenteditable="true"]')?.focus();
+    case 'dictate': return window.connChat?.dictate?.();
     case 'focusAddress': return openPreview(true);
     case 'pickElement': return pickElement();
     case 'terminalTab': {

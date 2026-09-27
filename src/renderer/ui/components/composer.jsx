@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GitBranchIcon, MessageSquareIcon, PaperclipIcon, PencilIcon, PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
+  FolderIcon, GitBranchIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaperclipIcon, PencilIcon,
+  PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -23,7 +24,8 @@ import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { MentionMenu, fileRows, skillRows } from '@/components/mention-menu';
 import { TokenInput } from '@/components/token-input';
-import { matches } from '@/lib/keys';
+import { currentKey, formatChord, matches } from '@/lib/keys';
+import { clock, useTick } from '@/lib/clock';
 import { TokenText } from '@/components/token-text';
 import { UsageMeter } from '@/components/usage-meter';
 import { tokenFor } from '@/lib/tokens';
@@ -349,6 +351,85 @@ function ModeMenu({ agent }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+const MIC_BUTTON = 'shrink-0 rounded-full text-muted-foreground';
+
+// A click would move focus out of the chat box, and the words would then land
+// at the end instead of at the caret. Keeping the mouse-down from focusing
+// the button leaves the selection where it was.
+
+// Dictation into this box. type="button" throughout, because it sits inside
+// the form and must never send it. The level ring is written straight to the
+// DOM on each frame so the meter never re-renders React.
+function MicButton({ dictation }) {
+  const { view, toggle, level } = dictation;
+  const listening = view.kind === 'listening';
+  const ring = useRef(null);
+  useTick(listening);
+
+  useEffect(() => {
+    if (!listening) return undefined;
+    let frame = requestAnimationFrame(function draw() {
+      if (ring.current) ring.current.style.opacity = String(0.25 + level() * 0.75);
+      frame = requestAnimationFrame(draw);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [listening, level]);
+
+  const chord = formatChord(currentKey('dictate'));
+  const hint = chord ? ` (${chord})` : '';
+
+  switch (view.kind) {
+    case 'unavailable':
+      return (
+        <Button type="button" variant="ghost" size="icon" disabled className={MIC_BUTTON}
+          onMouseDown={(e) => e.preventDefault()}
+          title={`${view.reason} Set it up in Settings › Chat.`}>
+          <MicOffIcon className="size-4" />
+        </Button>
+      );
+    case 'idle':
+      return (
+        <Button type="button" variant="ghost" size="icon" onClick={toggle} onMouseDown={(e) => e.preventDefault()} className={MIC_BUTTON} title={`Dictate${hint}`}>
+          <MicIcon className="size-4" />
+        </Button>
+      );
+    case 'requesting':
+      return (
+        <Button type="button" variant="ghost" size="icon" onClick={toggle} onMouseDown={(e) => e.preventDefault()} className={MIC_BUTTON} title="Opening the microphone…">
+          <MicIcon className="size-4 animate-pulse" />
+        </Button>
+      );
+    case 'listening':
+      return (
+        <Button
+          type="button"
+          size="xs"
+          onClick={toggle}
+          onMouseDown={(e) => e.preventDefault()}
+          title={`Stop and write it into the box${hint}. Escape throws it away.`}
+          className="h-9 shrink-0 gap-1.5 rounded-full bg-red-600 px-3 font-mono text-white text-xs tabular-nums hover:bg-red-600/90">
+          <span ref={ring} className="size-2 rounded-full bg-white" />
+          {clock(Date.now() - view.startedAt)}
+        </Button>
+      );
+    case 'transcribing':
+      return (
+        <Button type="button" variant="ghost" size="icon" disabled className={MIC_BUTTON} onMouseDown={(e) => e.preventDefault()} title="Transcribing…">
+          <LoaderCircleIcon className="size-4 animate-spin" />
+        </Button>
+      );
+    case 'failed':
+      return (
+        <Button type="button" variant="ghost" size="icon" onClick={toggle} onMouseDown={(e) => e.preventDefault()} className={cn(MIC_BUTTON, 'text-destructive')}
+          title={`${view.reason} Click to try again.`}>
+          <MicIcon className="size-4" />
+        </Button>
+      );
+    default:
+      throw new Error(`MicButton: unknown dictation state ${view.kind}`);
+  }
 }
 
 const BRANCH_ROW = 'flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-[12px] hover:bg-accent disabled:pointer-events-none disabled:opacity-50';
@@ -714,7 +795,9 @@ function QueuedItem({ item, index, onEdit, onDrop }) {
   );
 }
 
-export function Composer({ agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
+export function Composer({
+  agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit, inputRef: input, dictation,
+}) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
   // will land in. Not always the focused folder: reading a chat from another
@@ -731,7 +814,6 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
   const [pending, setPending] = useState(null);
   const [rows, setRows] = useState([]);
   const box = useRef(null);
-  const input = useRef(null);
 
   // Dropping onto the composer is the gesture people try first, so the whole
   // box is the target and it says so while something is over it.
@@ -816,7 +898,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
     if (!item) return;
     input.current?.insert(tokenFor(item.kind, item.raw));
     setDismissed(true);
-  }, []);
+  }, [input]);
 
   // Shift+Tab walks the list and wraps. Full bypass sits at the far end, so
   // reaching it from Plan takes six deliberate presses rather than one.
@@ -839,9 +921,16 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
       if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); return pick(rows[cursor]); }
       if (e.key === 'Escape') { e.preventDefault(); return setDismissed(true); }
     }
+    if (e.key === 'Escape' && dictation.cancel()) { e.preventDefault(); return; }
+    // The words are about to land in this draft, so send waits for them.
+    if (matches(e, 'send') && (dictation.view.kind === 'listening' || dictation.view.kind === 'transcribing')) {
+      e.preventDefault();
+      if (dictation.view.kind === 'listening') dictation.toggle();
+      return;
+    }
     if (matches(e, 'stop') && agent.busy) { e.preventDefault(); return stop(); }
     if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
-  }, [menu, rows, cursor, pick, cycleMode, stop, agent.busy]);
+  }, [menu, rows, cursor, pick, cycleMode, stop, agent.busy, dictation]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
@@ -986,6 +1075,8 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
                   the menu is the thing that says which ones to install. */}
               <ModelPicker agent={agent} settings={settings} />
             </PromptInputTools>
+
+            <MicButton dictation={dictation} />
 
             <PromptInputSubmit
               className="size-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"

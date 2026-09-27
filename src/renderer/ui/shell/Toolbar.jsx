@@ -277,12 +277,14 @@ function OpenIn({ folder }) {
 // -------------------------------------------------------------------- strip
 
 export function SidebarButton() {
+  const { settings } = useSettings();
+  const chord = formatChord(keyOf(settings?.keybindings, 'rail'));
   return (
     <Button
       variant="ghost"
       size="icon-xs"
       className={ICON_BUTTON}
-      title="Sessions (Ctrl+Shift+S)"
+      title={chord ? `Sessions (${chord})` : 'Sessions'}
       onClick={() => runCommand('rail')}>
       <PanelLeftIcon />
     </Button>

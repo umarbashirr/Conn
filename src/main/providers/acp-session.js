@@ -201,7 +201,10 @@ class AcpSession extends EventEmitter {
     const advertised = res?.models?.currentModelId || configOption(res, 'model')?.currentValue;
     if (advertised && !this.model) this.model = advertised;
     if (this.model) {
-      try { await this.#set('model', this.model); } catch {}
+      try { await this.#set('model', this.model); } catch (e) {
+        this.emit('error', `could not switch to ${this.model}: ${e?.message || e}`);
+        if (advertised) this.model = advertised;
+      }
     }
     const acpMode = pickMode(this.mode, this.modes);
     if (acpMode) {

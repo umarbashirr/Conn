@@ -71,6 +71,15 @@ function caretOffset(root) {
   return valueOf(before.cloneContents()).length;
 }
 
+// The stretch of the string that pasted or dictated text replaces: the
+// selection if there is one, else the caret, else the end of the box.
+function selectionSpan(root, text) {
+  const start = caretOffset(root);
+  if (start == null) return { start: text.length, end: text.length };
+  const sel = root.ownerDocument.getSelection();
+  return { start, end: sel && !sel.isCollapsed ? start + String(sel).length : start };
+}
+
 function placeCaret(root, offset) {
   const doc = root.ownerDocument;
   const range = doc.createRange();
@@ -254,6 +263,19 @@ export const TokenInput = forwardRef(function TokenInput({
       apply(text.slice(0, start) + body + after, start + body.length);
       box.focus();
     },
+    // Literal words, as if pasted, with a space against any word they would
+    // otherwise run into.
+    insertText: (str) => {
+      const box = boxRef.current;
+      if (!box || !str) return;
+      const text = valueOf(box);
+      const { start, end } = selectionSpan(box, text);
+      const before = text.slice(0, start);
+      const after = text.slice(end);
+      const body = (before && !/\s$/.test(before) ? ' ' : '') + str + (after && !/^\s/.test(after) ? ' ' : '');
+      apply(before + body + after, start + body.length);
+      box.focus();
+    },
   }), [apply]);
 
   // An incoming value that is not our own echo: a different chat, a cleared
@@ -367,14 +389,9 @@ export const TokenInput = forwardRef(function TokenInput({
     const text = e.clipboardData?.getData('text/plain');
     if (!text) return;
     e.preventDefault();
-    const box = boxRef.current;
-    const current = valueOf(box);
-    const sel = box.ownerDocument.getSelection();
-    const offset = caretOffset(box) ?? current.length;
-    // A paste over a selection replaces it, so the tail starts past whatever
-    // was highlighted.
-    const end = sel && !sel.isCollapsed ? offset + String(sel).length : offset;
-    apply(current.slice(0, offset) + text + current.slice(end), offset + text.length);
+    const current = valueOf(boxRef.current);
+    const { start, end } = selectionSpan(boxRef.current, current);
+    apply(current.slice(0, start) + text + current.slice(end), start + text.length);
   }, [apply, onPaste]);
 
   return (
