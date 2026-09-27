@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GitBranchIcon, MessageSquareIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SquareIcon, XIcon,
+  FolderIcon, GitBranchIcon, MessageSquareIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -16,6 +16,8 @@ import {
 import { isHidden, VISIBILITY } from '@/lib/model-visibility';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
@@ -25,6 +27,7 @@ import { TokenText } from '@/components/token-text';
 import { UsageMeter } from '@/components/usage-meter';
 import { tokenFor } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
+import { branchNameError } from '../../../shared/branch-name';
 import { useProject, shortPath } from '../useProject';
 import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
 
@@ -344,6 +347,150 @@ function ModeMenu({ agent }) {
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+const BRANCH_ROW = 'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] hover:bg-accent disabled:pointer-events-none disabled:opacity-50';
+
+/* The branch under the composer. Search switches to one that exists. Create
+   Branch always asks for the name, even when the search box is empty, and the
+   name is refused for the same reasons git would refuse it. */
+function BranchPicker({ dir, branch }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [list, setList] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState('');
+  const [createError, setCreateError] = useState('');
+  const search = useRef(null);
+  const nameBox = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setQuery('');
+    setError('');
+    let alive = true;
+    window.conn.project.branches(dir).then((r) => { if (alive) setList(r?.branches || []); }).catch(() => {});
+    return () => { alive = false; };
+  }, [open, dir]);
+
+  const q = query.trim().toLowerCase();
+  const shown = list.filter((item) => item.toLowerCase().includes(q));
+  const typed = query.trim();
+  const draft = name.trim();
+  const formatError = draft ? branchNameError(draft) : null;
+  const exists = !!draft && list.includes(draft);
+  const nameProblem = formatError || (exists ? 'A branch named that already exists.' : '');
+
+  const run = async (next, create) => {
+    setBusy(true);
+    setError('');
+    setCreateError('');
+    const res = await window.conn.project.checkout(dir, next, create).catch(() => null);
+    setBusy(false);
+    if (res?.ok) {
+      setOpen(false);
+      setCreating(false);
+    } else if (create) setCreateError(res?.error || 'Could not create that branch.');
+    else setError(res?.error || 'Could not switch branch.');
+  };
+
+  const askCreate = () => {
+    setName(typed);
+    setCreateError('');
+    setCreating(true);
+    setOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (busy) return;
+    if (list.includes(typed)) run(typed, false);
+    else if (shown.length === 1) run(shown[0], false);
+    else askCreate();
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Pill className="h-6 px-1.5 text-[11px]" title={`${branch}. Search, switch, or create a branch.`}>
+          <GitBranchIcon className="size-3 shrink-0" />
+          <span className="max-w-[16ch] truncate">{branch}</span>
+          <ChevronDownIcon className="size-3 shrink-0 opacity-60" />
+        </Pill>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        side="top"
+        className="w-64 gap-0 p-0"
+        onOpenAutoFocus={(e) => { e.preventDefault(); search.current?.focus(); }}>
+        <div className="flex items-center gap-2 border-b px-2.5">
+          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={search}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setError(''); }}
+            onKeyDown={onKeyDown}
+            placeholder="Search branches..."
+            className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1">
+          {shown.map((name) => (
+            <button key={name} type="button" className={BRANCH_ROW} disabled={busy} onClick={() => run(name, false)}>
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+              {name === branch && <CheckIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+            </button>
+          ))}
+          {!shown.length && <p className="px-2 py-1.5 text-muted-foreground text-xs">No branches match.</p>}
+        </div>
+        <div className="border-t p-1">
+          <button type="button" className={BRANCH_ROW} disabled={busy} onClick={askCreate}>
+            <PlusIcon className="size-3.5 shrink-0" />
+            Create Branch
+          </button>
+        </div>
+        {error && <p className="px-2.5 pb-2 text-destructive text-xs">{error}</p>}
+      </PopoverContent>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent
+          showCloseButton={false}
+          className="gap-0 p-0 sm:max-w-md"
+          onOpenAutoFocus={(e) => { e.preventDefault(); nameBox.current?.focus(); }}>
+          <div className="flex flex-col gap-1 px-4 pt-4 pb-3">
+            <DialogTitle className="text-sm font-medium">Create Branch</DialogTitle>
+            <DialogDescription>Create a branch from {branch}</DialogDescription>
+          </div>
+          <form
+            className="px-4 pb-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!busy && draft && !nameProblem) run(draft, true);
+            }}>
+            <Input
+              ref={nameBox}
+              value={name}
+              placeholder="Branch name"
+              aria-invalid={!!nameProblem}
+              onChange={(e) => { setName(e.target.value); setCreateError(''); }} />
+            {(nameProblem || createError) && (
+              <p className="mt-1.5 text-destructive text-xs">{nameProblem || createError}</p>
+            )}
+          </form>
+          <div className="flex items-center justify-between border-t px-3 py-2.5">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setCreating(false)}>
+              Cancel
+              <span className="text-muted-foreground text-xs">Esc</span>
+            </Button>
+            <Button type="button" size="sm" disabled={busy || !draft || !!nameProblem} onClick={() => run(draft, true)}>
+              Confirm
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </Popover>
   );
 }
 
@@ -801,15 +948,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {project.branch && (
-          <Pill
-            tabIndex={-1}
-            className="pointer-events-none h-6 px-1.5 text-[11px]"
-            title={`${shortPath(project.dir, window_.home)} is on ${project.branch}`}>
-            <GitBranchIcon className="size-3 shrink-0" />
-            <span className="truncate">{project.branch}</span>
-          </Pill>
-        )}
+        {project.branch && <BranchPicker dir={project.dir} branch={project.branch} />}
 
         <Pill
           className="h-6 px-1.5 text-[11px]"

@@ -3,29 +3,29 @@ const { app, BrowserWindow } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
+const { VIEW, MARK, NODE } = require('../src/shared/conn-mark');
+
 const SIZE = 512;
 const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${SIZE}" height="${SIZE}" viewBox="${VIEW}">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#161b26"/>
-      <stop offset="1" stop-color="#0a0c11"/>
+      <stop offset="0" stop-color="#1a2030"/>
+      <stop offset="1" stop-color="#0c0e14"/>
     </linearGradient>
     <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#7aa2f7"/>
-      <stop offset="1" stop-color="#b48cf2"/>
+      <stop offset="1" stop-color="#c4a1ff"/>
     </linearGradient>
   </defs>
-  <rect width="${SIZE}" height="${SIZE}" rx="112" fill="url(#bg)"/>
-  <rect x="8" y="8" width="${SIZE - 16}" height="${SIZE - 16}" rx="106" fill="none" stroke="#232936" stroke-width="4"/>
-  <g stroke="url(#ink)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <polyline points="130,180 208,256 130,332"/>
-    <line x1="248" y1="332" x2="382" y2="332"/>
+  <rect width="24" height="24" rx="5.4" fill="url(#bg)"/>
+  <g transform="translate(0.35 0.35) scale(0.97)">
+    <g fill="none" stroke="url(#ink)" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round">
+      <path d="${MARK}"/>
+    </g>
+    <circle cx="${NODE.cx}" cy="${NODE.cy}" r="${NODE.r}" fill="url(#ink)"/>
   </g>
-  <rect x="248" y="150" width="134" height="104" rx="16" fill="none" stroke="#3a4considerable" stroke-width="0"/>
-  <rect x="252" y="154" width="126" height="96" rx="14" fill="none" stroke="url(#ink)" stroke-width="14" opacity="0.55"/>
-  <circle cx="286" cy="182" r="8" fill="url(#ink)" opacity="0.8"/>
-</svg>`.replace('#3a4considerable', '#3a4152');
+</svg>`;
 
 app.disableHardwareAcceleration();
 app.whenReady().then(async () => {

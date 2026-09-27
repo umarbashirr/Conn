@@ -59,7 +59,7 @@
      dark; the light theme replaces them all further down, so the terminal
      follows the page. app.js reads these and hands them to xterm, and anything
      the app paints on top of the terminal reads the same greys. */
-  --term-bg: #0b0d12;
+  --term-bg: #141414;
   --term-fg: #d7dce6;
   --term-dim: #79839a;
   --term-line: #1b2130;
@@ -78,22 +78,25 @@
 }
 
 [data-theme="dark"] {
-  --background: 240 10% 3.9%;
-  --foreground: 0 0% 98%;
-  --card: 240 10% 5.5%;
-  --popover: 240 10% 3.9%;
-  --primary: 0 0% 98%;
-  --primary-foreground: 240 5.9% 10%;
-  --secondary: 240 3.7% 15.9%;
-  --secondary-foreground: 0 0% 98%;
-  --muted: 240 3.7% 15.9%;
-  --muted-foreground: 240 5% 64.9%;
-  --accent-bg: 240 3.7% 15.9%;
+  /* A flat neutral gray, the same depth as the reference: the chat, the rail
+     and the title bar sit within a few points of #141414 instead of a
+     near-black ground. */
+  --background: 0 0% 8%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 10%;
+  --popover: 0 0% 11%;
+  --primary: 0 0% 93%;
+  --primary-foreground: 0 0% 9%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 62%;
+  --accent-bg: 0 0% 16%;
   --destructive: 0 72% 58%;
   --success: 142 60% 55%;
   --warning: 38 92% 62%;
-  --border: 240 3.7% 15.9%;
-  --input: 240 3.7% 15.9%;
+  --border: 0 0% 18%;
+  --input: 0 0% 12%;
   --ring: 240 4.9% 83.9%;
   --shadow: 0 8px 24px hsl(0 0% 0% / .55);
 
@@ -105,6 +108,12 @@
   --token-path-fg: 203 90% 78%;
   --token-element: 38 92% 58%;
   --token-element-fg: 40 92% 74%;
+}
+
+/* The rail is a solid step from the chat, the same relationship as the
+   reference: chrome at #181818, the page at #141414. */
+[data-scheme="zinc"][data-theme="dark"] {
+  --sidebar: #181818;
 }
 
 /* ---------------------------------------------------------------- themes */
@@ -143,8 +152,7 @@
 }
 
 [data-scheme="ocean"][data-theme="dark"] {
-  /* Zinc dark sits at 3.9% lightness, which is near enough to black that a hue
-     at that depth is invisible on a real screen. A theme that is not the
+  /* The neutral dark ground is a flat gray around 8%. A theme that is not the
      neutral one has to be light enough to see the colour in, so the grounds
      here start around 11% and the chrome climbs from there. */
   --background: 220 34% 11%;
@@ -810,14 +818,14 @@ kbd {
 
 /* ------------------------------------------------------------- title bar */
 
-/* One strip, the window frame we draw ourselves: the mark, the sidebar switch
-   and the menus on the left, the app's controls and the three window buttons on
-   the right, and everything between them a drag handle. */
+/* One strip, the window frame we draw ourselves: the sidebar switch and the
+   menus on the left, the app's controls and the three window buttons on the
+   right, and everything between them a drag handle. */
 
 #titlebar {
-  display: flex; align-items: center; gap: 6px;
-  height: 42px; padding: 0 0 0 10px;
-  background: var(--rail);
+  display: flex; align-items: center; gap: 2px;
+  height: 32px; padding: 0 0 0 4px;
+  background: color-mix(in srgb, hsl(var(--muted)) 28%, hsl(var(--background)));
   border-bottom: 1px solid var(--line);
   -webkit-app-region: drag;
 }

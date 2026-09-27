@@ -8,10 +8,11 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
-  FolderOpenIcon, FolderPlusIcon, GaugeIcon, MessageSquareIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { railBadge } from './chat-attention.js';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -73,22 +74,32 @@ function useRail() {
 // Chats hang off their folder by the indent alone.
 const SUB = 'mx-0 ml-4 border-l-0 px-0 pr-0';
 
-function Row({ chat, current, onDelete }) {
+// The root font is 13px, so text-xs comes out under 10px. Sizes here are pixels.
+const ROW = 'h-7 text-[12px]';
+const NAV = `${ROW} text-sidebar-foreground/80 [&>svg]:size-3.5`;
+const GROUP_LABEL = 'h-7 font-normal text-[11px] text-muted-foreground';
+const GROUP_ACTION = 'top-3 text-sidebar-foreground/60 hover:text-sidebar-foreground [&>svg]:size-3.5';
+
+function Row({ chat, current, onDelete, onRename }) {
   const done = isDone(chat);
   const saved = isSaved(chat);
   const badge = railBadge(chat);
-  const marked = !!(chat.busy || chat.waiting);
+  const marked = !!(chat.busy || chat.waiting || chat.agents);
+  const working = badge?.tone === 'busy';
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={current}
         title={chat.title}
-        className="group-has-data-[sidebar=menu-action]/menu-item:pr-2"
+        className={cn(ROW, 'group-has-data-[sidebar=menu-action]/menu-item:pr-2')}
         onClick={() => window.connChat?.open(chat)}>
-        {/* A dot rather than an icon per row: forty speech bubbles down the
-            rail are forty of the same picture. A finished chat keeps its tick. */}
-        {done ? (
+        {/* A dot rather than an icon per row. A turn still going, or a subagent
+            still going after that turn finished, spins green. A finished chat
+            keeps its tick. */}
+        {working ? (
+          <LoaderCircleIcon className="size-3.5! animate-spin text-[hsl(var(--success))]" />
+        ) : done ? (
           <CircleCheckIcon className="size-3.5! text-muted-foreground" />
         ) : (
           <span
@@ -102,6 +113,7 @@ function Row({ chat, current, onDelete }) {
             className={cn(
               'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
               badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+              badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
             )}>
             {badge.label}
           </Badge>
@@ -121,14 +133,21 @@ function Row({ chat, current, onDelete }) {
           chopped. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0.5 right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-40% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
+        className="pointer-events-none absolute inset-y-0.5 right-0 w-40 rounded-r-md bg-gradient-to-l from-sidebar-accent from-40% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
 
-      {/* Two icons rather than one menu. Both are one click and both are worth
-          one: putting a chat away is the thing you do most, and burying it a
-          menu deep is what stops people doing it. They stop the click on its
-          way up, or the row underneath opens the chat they are about to act
-          on. A chat that has never been written to disk has no id to mark, so
-          the tick is not offered on one. */}
+      {/* Rename sits with the other two. All three are one click, and all three
+          stop the click on its way up, or the row underneath opens the chat
+          they are about to act on. A chat that has never been written to disk
+          has no id to mark, so the tick is not offered on one. Rename is: the
+          name can change before there is a transcript to keep it in. */}
+      <SidebarMenuAction
+        showOnHover
+        className={saved ? 'right-16' : 'right-8'}
+        title="Rename chat"
+        aria-label={`Rename ${chat.title}`}
+        onClick={(e) => { e.stopPropagation(); onRename(chat); }}>
+        <PencilIcon />
+      </SidebarMenuAction>
       {saved && (
         <SidebarMenuAction
           showOnHover
@@ -165,7 +184,7 @@ function Row({ chat, current, onDelete }) {
 
    A folder with nothing put away draws no line at all. An empty "Completed 0"
    under every folder would be the same clutter this exists to remove. */
-function Completed({ folder, active, onDelete }) {
+function Completed({ folder, active, onDelete, onRename }) {
   if (!folder.done.length) return null;
 
   return (
@@ -174,7 +193,7 @@ function Completed({ folder, active, onDelete }) {
       open={doneOpen(folder.dir)}
       onOpenChange={(open) => setDoneOpen(folder.dir, open)}>
       <CollapsibleTrigger
-        className="ml-4 flex w-[calc(100%-1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:text-sidebar-foreground">
+        className="ml-4 flex w-[calc(100%-1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-sidebar-foreground">
         <ChevronRightIcon
           className="size-3.5 shrink-0 transition-transform group-data-[state=open]/done:rotate-90" />
         <span>Completed</span>
@@ -188,7 +207,8 @@ function Completed({ folder, active, onDelete }) {
               key={chat.key || chat.id}
               chat={chat}
               current={!!chat.key && chat.key === active}
-              onDelete={onDelete} />
+              onDelete={onDelete}
+              onRename={onRename} />
           ))}
         </SidebarMenuSub>
       </CollapsibleContent>
@@ -207,7 +227,7 @@ function Completed({ folder, active, onDelete }) {
    The rows stay SidebarMenuItem rather than SidebarMenuSubItem. The row
    actions read their hover and active state off the menu-item group and the
    menu-button peer, and the sub variants carry neither. */
-function Folder({ folder, active, current, onDelete, onRemove }) {
+function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
   const open = projectOpen(folder.dir);
   const count = folder.rows.length + folder.done.length;
   const finishable = folder.rows.filter(canMarkDone);
@@ -231,12 +251,12 @@ function Folder({ folder, active, current, onDelete, onRemove }) {
             ::before lays the tint back over it: opaque, and the same colour as
             the rail around it. */}
         <div
-          className="group/head sticky top-0 z-10 flex h-8 items-center gap-1 rounded-md bg-background pr-1 pl-2
+          className="group/head sticky top-0 z-10 flex h-7 items-center gap-1 rounded-md bg-background pr-1 pl-2
             before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-sidebar before:transition-colors hover:before:bg-sidebar-accent">
           <CollapsibleTrigger
             title={folder.dir}
             className={cn(
-              'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm [&>svg]:size-4 [&>svg]:shrink-0',
+              'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-[12px] [&>svg]:size-3.5 [&>svg]:shrink-0',
               current ? 'text-sidebar-foreground' : 'text-sidebar-foreground/80',
             )}>
             {open ? <FolderOpenIcon /> : <FolderIcon />}
@@ -300,12 +320,18 @@ function Folder({ folder, active, current, onDelete, onRemove }) {
             {/* A folder you have just opened has no chats yet, and the guide
                 line down the left of an empty list is a stub hanging off
                 nothing. Say what is there instead. */}
-            <Completed folder={folder} active={active} onDelete={onDelete} />
+            <Completed folder={folder} active={active} onDelete={onDelete} onRename={onRename} />
 
             {!folder.rows.length && !folder.done.length ? (
               /* Sitting where the rows would, so the note reads as the folder's
                  contents rather than as something loose under the heading. */
-              <p className="ml-4 px-2 py-1 text-muted-foreground text-xs">No chats yet</p>
+              <button
+                type="button"
+                className="ml-4 flex w-[calc(100%-1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                onClick={() => startChatIn(folder.dir)}>
+                <PlusIcon className="size-3.5 shrink-0" />
+                Start a chat
+              </button>
             ) : (
               <SidebarMenuSub className={SUB}>
                 {folder.rows.map((chat) => (
@@ -313,7 +339,8 @@ function Folder({ folder, active, current, onDelete, onRemove }) {
                     key={chat.key || chat.id}
                     chat={chat}
                     current={!!chat.key && chat.key === active}
-                    onDelete={onDelete} />
+                    onDelete={onDelete}
+                    onRename={onRename} />
                 ))}
               </SidebarMenuSub>
             )}
@@ -327,28 +354,29 @@ function Folder({ folder, active, current, onDelete, onRemove }) {
 /* The chats with no project, pinned above the projects. They have no folder to
    fold, open or remove, so this is a plain list under a label with a way to
    start another one. */
-function Chats({ folder, active, onDelete }) {
+function Chats({ folder, active, onDelete, onRename }) {
+  /* Empty, it would be a heading over nothing above the projects. New chat
+     still offers "No folder, just chat". */
+  if (!folder.rows.length && !folder.done.length) return null;
+
   return (
     <SidebarGroup className="gap-0.5">
-      <SidebarGroupLabel>Chats</SidebarGroupLabel>
-      <SidebarGroupAction title="New chat without a folder" onClick={() => startChatIn(folder.dir)}>
+      <SidebarGroupLabel className={GROUP_LABEL}>Chats</SidebarGroupLabel>
+      <SidebarGroupAction className={GROUP_ACTION} title="New chat without a folder" onClick={() => startChatIn(folder.dir)}>
         <PlusIcon />
       </SidebarGroupAction>
       <SidebarGroupContent>
-        <Completed folder={folder} active={active} onDelete={onDelete} />
-        {!folder.rows.length && !folder.done.length ? (
-          <p className="px-2 py-1 text-muted-foreground text-xs">No chats yet</p>
-        ) : (
-          <SidebarMenu>
-            {folder.rows.map((chat) => (
-              <Row
-                key={chat.key || chat.id}
-                chat={chat}
-                current={!!chat.key && chat.key === active}
-                onDelete={onDelete} />
-            ))}
-          </SidebarMenu>
-        )}
+        <Completed folder={folder} active={active} onDelete={onDelete} onRename={onRename} />
+        <SidebarMenu>
+          {folder.rows.map((chat) => (
+            <Row
+              key={chat.key || chat.id}
+              chat={chat}
+              current={!!chat.key && chat.key === active}
+              onDelete={onDelete}
+              onRename={onRename} />
+          ))}
+        </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
   );
@@ -528,9 +556,54 @@ function ConfirmDelete({ chat, onCancel, onConfirm }) {
   );
 }
 
+/* The name is the first thing typed, unless someone has typed another. The
+   question names the chat it is about to replace, for the same reason delete
+   does: the rail is a list of near-identical rows. */
+function RenameDialog({ chat, onCancel, onConfirm }) {
+  const [name, setName] = useState(chat?.title || '');
+  const [working, setWorking] = useState(false);
+  const trimmed = name.trim();
+
+  return (
+    <Dialog open={!!chat} onOpenChange={(next) => { if (!next && !working) onCancel(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Rename this chat</DialogTitle>
+          <DialogDescription>
+            The new name is what the sidebar shows. The conversation itself stays as it is.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Input
+          autoFocus
+          value={name}
+          maxLength={80}
+          placeholder="Chat name"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !trimmed || trimmed === chat?.title || working) return;
+            e.preventDefault();
+            setWorking(true);
+            onConfirm(chat, trimmed).finally(() => setWorking(false));
+          }} />
+
+        <DialogFooter>
+          <Button variant="ghost" disabled={working} onClick={onCancel}>Cancel</Button>
+          <Button
+            disabled={working || !trimmed || trimmed === chat?.title}
+            onClick={async () => { setWorking(true); await onConfirm(chat, trimmed); setWorking(false); }}>
+            Rename
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Rail() {
   useRail();
   const [doomed, setDoomed] = useState(null);
+  const [naming, setNaming] = useState(null);
   const [leaving, setLeaving] = useState(null);
   const [starting, setStarting] = useState(false);
   const all = grouped();
@@ -551,6 +624,12 @@ export default function Rail() {
     if (res?.error) toast('Could not delete that chat', res.error, [{ label: 'OK' }]);
   };
 
+  const rename = async (chat, title) => {
+    const res = await window.connChat?.rename(chat, title);
+    setNaming(null);
+    if (res?.error) toast('Could not rename that chat', res.error, [{ label: 'OK' }]);
+  };
+
   // project.js toasts the reason on its own, the last-folder one included.
   const removeFolder = async (folder) => {
     await closeProject(folder.dir);
@@ -563,7 +642,7 @@ export default function Rail() {
         {/* Where you start from, as rows rather than buttons. */}
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton title="Start a chat" onClick={() => setStarting(true)}>
+            <SidebarMenuButton className={NAV} title="Start a chat" onClick={() => setStarting(true)}>
               <SquarePenIcon />
               <span>New chat</span>
             </SidebarMenuButton>
@@ -571,7 +650,7 @@ export default function Rail() {
           <SidebarMenuItem>
             {/* The palette, which finds chats, folders, files and commands in
                 one list. It used to sit in the title bar as a search field. */}
-            <SidebarMenuButton title="Search chats, folders, files and commands (Ctrl+K)" onClick={() => window.connPalette?.open()}>
+            <SidebarMenuButton className={NAV} title="Search chats, folders, files and commands (Ctrl+K)" onClick={() => window.connPalette?.open()}>
               <SearchIcon />
               <span>Search</span>
               <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
@@ -580,13 +659,13 @@ export default function Rail() {
           <SidebarMenuItem>
             {/* Skills, agents and MCP servers for this folder, and the app's
                 settings, on a page in the chat's place. */}
-            <SidebarMenuButton title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
+            <SidebarMenuButton className={NAV} title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
               <BlocksIcon />
               <span>Customize</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
+            <SidebarMenuButton className={NAV} title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
               <GaugeIcon />
               <span>Usage</span>
             </SidebarMenuButton>
@@ -594,21 +673,21 @@ export default function Rail() {
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
-        {chats && <Chats folder={chats} active={active} onDelete={setDoomed} />}
+      <SidebarContent className="pt-2">
+        {chats && <Chats folder={chats} active={active} onDelete={setDoomed} onRename={setNaming} />}
         <SidebarGroup className="gap-0.5">
           {/* The rail is the list of folders, so the way to add one belongs at
               the top of it. The picker is main's, so a folder already open here
               is brought forward instead of opened twice. */}
-          <SidebarGroupLabel>Projects</SidebarGroupLabel>
-          <SidebarGroupAction title="Open another folder in this window" onClick={() => openFolder()}>
+          <SidebarGroupLabel className={GROUP_LABEL}>Projects</SidebarGroupLabel>
+          <SidebarGroupAction className={GROUP_ACTION} title="Open another folder in this window" onClick={() => openFolder()}>
             <PlusIcon />
           </SidebarGroupAction>
 
           {folders.length === 0 ? (
             <Empty className="px-4">
               <EmptyHeader>
-                <EmptyDescription>No chats in this folder yet. Ask for something and it lands here.</EmptyDescription>
+                <EmptyDescription>No folders open. Open one with the + above to give chats a place to run.</EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -619,6 +698,7 @@ export default function Rail() {
                 active={active}
                 current={folder.dir === currentDir}
                 onDelete={setDoomed}
+                onRename={setNaming}
                 onRemove={setLeaving} />
             ))
           )}
@@ -628,6 +708,7 @@ export default function Rail() {
       <NewChatDialog open={starting} onOpenChange={setStarting} />
       <ConfirmRemove folder={leaving} onCancel={() => setLeaving(null)} onConfirm={removeFolder} />
       <ConfirmDelete chat={doomed} onCancel={() => setDoomed(null)} onConfirm={remove} />
+      <RenameDialog key={naming?.id || naming?.key || 'rename'} chat={naming} onCancel={() => setNaming(null)} onConfirm={rename} />
     </Sidebar>
   );
 }

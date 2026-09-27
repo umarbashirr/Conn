@@ -14,20 +14,32 @@
 import { toast as sonner } from 'sonner';
 import { Button } from '@/components/ui/button';
 
+// Every toast is the top-right one. A caller passing a corner is ignored.
+const PLACE = { position: 'top-right' };
+
+// The title is the only hint most call sites give about what kind of news this
+// is, and a check or a cross is what makes two stacked toasts distinguishable.
+function say(title) {
+  const t = String(title || '');
+  if (/^could not\b/i.test(t)) return sonner.error;
+  if (/^(opened|copied|saved|screenshot)\b/i.test(t)) return sonner.success;
+  return sonner.info;
+}
+
 // An action with nothing to run is an acknowledgement, which is what a toast
 // does by itself when it times out.
 const isDismiss = (a) => !a.run;
 
 function Card({ id, title, description, actions }) {
   return (
-    <div className="flex w-full flex-col gap-2 rounded-(--radius) border bg-popover p-4 text-sm shadow-lg">
-      <div className="font-medium">{title}</div>
+    <div className="flex w-[320px] flex-col gap-1.5 rounded-[10px] border bg-popover px-3.5 py-3 pr-7 text-[13px] text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)]">
+      <div className="font-semibold leading-tight">{title}</div>
       {description && (
-        <div dir="rtl" className="truncate font-mono text-xs text-muted-foreground [unicode-bidi:plaintext]">
+        <div dir="rtl" title={description} className="truncate text-[12px] text-muted-foreground [unicode-bidi:plaintext]">
           {description}
         </div>
       )}
-      <div className="flex justify-end gap-2">
+      <div className="mt-1.5 flex justify-end gap-1.5">
         {actions.map((a) => (
           <Button
             key={a.label}
@@ -46,16 +58,19 @@ function Card({ id, title, description, actions }) {
 // because sonner leaves its own action and cancel buttons out of it.
 export function toast(title, description, actions = [], options = {}) {
   const real = actions.filter((a) => !isDismiss(a));
+  const { position: _corner, ...rest } = options;
   const gone = () => options.onDismiss?.();
+  const show = say(title);
 
-  if (real.length === 0) return sonner(title, { description, ...options });
+  if (real.length === 0) return show(title, { description, ...rest, ...PLACE });
 
   if (real.length === 1) {
     const [only] = real;
     const cancel = actions.find(isDismiss);
-    return sonner(title, {
+    return show(title, {
       description,
-      ...options,
+      ...rest,
+      ...PLACE,
       action: { label: only.label, onClick: () => { only.run(); gone(); } },
       ...(cancel ? { cancel: { label: cancel.label, onClick: gone } } : {}),
     });
@@ -63,6 +78,6 @@ export function toast(title, description, actions = [], options = {}) {
 
   return sonner.custom(
     (id) => <Card id={id} title={title} description={description} actions={actions} />,
-    { duration: 15000, ...options },
+    { duration: 15000, ...rest, ...PLACE },
   );
 }

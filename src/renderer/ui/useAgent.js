@@ -519,15 +519,22 @@ export function useAgent() {
 
     offs.push(conn().agent.onReady(({ chat, sessionId, model: m, mode: sessionMode }) => {
       if (!chat) return;
-      edit(chat, (c) => ({
-        ...c,
-        session: sessionId || c.session,
-        // One of ours, not one of the SDK's four: the session is the one
-        // holding the answer after a resume.
-        mode: sessionMode || c.mode,
-        // Which model the window size and the prices are read against.
-        usage: m ? { ...c.usage, model: m } : c.usage,
-      }));
+      let pendingTitle = null;
+      edit(chat, (c) => {
+        // Renamed before the session existed. The name has to be written down
+        // now, or the first message takes the row back on the next refresh.
+        if (c.renamed && c.title && sessionId) pendingTitle = c.title;
+        return {
+          ...c,
+          session: sessionId || c.session,
+          // One of ours, not one of the SDK's four: the session is the one
+          // holding the answer after a resume.
+          mode: sessionMode || c.mode,
+          // Which model the window size and the prices are read against.
+          usage: m ? { ...c.usage, model: m } : c.usage,
+        };
+      });
+      if (pendingTitle) conn().agent.rename(sessionId, pendingTitle);
       if (m) setModel((cur) => cur || m);
       window.connRail?.refresh();
     }));
@@ -678,6 +685,7 @@ export function useAgent() {
         project: c.project || focusedProject.current,
         session: c.session,
         title: c.title,
+        renamed: !!c.renamed,
         busy: c.busy,
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
@@ -1112,6 +1120,22 @@ export function useAgent() {
     await conn().agent.mode(key, value);
   }, [edit]);
 
+  // The rail's rename. The row changes straight away; the file is what makes
+  // it survive the next history read, which would otherwise put the first
+  // message back. A chat with no session yet keeps the name in memory, and
+  // onReady writes it down once there is one.
+  const renameChat = useCallback(async (key, title) => {
+    const next = String(title || '').trim().slice(0, 80);
+    if (!next) return { error: 'Give the chat a name.' };
+    const chat = chatsRef.current.find((c) => c.key === key);
+    edit(key, (c) => ({ ...c, title: next, renamed: true }));
+    if (!chat?.session) return { ok: true };
+    const res = await conn().agent.rename(chat.session, next).catch((e) => ({ error: e.message }));
+    if (res?.error) edit(key, (c) => ({ ...c, title: chat.title, renamed: !!chat.renamed }));
+    else window.connRail?.refresh();
+    return res || {};
+  }, [edit]);
+
   return {
     items: tree,
     running,
@@ -1129,7 +1153,7 @@ export function useAgent() {
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking,
     send, enqueue, unqueue, flushQueue,
-    decide, interrupt, reset, setProject, clear, open, removeChat, switchTo, changeModel, forgetModel,
+    decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent, peekAgent,

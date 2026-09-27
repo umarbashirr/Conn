@@ -92,6 +92,10 @@ const DEFAULTS = {
   notices: {
     app: '',
     claude: '',
+    codex: '',
+    cursor: '',
+    grok: '',
+    opencode: '',
     whatsNew: '',
   },
 };

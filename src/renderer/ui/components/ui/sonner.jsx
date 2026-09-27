@@ -7,6 +7,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react"
 import { Toaster as Sonner } from "sonner";
+import "./toaster.css";
 
 // The registry version reads next-themes, which is a Next.js package this app
 // does not have. The theme here is whatever app.js has put on <html>.
@@ -39,16 +40,23 @@ const Toaster = ({
         error: <OctagonXIcon className="size-4" />,
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
+      closeButton
       style={
         {
           // This project's tokens are HSL triples rather than finished colours.
           "--normal-bg": "hsl(var(--popover))",
           "--normal-text": "hsl(var(--foreground))",
           "--normal-border": "hsl(var(--border))",
-          "--border-radius": "var(--radius)"
+          "--border-radius": "10px",
+          "--width": "320px",
         }
       }
-      {...props} />
+      {...props}
+      // Below the title bar, on the right, whatever a caller asked for.
+      position="top-right"
+      offset={{ top: 40, right: 12 }}
+      gap={8}
+      visibleToasts={4} />
   );
 }
 

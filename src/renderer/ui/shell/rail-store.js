@@ -149,6 +149,9 @@ function rows(dir, sessions) {
       row.busy = c.busy;
       row.waiting = c.waiting;
       row.agents = c.agents;
+      // A name typed in the rail beats the first message, including for the
+      // moment before that name has been written down.
+      if (c.renamed && c.title) row.title = c.title;
       continue;
     }
     fresh.push({

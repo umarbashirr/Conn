@@ -1,12 +1,14 @@
-/* Usage: what every CLI has spent, on one page. An Overall tab adds them up;
-   each CLI then gets a tab with its plan windows, its days, models and
-   projects. Claude and Codex are read from their own transcripts, so the page
-   has history from the first time it opens; the rest only know what Conn's
-   chats recorded. Money is API list prices, for scale. */
+/* Usage: what Claude and Codex have spent, in a dialog over the chat. An
+   Overall tab adds them up; each then gets a tab with its plan windows, its
+   days, models and projects. Both are read from their own transcripts, so the
+   dialog has history from the first time it opens. The other CLIs keep no
+   history Conn can read, so they are not shown here. Money is API list prices,
+   for scale. */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { RefreshCwIcon, XIcon } from 'lucide-react';
+import { RefreshCwIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProviderLogo } from '@/components/provider-logo';
 import { PROVIDERS } from '@/components/settings-panel';
@@ -244,7 +246,7 @@ function OverallTab({ ids, data }) {
   );
 }
 
-export function UsagePage({ providers, onClose }) {
+export function UsagePage({ providers, open, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState('overall');
@@ -256,33 +258,28 @@ export function UsagePage({ providers, onClose }) {
       .catch(() => setData({}))
       .finally(() => setLoading(false));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => { if (open) load(); }, [open, load]);
 
-  const onKeyDown = (e) => {
-    if (e.key === 'Escape' && !e.defaultPrevented) onClose();
-  };
-
-  // Installed CLIs, plus any with spend on record: a CLI removed since still
-  // spent what it spent.
+  // Claude and Codex only. Cursor, Grok and OpenCode keep no usage history
+  // Conn can read, so a tab for them is empty. A CLI removed since still
+  // shows when it has spend on record.
   const ids = useMemo(() => {
     const installed = new Set((providers || []).filter((p) => p.installed).map((p) => p.id));
-    return Object.keys(PROVIDERS).filter((id) => installed.has(id) || Object.keys(data?.[id]?.byDay || {}).length);
+    return ['claude', 'codex'].filter((id) => installed.has(id) || Object.keys(data?.[id]?.byDay || {}).length);
   }, [providers, data]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground" onKeyDown={onKeyDown}>
-      <div className="flex h-[38px] flex-none items-center gap-1 border-b border-border/60 pr-2 pl-4 text-sm text-foreground/90">
-        <span className="truncate">Usage</span>
-        <Button variant="ghost" size="icon" className="ml-auto size-7" title="Read again" onClick={load} disabled={loading}>
-          <RefreshCwIcon className={cn(loading && 'animate-spin')} />
-        </Button>
-        <Button variant="ghost" size="icon" className="size-7" title="Back to the chat (Esc)" onClick={onClose}>
-          <XIcon />
-        </Button>
-      </div>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="flex max-h-[min(85vh,760px)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+        <div className="flex flex-none items-center gap-2 border-b border-border/60 py-3 pr-12 pl-4">
+          <DialogTitle className="text-sm font-medium">Usage</DialogTitle>
+          <Button variant="ghost" size="icon" className="ml-auto size-7" title="Read again" onClick={load} disabled={loading}>
+            <RefreshCwIcon className={cn(loading && 'animate-spin')} />
+          </Button>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
-        <Tabs value={tab} onValueChange={setTab} className="mx-auto max-w-3xl gap-5 text-sm">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <Tabs value={tab} onValueChange={setTab} className="gap-5 text-sm">
           <TabsList variant="line" className="w-full justify-start border-b pb-1">
             <TabsTrigger value="overall" className="flex-none">Overall</TabsTrigger>
             {ids.map((id) => (
@@ -310,7 +307,8 @@ export function UsagePage({ providers, onClose }) {
             Money is API list prices, for scale. A subscription bills against its plan windows instead. Models with no known list price show tokens only.
           </p>
         </Tabs>
-      </div>
-    </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

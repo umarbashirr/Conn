@@ -12,7 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
-import { ReleaseNotesText } from '@/components/settings-panel';
+import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import { clock, useTick } from '@/lib/clock';
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
-import { enterFullPage, leaveFullPage, toast } from '../app.js';
+import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { publish, showAgent } from './shell/agents-store.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
@@ -251,14 +251,8 @@ export default function App() {
     setCustomizeAt(null);
   }, []);
   const [usageOpen, setUsageOpen] = useState(false);
-  const openUsage = useCallback(() => {
-    enterFullPage();
-    setUsageOpen(true);
-  }, []);
-  const closeUsage = useCallback(() => {
-    leaveFullPage();
-    setUsageOpen(false);
-  }, []);
+  const openUsage = useCallback(() => setUsageOpen(true), []);
+  const closeUsage = useCallback(() => setUsageOpen(false), []);
   // Picking a chat, from the rail or the palette, means you want to read it, so
   // whichever full page is up gives the window back.
   const showChat = useCallback(() => {
@@ -317,51 +311,97 @@ export default function App() {
         if (chat.key) setDrafts(({ [chat.key]: _gone, ...rest }) => rest);
         return res;
       },
+      rename: (chat, title) => {
+        if (chat?.key) return agent.renameChat(chat.key, title);
+        if (!chat?.id) return { error: 'That chat has not been saved yet.' };
+        return window.conn.agent.rename(chat.id, title)
+          .then((res) => { if (!res?.error) window.connRail?.refresh(); return res; })
+          .catch((e) => ({ error: e.message }));
+      },
       settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, customize, openUsage, showChat]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat]);
 
-  // News, until it is seen. A toast that timed out while nobody was looking
-  // told nobody, so these stay up until a button or the close is used, and only
-  // then is the version written to the settings file. The id keeps a re-run of
-  // this effect from stacking a second copy of a toast that is still up.
+  // A release that landed while the window was open, said where the person
+  // already is. Update starts the download; Install is a second toast once the
+  // file is here. An agent update runs in a terminal, which is the same command
+  // the settings page would have run. Later is the only button that stops the
+  // news coming back for this version.
+  const AGENTS = ['claude', 'codex', 'cursor', 'grok', 'opencode'];
+  useEffect(() => {
+    if (settings?.startup.checkUpdates) updates.check();
+  }, [settings?.startup.checkUpdates, updates.check]);
+
   useEffect(() => {
     if (!settings?.startup.checkUpdates) return;
-    const told = settings.notices;
-
+    const told = settings.notices || {};
     const { app } = updates;
-    if (app.behind && told.app !== app.latest) {
-      toast(`Conn ${app.latest} is out`, `You are on ${app.current}`, [
-        { label: 'Update', primary: true, run: () => customize('updates') },
-        { label: 'Later' },
-      ], {
-        id: `update-app-${app.latest}`,
-        duration: Infinity,
-        onDismiss: () => set({ notices: { app: app.latest } }),
-      });
+    const fetching = updates.progress && !updates.progress.done;
+
+    if (app.behind && told.app !== app.latest && !updates.file && !fetching) {
+      const canFetch = updates.kind !== 'dev' && app.asset;
+      toast(`Conn ${app.latest} is out`, `You are on ${app.current}.`, [
+        ...(canFetch ? [{
+          label: 'Update',
+          primary: true,
+          run: async () => {
+            const path = await updates.download();
+            if (!path) toast('Could not update Conn', 'The download did not finish.', [{ label: 'OK', primary: true }]);
+          },
+        }] : []),
+        { label: 'Later', run: () => set({ notices: { app: app.latest } }) },
+      ], { id: `update-app-${app.latest}`, duration: Infinity });
     }
 
-    // The CLI is theirs to update, so this is news rather than a chore Conn
-    // can do for them. Nothing here replaces a binary; it points at the tab
-    // that names the command.
-    const c = updates.claude;
-    if (c?.behind && told.claude !== c.latest) {
-      toast(`Claude ${c.latest} is out`, `You are running ${c.running?.version}`, [
-        { label: 'How', primary: true, run: () => customize('updates') },
-        { label: 'Later' },
-      ], {
-        id: `update-claude-${c.latest}`,
-        duration: Infinity,
-        onDismiss: () => set({ notices: { claude: c.latest } }),
-      });
+    for (const id of AGENTS) {
+      const cli = updates[id];
+      const command = PROVIDERS[id]?.update;
+      if (!cli?.behind || !command || told[id] === cli.latest) continue;
+      toast(`${PROVIDERS[id].label} ${cli.latest} is out`, `You are running ${cli.running?.version}.`, [
+        {
+          label: 'Update',
+          primary: true,
+          run: () => {
+            runCommand('runInTerminal', command);
+            set({ notices: { [id]: cli.latest } });
+          },
+        },
+        { label: 'Later', run: () => set({ notices: { [id]: cli.latest } }) },
+      ], { id: `update-${id}-${cli.latest}`, duration: Infinity });
     }
   }, [
-    updates.app.behind, updates.app.latest, updates.claude?.behind, updates.claude?.latest,
-    settings?.startup.checkUpdates, settings?.notices.app, settings?.notices.claude,
+    updates.app.behind, updates.app.latest, updates.app.current, updates.app.asset,
+    updates.kind, updates.file, updates.progress,
+    updates.claude, updates.codex, updates.cursor, updates.grok, updates.opencode,
+    updates.download, updates.check,
+    settings?.startup.checkUpdates, settings?.notices,
+    set,
   ]);
+
+  useEffect(() => {
+    if (!updates.file || updates.installing || updates.installed) return;
+    const name = updates.app.latest ? `Conn ${updates.app.latest}` : 'Conn';
+    toast(`${name} is downloaded`, 'Ready to install.', [
+      {
+        label: 'Install',
+        primary: true,
+        run: async () => {
+          const res = await updates.install();
+          if (res?.error) toast('Could not install Conn', res.error, [{ label: 'OK', primary: true }]);
+        },
+      },
+    ], { id: `install-app-${updates.app.latest || 'conn'}`, duration: Infinity });
+  }, [updates.file, updates.installing, updates.installed, updates.app.latest, updates.install]);
+
+  useEffect(() => {
+    if (!updates.restart?.ready) return;
+    toast(`Conn ${updates.restart.installed} is installed`, 'Restart to use it.', [
+      { label: 'Restart', primary: true, run: () => updates.relaunch() },
+    ], { id: 'restart-conn', duration: Infinity });
+  }, [updates.restart?.ready, updates.restart?.installed, updates.relaunch]);
 
   // Enter while the agent is working parks the message instead of losing it.
   // Enter on an empty box is the second half of that gesture: it hands
@@ -392,13 +432,12 @@ export default function App() {
   // is just as real a reason to think before restarting.
   const anyTurnRunning = agent.chats.some((c) => c.busy);
 
-  if (usageOpen) return <UsagePage providers={agent.providers} onClose={closeUsage} />;
-
   if (customizeAt !== null) {
     return (
       <>
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
         <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
+        <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
         <CustomizePage
           section={customizeAt}
           onSection={setCustomizeAt}
@@ -417,6 +456,7 @@ export default function App() {
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
       <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
+      <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}

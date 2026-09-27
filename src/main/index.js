@@ -22,6 +22,7 @@ const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
 const completed = require('./completed');
+const chatTitles = require('./chat-titles');
 const { DEFAULT_MODE, isMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
 const { ensurePrivateDir } = require('./private-dir');
@@ -134,7 +135,10 @@ async function sessionsIn(dir) {
       .catch(() => []);
     for (const r of rows) { owners.set(r.id, row.id); out.push({ ...r, provider: row.id }); }
   }
-  return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+  return out.sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => {
+    const title = chatTitles.get(s.id);
+    return title ? { ...s, title } : s;
+  });
 }
 
 const rememberModel = (p, model) => {
@@ -813,7 +817,8 @@ async function createWindow() {
        way, and below it there is nothing left to show. */
     minWidth: 800,
     minHeight: 520,
-    backgroundColor: '#0b0d12',
+    backgroundColor: '#141414',
+    icon: path.join(ROOT, 'build', 'icon.png'),
     title: `${path.basename(focusedCwd())} · Conn`,
     // The window draws its own title bar: the menu, the folder, the view tabs
     // and the three window buttons all live in one strip at the top.
@@ -923,6 +928,24 @@ function registerIpc() {
     return projectInfo();
   });
   ipcMain.handle('project:forget', (_e, { dir }) => { projects.forget(dir); refreshMenu(); return projectInfo(); });
+  // The branch picker. Only a folder this window has open, and only a name
+  // git.js has already decided is a branch, so the arguments cannot wander.
+  const openDir = (dir) => {
+    const target = path.resolve(dir || focused);
+    return open.has(target) ? target : null;
+  };
+  ipcMain.handle('project:branches', (_e, { dir } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { branches: [], current: null };
+    return { branches: git.branches(root), current: git.branch(root) };
+  });
+  ipcMain.handle('project:checkout', async (_e, { dir, name, create } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const res = await git.useBranch(root, name, !!create);
+    if (res.ok) announce();
+    return res;
+  });
 
   // --- terminal ---
   ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh, project } = {}) => {
@@ -1408,6 +1431,13 @@ function registerIpc() {
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
   }));
+  ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
+    try {
+      return { ok: true, title: chatTitles.set(id, title) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
   ipcMain.handle('agent:complete', (_e, { id, done } = {}) => {
     try {
       return { ok: completed.setCompleted(id, done !== false) };
@@ -1434,6 +1464,7 @@ function registerIpc() {
       owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
       completed.forget(id);
+      chatTitles.forget(id);
       return { ok: gone };
     } catch (e) {
       return { error: e.message };

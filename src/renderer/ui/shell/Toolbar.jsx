@@ -43,7 +43,7 @@ import {
 import { useFocusedDir, useLayout, usePaneCover, VIEW_KINDS } from './Shell';
 import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
 
-const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
+const ICON_BUTTON = 'size-6 rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
 
 // -------------------------------------------------------------------- theme
 
@@ -54,7 +54,7 @@ function ThemeButton() {
     : resolved === 'dark' ? 'Switch to light' : 'Switch to dark';
 
   return (
-    <Button variant="ghost" size="icon" className={ICON_BUTTON} title={title} onClick={toggleTheme}>
+    <Button variant="ghost" size="icon-xs" className={ICON_BUTTON} title={title} onClick={toggleTheme}>
       {resolved === 'dark' ? <MoonIcon /> : <SunIcon />}
     </Button>
   );
@@ -163,7 +163,7 @@ function ViewStrip() {
           <Button
             key={kind}
             variant="ghost"
-            size="icon"
+            size="icon-xs"
             className={`${ICON_BUTTON} relative`}
             title={hint}
             aria-label={hint}
@@ -216,7 +216,7 @@ function OpenIn({ folder }) {
       <DropdownMenuTrigger asChild>
         <Button
             variant="ghost"
-            size="icon"
+            size="icon-xs"
             className={ICON_BUTTON}
             title={title}
             onClick={(e) => {
@@ -275,7 +275,7 @@ export function SidebarButton() {
   return (
     <Button
       variant="ghost"
-      size="icon"
+      size="icon-xs"
       className={ICON_BUTTON}
       title="Sessions (Ctrl+Shift+S)"
       onClick={() => runCommand('rail')}>
@@ -289,7 +289,7 @@ export function ToolbarActions() {
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
 
   return (
-    <div className="flex shrink-0 items-center gap-1.5">
+    <div className="flex shrink-0 items-center gap-0.5 pr-1">
       <Activity />
       <Driver />
       <ViewStrip />

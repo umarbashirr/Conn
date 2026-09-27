@@ -314,9 +314,9 @@ export default function Shell() {
           in the tree only decides that it is mounted once. */}
       <Palette />
 
-      {/* Where the hand-rolled #toasts container used to sit, just clear of the
-          status bar. */}
-      <Toaster position="bottom-right" offset={{ bottom: 36, right: 16 }} />
+      {/* Top right, clear of the title bar. The component owns the corner, so a
+          toast cannot be asked for somewhere else. */}
+      <Toaster />
     </>
   );
 }

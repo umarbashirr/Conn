@@ -4,7 +4,7 @@
    draw. The native menu carries the same items for the keyboard and the Alt
    key; this is the one people can see. */
 import { Fragment, useEffect, useState, useSyncExternalStore } from 'react';
-import { CheckIcon, CopyIcon, HexagonIcon, MinusIcon, SquareIcon, XIcon } from 'lucide-react';
+import { CheckIcon, CopyIcon, MinusIcon, SquareIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Menubar,
@@ -72,6 +72,8 @@ const Note = ({ children }) => (
   </span>
 );
 
+const MENU_TRIGGER = 'h-6 rounded-sm px-2 py-0 text-[12px] font-normal text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground';
+
 function FileMenu({ folder }) {
   // The toolbar's own button is the short way in; this lists them all, because
   // a button with no label is a button nobody finds on purpose.
@@ -81,7 +83,7 @@ function FileMenu({ folder }) {
 
   return (
     <MenubarMenu value="file">
-      <MenubarTrigger>File</MenubarTrigger>
+      <MenubarTrigger className={MENU_TRIGGER}>File</MenubarTrigger>
       <MenubarContent align="start">
         <MenubarGroup>
           <MenubarItem onSelect={() => openFolder()}>
@@ -211,7 +213,7 @@ function groups(items) {
 function SimpleMenu({ menu }) {
   return (
     <MenubarMenu value={menu.value}>
-      <MenubarTrigger>{menu.label}</MenubarTrigger>
+      <MenubarTrigger className={MENU_TRIGGER}>{menu.label}</MenubarTrigger>
       <MenubarContent align="start">
         {groups(menu.items).map((group, i) => (
           <Fragment key={group[0][0]}>
@@ -231,7 +233,7 @@ function SimpleMenu({ menu }) {
   );
 }
 
-const WINDOW_BUTTON = 'h-full w-11 rounded-none text-muted-foreground [&_svg]:size-3.5';
+const WINDOW_BUTTON = 'h-full w-10 rounded-none text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
 
 export default function TitleBar() {
   const folder = useProject();
@@ -248,7 +250,6 @@ export default function TitleBar() {
 
   return (
     <header id="titlebar" onDoubleClick={onDoubleClick}>
-      <span className="flex text-muted-foreground"><HexagonIcon className="size-[15px]" /></span>
       <SidebarButton />
 
       {/* A menu bar in a title bar is the chrome, not a card sitting on it. */}
@@ -267,12 +268,12 @@ export default function TitleBar() {
       <ToolbarActions />
 
       <div className="flex self-stretch">
-        <Button variant="ghost" size="icon" className={WINDOW_BUTTON} title="Minimize" onClick={edit('minimize')}>
+        <Button variant="ghost" size="icon-xs" className={WINDOW_BUTTON} title="Minimize" onClick={edit('minimize')}>
           <MinusIcon />
         </Button>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-xs"
           className={WINDOW_BUTTON}
           title={maximized ? 'Restore' : 'Maximize'}
           onClick={edit('maximize')}>
@@ -280,7 +281,7 @@ export default function TitleBar() {
         </Button>
         <Button
           variant="ghost"
-          size="icon"
+          size="icon-xs"
           className={`${WINDOW_BUTTON} hover:bg-destructive hover:text-white`}
           title="Close"
           onClick={edit('close')}>

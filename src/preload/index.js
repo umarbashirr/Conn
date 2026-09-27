@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('conn', {
     focus: (dir) => ipcRenderer.invoke('project:focus', { dir }),
     close: (dir) => ipcRenderer.invoke('project:close', { dir }),
     reorder: (dirs) => ipcRenderer.invoke('project:reorder', { dirs }),
+    branches: (dir) => ipcRenderer.invoke('project:branches', { dir }),
+    checkout: (dir, name, create) => ipcRenderer.invoke('project:checkout', { dir, name, create: !!create }),
     onChanged: on('project:changed'),
   },
 
@@ -140,6 +142,9 @@ contextBridge.exposeInMainWorld('conn', {
     // Marking a chat done. Nothing is deleted: the rail folds it away and the
     // transcript stays exactly where it was.
     complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),
+    // A name the person typed, kept beside the transcript. The first message
+    // stays the title until this is set, and deleting the chat drops it.
+    rename: (id, title) => ipcRenderer.invoke('agent:rename', { id, title }),
     info: (chat) => ipcRenderer.invoke('agent:info', { chat }),
     decide: (chat, id, decision, input) => ipcRenderer.send('agent:decide', { chat, id, decision, input }),
     onMessage: on('agent:message'),
