@@ -286,6 +286,15 @@ class BrowserPane extends EventEmitter {
   }
   async reload() { this.wc.reload(); await settle(this.wc); return this.state(); }
   async hardReload() { this.wc.reloadIgnoringCache(); await settle(this.wc); return this.state(); }
+  async clearData(kind) {
+    const ses = this.wc.session;
+    if (kind === 'cache') await ses.clearCache();
+    else if (kind === 'cookies') await ses.clearStorageData({ storages: ['cookies'] });
+    else if (kind === 'history') {
+      try { this.wc.navigationHistory.clear(); } catch { /* older electron */ }
+    }
+    return { ok: true };
+  }
   async stop() { this.wc.stop(); return this.state(); }
 
   async snapshot(opts = {}) {

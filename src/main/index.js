@@ -23,8 +23,9 @@ const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
 const completed = require('./completed');
+const pinned = require('./pinned');
 const chatTitles = require('./chat-titles');
-const { DEFAULT_MODE, isMode, decide } = require('./modes');
+const { isMode, normalizeMode, decide } = require('./modes');
 const { createChatPrefs } = require('./chat-prefs');
 const { reuseLive } = require('../shared/run-choice');
 const { ensurePrivateDir } = require('./private-dir');
@@ -76,7 +77,8 @@ const chosenModels = {
   opencode: settings.get('agent').opencodeModel || null,
 };
 if (chosenModels.claude === 'default') chosenModels.claude = null;
-let chosenMode = isMode(settings.get('agent').mode) ? settings.get('agent').mode : DEFAULT_MODE;
+let chosenMode = normalizeMode(settings.get('agent').mode);
+if (settings.get('agent').mode !== chosenMode) settings.patch({ agent: { mode: chosenMode } });
 // How hard the model thinks. Empty means the CLI's own default, which is the
 // right starting point: naming a level here would pin every chat to whatever
 // today's default happens to be and never follow it.
@@ -205,6 +207,7 @@ const catalogSessions = (dir) => liveSessions().filter((a) => a instanceof Agent
 
 function stopChat(chat) {
   const a = sessions.get(chat);
+  denyBridgeChat(chat);
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
@@ -795,13 +798,83 @@ async function driveTool(tool, args, { cwd, actor }) {
 }
 
 function refusal(tool, verdict) {
-  const err = new Error(
-    `${chosenMode} mode asks before ${tool}${verdict.reason ? ` (${verdict.reason})` : ''}. `
-    + 'A terminal has no permission card to answer, so this call was refused. '
-    + 'Do it from the chat panel, or set the default mode to bypass in Settings.',
-  );
+  const err = new Error(verdict.reason || `${tool} was refused.`);
   err.code = 'PERMISSION_DENIED';
   return err;
+}
+
+// Page changes the human already approved for this chat with Always. Cleared
+// when the chat changes mode, so a later Plan or Ask starts clean.
+const pageGrants = new Set();
+const bridgePending = new Map();
+
+function modeOfChat(chat) {
+  const live = sessions.get(chat);
+  const raw = (live && !live.closed && live.mode) || chatPrefs.modeOf(chat, chosenMode);
+  return normalizeMode(raw);
+}
+
+// The preview call arrived from a project. Use the chat on screen when that
+// chat is in the project, otherwise the live session working in it.
+function chatForTool(cwd) {
+  const resolved = cwd ? path.resolve(cwd) : null;
+  const screen = activeChat.chat;
+  const screenDir = cwdOfChat(screen);
+  if (!resolved || (screenDir && path.resolve(screenDir) === resolved)) return screen;
+  let fallback = null;
+  for (const [key, agent] of sessions) {
+    if (agent.closed) continue;
+    const dir = agent.cwd || cwdOfChat(key);
+    if (!dir || path.resolve(dir) !== resolved) continue;
+    if (agent.working || agent.busy) return key;
+    fallback = key;
+  }
+  return fallback || screen;
+}
+
+function settleBridge(id, decision) {
+  const entry = bridgePending.get(id);
+  if (!entry) return false;
+  bridgePending.delete(id);
+  clearTimeout(entry.timer);
+  if (decision === 'always') pageGrants.add(entry.chat);
+  send('agent:decided', { chat: entry.chat, id, decision });
+  entry.resolve(decision === 'allow' || decision === 'always');
+  return true;
+}
+
+function denyBridgeChat(chat) {
+  for (const id of [...bridgePending.keys()]) {
+    if (bridgePending.get(id)?.chat === chat) settleBridge(id, 'deny');
+  }
+}
+
+function askBridge(chat, tool, args, reason) {
+  return new Promise((resolve) => {
+    const id = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const timer = setTimeout(() => settleBridge(id, 'deny'), 5 * 60 * 1000);
+    bridgePending.set(id, { resolve, timer, chat });
+    send('agent:permission', {
+      chat,
+      id,
+      tool: `browser_${tool}`,
+      input: args,
+      reason,
+      agent: { id: 'bridge', label: 'preview' },
+    });
+  });
+}
+
+async function runBridgeTool(tool, args, from) {
+  const chat = chatForTool(from);
+  const mode = modeOfChat(chat);
+  const verdict = decide(mode, tool, args);
+  if (verdict.action === 'deny') throw refusal(tool, verdict);
+  if (verdict.action === 'ask' && !pageGrants.has(chat)) {
+    const ok = await askBridge(chat, tool, args, verdict.reason);
+    if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
+  }
+  return driveTool(tool, args, { cwd: from, actor: { ...BRIDGE_ACTOR, chat } });
 }
 
 // Ask the running session what it ended up with, fold it into the cached
@@ -1052,6 +1125,7 @@ function registerIpc() {
     return { ok: true, sessionId: a.sessionId };
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
+    denyBridgeChat(chat);
     await sessions.get(chat)?.interrupt();
     releaseChatEverywhere(chat);
     return { ok: true };
@@ -1078,7 +1152,10 @@ function registerIpc() {
     // A mode picked in the composer is for that chat only. New chats start on
     // the one chosen in Settings, so switching one chat to bypass never makes
     // every chat after it run without asking.
-    if (isMode(mode)) chatPrefs.setMode(chat, mode);
+    if (isMode(mode)) {
+      chatPrefs.setMode(chat, mode);
+      pageGrants.delete(chat);
+    }
     const live = sessions.get(chat);
     if (live) return { mode: await live.setMode(mode) };
     return { mode: chatPrefs.modeOf(chat, chosenMode) };
@@ -1298,8 +1375,10 @@ function registerIpc() {
   });
   ipcMain.handle('settings:set', async (_e, partial) => {
     const next = settings.patch(partial || {});
-    if (partial?.agent?.mode && isMode(partial.agent.mode)) {
-      chosenMode = partial.agent.mode;
+    if (partial?.agent?.mode) {
+      const mode = normalizeMode(partial.agent.mode);
+      chosenMode = mode;
+      if (mode !== partial.agent.mode) settings.patch({ agent: { mode } });
     }
     if (partial?.agent?.model !== undefined) {
       chosenModels.claude = partial.agent.model || null;
@@ -1508,10 +1587,18 @@ function registerIpc() {
     running: liveSessions().map((a) => a.sessionId).filter(Boolean),
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
+    pinned: pinned.all(),
   }));
   ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
     try {
       return { ok: true, title: chatTitles.set(id, title) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('agent:pin', (_e, { id, pinned: on } = {}) => {
+    try {
+      return { ok: pinned.setPinned(id, on !== false) };
     } catch (e) {
       return { error: e.message };
     }
@@ -1542,6 +1629,7 @@ function registerIpc() {
       owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
       completed.forget(id);
+      pinned.forget(id);
       chatTitles.forget(id);
       return { ok: gone };
     } catch (e) {
@@ -1555,8 +1643,10 @@ function registerIpc() {
     const a = await ensureAgent({ chat, resume: id, project });
     return { ok: true, sessionId: a.sessionId || id };
   });
-  ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) =>
-    sessions.get(chat)?.decide(id, decision, input));
+  ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) => {
+    if (settleBridge(id, decision)) return;
+    sessions.get(chat)?.decide(id, decision, input);
+  });
   ipcMain.handle('agent:info', (_e, { chat } = {}) => {
     const a = sessions.get(chat);
     const cwd = cwdOfChat(chat);
@@ -1653,6 +1743,7 @@ function registerIpc() {
       case 'forward': return pane.forward();
       case 'reload': return pane.reload();
       case 'hardReload': return pane.hardReload();
+      case 'clearData': return pane.clearData(arg);
       case 'stop': return pane.stop();
       case 'devtools': return pane.toggleDevTools();
       case 'state': return pane.state();
@@ -1713,11 +1804,7 @@ app.whenReady().then(async () => {
   projects.setOpenProjects(openDirs());
   const bridgeDev = !app.isPackaged;
   bridge = new Bridge({
-    run: (tool, args, from) => {
-      const verdict = decide(chosenMode, tool, args);
-      if (verdict.action !== 'allow') throw new Error(refusal(tool, verdict));
-      return driveTool(tool, args, { cwd: from, actor: BRIDGE_ACTOR });
-    },
+    run: (tool, args, from) => runBridgeTool(tool, args, from),
     debug: bridgeDev,
     cwds: openDirs(),
     focusWindow: (cwd) => {

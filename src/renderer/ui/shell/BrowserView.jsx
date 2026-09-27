@@ -27,18 +27,13 @@ import {
   AppWindowIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
-  CameraIcon,
   ChevronDownIcon,
-  CodeXmlIcon,
   EllipsisVerticalIcon,
-  ExternalLinkIcon,
   FolderTreeIcon,
   GitCompareIcon,
   GlobeIcon,
   HistoryIcon,
   LaptopIcon,
-  Maximize2Icon,
-  Minimize2Icon,
   MonitorIcon,
   MousePointer2Icon,
   RadioTowerIcon,
@@ -47,6 +42,7 @@ import {
   ScanIcon,
   SmartphoneIcon,
   SparklesIcon,
+  StarIcon,
   TabletIcon,
   TerminalIcon,
   TriangleAlertIcon,
@@ -58,19 +54,23 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { runCommand } from '../../app.js';
 import {
+  bookmarkBarOn,
+  bookmarksOf,
+  clearRecents,
+  isBookmarked,
+  setBookmarkBar,
+  toggleBookmark,
   askAboutError,
   clearLogs,
   consoleErrors,
@@ -148,28 +148,30 @@ function Tip({ label, children }) {
 
 // ------------------------------------------------------------- address bar
 
+// The bar shows the whole address, scheme included, the way a browser does.
+// The stored url drops https so the old field could paint the scheme in amber.
+function fullAddress(s) {
+  if (!s.url) return '';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s.url)) return s.url;
+  return `${s.scheme || 'https://'}${s.url}`;
+}
+
 function AddressBar({ tab, showing }) {
   const s = useBrowser(tab);
-  const [draft, setDraft] = useState(s.url);
+  const shown = fullAddress(s);
+  const [draft, setDraft] = useState(shown);
   const [focused, setFocused] = useState(false);
   const input = useRef(null);
 
-  useEffect(() => { if (!focused) setDraft(s.url); }, [s.url, focused]);
-  // An agent or a failed load can change the page while the bar is focused.
-  // Keep the draft on the real address once a load settles, so the field does
-  // not stick on what you were halfway through typing over a different page.
+  useEffect(() => { if (!focused) setDraft(shown); }, [shown, focused]);
   useEffect(() => {
-    if (focused && !s.loading) setDraft(s.url);
-  }, [s.url, s.loading, focused]);
+    if (focused && !s.loading) setDraft(shown);
+  }, [shown, s.loading, focused]);
 
-  // The draft starts as the address without its scheme, so the scheme goes back
-  // on only when that is still what is in the field. Anything typed over it is
-  // an address of its own and navigateTab decides how to read it.
   const submit = () => {
     const typed = draft.trim();
     if (!typed) return;
-    const next = typed === s.url ? s.scheme + typed : typed;
-    navigateTab(next, tab);
+    navigateTab(typed, tab);
     input.current?.blur();
   };
 
@@ -177,53 +179,29 @@ function AddressBar({ tab, showing }) {
     if (e.key === 'Enter') submit();
     if (e.key === 'Escape') {
       e.preventDefault();
-      setDraft(s.url);
+      setDraft(shown);
       input.current?.blur();
     }
   };
 
-  const openExternal = () => go('openExternal', tab);
-  const canOpen = s.live && !s.error;
-
   return (
-    <InputGroup className="group/address h-8">
-      {s.scheme && (
-        <InputGroupAddon>
-          <span className="font-mono text-[11px] text-amber-600 dark:text-amber-400">{s.scheme}</span>
-        </InputGroupAddon>
-      )}
-      <InputGroupInput
+    <div className="flex h-7 min-w-0 flex-1 items-center rounded-full bg-muted/70 px-3">
+      <input
         id={showing ? 'url' : undefined}
         ref={input}
         spellCheck={false}
         placeholder="Search or enter URL"
-        className="font-mono text-[13px]"
-        value={focused ? draft : (s.url || draft)}
+        className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+        value={focused ? draft : shown}
         onChange={(e) => setDraft(e.target.value)}
         onFocus={() => {
-          setDraft(s.url);
+          setDraft(shown);
           setFocused(true);
           queueMicrotask(() => input.current?.select());
         }}
         onBlur={() => setFocused(false)}
         onKeyDown={onKeyDown} />
-      {canOpen && !focused && (
-        <InputGroupAddon
-          align="inline-end"
-          className="pointer-events-none absolute inset-y-0 right-0 opacity-0 transition-opacity group-hover/address:pointer-events-auto group-hover/address:opacity-100">
-          <Tip label="Open in system browser">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-6"
-              type="button"
-              onClick={openExternal}>
-              <ExternalLinkIcon className="size-3.5" />
-            </Button>
-          </Tip>
-        </InputGroupAddon>
-      )}
-    </InputGroup>
+    </div>
   );
 }
 
@@ -382,43 +360,51 @@ function PaneMenu({ tab }) {
         </DropdownMenuTrigger>
       </Tip>
 
-      <DropdownMenuContent align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuItem onSelect={() => screenshot(tab)}>
-            <CameraIcon />
-            Screenshot to disk
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => go('hardReload', tab)}>
-            <RotateCwIcon />
-            Hard reload
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => go('devtools', tab)}>
-            <CodeXmlIcon />
-            DevTools
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => go('openExternal', tab)}>
-            <ExternalLinkIcon />
-            Open in system browser
-          </DropdownMenuItem>
-          <DropdownMenuCheckboxItem checked={!!s.viewport} onCheckedChange={() => toggleResponsive(tab)}>
-            <SmartphoneIcon />
-            Responsive mode
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuItem onSelect={() => runCommand('previewFull')}>
-            {previewFull ? <Minimize2Icon /> : <Maximize2Icon />}
-            {previewFull ? 'Back to the chat' : 'Preview at full width'}
-            <DropdownMenuShortcut>^⇧F</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
+      <DropdownMenuContent align="end" className="w-64 p-1.5">
+        <DropdownMenuItem onSelect={() => screenshot(tab)}>
+          Take Screenshot
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => go('hardReload', tab)}>
+          Hard Reload
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => navigator.clipboard.writeText(fullAddress(s))}>
+          Copy Current URL
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(e) => { e.preventDefault(); setBookmarkBar(!bookmarkBarOn()); }}>
+          Show Bookmark Bar
+          <Switch
+            className="ml-auto"
+            checked={bookmarkBarOn()}
+            onCheckedChange={setBookmarkBar}
+            onClick={(e) => e.stopPropagation()} />
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
-        <DropdownMenuGroup>
-          <DropdownMenuItem variant="destructive" onSelect={() => runCommand('preview', false)}>
-            <XIcon />
-            Hide the preview
-            <DropdownMenuShortcut>^⇧B</DropdownMenuShortcut>
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
+        <DropdownMenuItem onSelect={() => { clearRecents(); window.conn.browser.action('clearData', 'history', tab); }}>
+          Clear Browsing History
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => window.conn.browser.action('clearData', 'cookies', tab)}>
+          Clear Cookies
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => window.conn.browser.action('clearData', 'cache', tab)}>
+          Clear Cache
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => go('devtools', tab)}>
+          DevTools
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => go('openExternal', tab)}>
+          Open in system browser
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => runCommand('previewFull')}>
+          {previewFull ? 'Back to the chat' : 'Preview at full width'}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => runCommand('preview', false)}>
+          Hide the preview
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -825,6 +811,29 @@ function LoadingBar({ tab }) {
   );
 }
 
+function BookmarkBar({ tab, showing }) {
+  useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
+  if (!showing || !bookmarkBarOn()) return null;
+  const marks = bookmarksOf();
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-border/60 px-2" hidden={!showing || undefined}>
+      {marks.length === 0 && (
+        <span className="px-1 text-[12px] text-muted-foreground">Star a page to keep it here.</span>
+      )}
+      {marks.map((b) => (
+        <button
+          key={b.url}
+          type="button"
+          title={b.url}
+          className="max-w-40 shrink-0 truncate rounded-md px-2 py-0.5 text-[12px] text-foreground/80 hover:bg-muted"
+          onClick={() => navigateTab(b.url, tab)}>
+          {b.title || b.url.replace(/^https?:\/\//, '')}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Toolbar({ tab, showing }) {
   const s = useBrowser(tab);
   const errors = consoleErrors(tab);
@@ -835,8 +844,8 @@ function Toolbar({ tab, showing }) {
   };
 
   return (
-    <div className="relative flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2" hidden={!showing || undefined}>
-      <div className="flex items-center gap-0.5" role="group" aria-label="Navigation">
+    <div className="relative flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 px-1.5" hidden={!showing || undefined}>
+      <div className="flex items-center" role="group" aria-label="Navigation">
         <Tip label="Back">
           <Button variant="ghost" size="icon" className={ICON_BUTTON} disabled={!s.canGoBack} onClick={() => go('back', tab)}>
             <ArrowLeftIcon />
@@ -852,9 +861,19 @@ function Toolbar({ tab, showing }) {
             <RotateCwIcon className={s.loading ? 'animate-spin' : undefined} />
           </Button>
         </Tip>
+        <Tip label={isBookmarked(fullAddress(s)) ? 'Remove bookmark' : 'Bookmark this page'}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className={ICON_BUTTON}
+            aria-pressed={isBookmarked(fullAddress(s))}
+            onClick={() => toggleBookmark(fullAddress(s), s.title)}>
+            <StarIcon className={isBookmarked(fullAddress(s)) ? 'fill-current text-foreground' : undefined} />
+          </Button>
+        </Tip>
       </div>
 
-      <div className="min-w-0 flex-1"><AddressBar tab={tab} showing={showing} /></div>
+      <AddressBar tab={tab} showing={showing} />
 
       {errors > 0 && (
         <Tip label="Console errors">
@@ -888,6 +907,7 @@ export default function BrowserView() {
   return (
     <div className="flex h-full min-h-0 flex-col" hidden={!shown || undefined}>
       {open.map(({ tab }) => <Toolbar key={tab} tab={tab} showing={tab === shown} />)}
+      {open.map(({ tab }) => <BookmarkBar key={tab} tab={tab} showing={tab === shown} />)}
       {open.map(({ tab }) => <DeviceBar key={tab} tab={tab} showing={tab === shown} />)}
 
       <div className="relative min-h-0 flex-1">

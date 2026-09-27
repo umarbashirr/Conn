@@ -470,6 +470,53 @@ export function removeRecent(url) {
   changed();
 }
 
+export function clearRecents() {
+  recents = [];
+  saveRecents();
+  changed();
+}
+
+const BOOK_KEY = 'conn.browser.bookmarks';
+const BAR_KEY = 'conn.browser.bookmarkBar';
+
+function loadBookmarks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOOK_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((e) => e && e.url) : [];
+  } catch {
+    return [];
+  }
+}
+
+let bookmarks = loadBookmarks();
+let bookmarkBar = false;
+try { bookmarkBar = localStorage.getItem(BAR_KEY) === '1'; } catch { /* private mode */ }
+
+function saveBookmarks() {
+  try { localStorage.setItem(BOOK_KEY, JSON.stringify(bookmarks)); } catch { /* quota */ }
+}
+
+const fullOf = (url) => (!url ? '' : /^(https?:\/\/)/i.test(url) ? url : `https://${url}`);
+
+export const bookmarksOf = () => bookmarks;
+export const bookmarkBarOn = () => bookmarkBar;
+export const isBookmarked = (url) => bookmarks.some((b) => b.url === fullOf(url));
+
+export function setBookmarkBar(on) {
+  bookmarkBar = !!on;
+  try { localStorage.setItem(BAR_KEY, bookmarkBar ? '1' : '0'); } catch { /* quota */ }
+  changed();
+}
+
+export function toggleBookmark(url, title) {
+  const full = fullOf(url);
+  if (!full) return;
+  if (isBookmarked(full)) bookmarks = bookmarks.filter((b) => b.url !== full);
+  else bookmarks = [{ url: full, title: title || '', at: Date.now() }, ...bookmarks].slice(0, 40);
+  saveBookmarks();
+  changed();
+}
+
 export function localServers(project = focusedDir) {
   const hit = servers.get(project);
   return hit ? [hit] : [];

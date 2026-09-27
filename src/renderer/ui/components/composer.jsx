@@ -34,16 +34,12 @@ import { branchNameError } from '../../../shared/branch-name';
 import { useProject, shortPath } from '../useProject';
 import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
 
-// How freely the agent may act, loosest first, which is also the order Shift+Tab
-// walks. Four of these are the SDK's own permission modes; Ask, Debug and Auto
-// are this app's, enforced in main/modes.js, which holds the matching ids.
+// How freely the agent may act. Shift+Tab walks this list. The same four apply
+// to every agent; main/modes.js is what enforces them.
 export const MODES = [
-  ['plan', 'Plan', 'Work out an approach and stop before touching anything'],
-  ['ask', 'Ask', 'Asks before writing a file or running a command'],
-  ['debug', 'Debug', 'Reproduce and isolate before fixing. Asks like Ask does'],
-  ['auto', 'Auto', 'Edits and ordinary commands run. Stops a few known-risky commands, not a sandbox'],
-  ['acceptEdits', 'Accept edits', 'Edits run without asking. Commands still ask'],
-  ['always', 'Ask confirmation always', 'Asks before every tool, reads included'],
+  ['plan', 'Plan', 'Look and read. Does not edit, run a command, or change the page'],
+  ['ask', 'Ask', 'Asks before an edit, a command, or a page change'],
+  ['auto', 'Auto', 'Edits, ordinary commands, and the preview run. Stops a few known-risky commands, not a sandbox'],
   ['bypass', 'Full bypass', 'Nothing asks. Nothing is checked'],
 ];
 

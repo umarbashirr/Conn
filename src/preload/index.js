@@ -142,6 +142,9 @@ contextBridge.exposeInMainWorld('conn', {
     // Marking a chat done. Nothing is deleted: the rail folds it away and the
     // transcript stays exactly where it was.
     complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),
+    // Holding a chat at the top of its folder. Same idea as marking one done:
+    // the transcript stays where it is, and the mark is only an id.
+    pin: (id, on) => ipcRenderer.invoke('agent:pin', { id, pinned: on }),
     // A name the person typed, kept beside the transcript. The first message
     // stays the title until this is set, and deleting the chat drops it.
     rename: (id, title) => ipcRenderer.invoke('agent:rename', { id, title }),

@@ -12,51 +12,58 @@ function browserTool(tool) {
   return (m && BRIDGE_TOOL.get(m[1])) || null;
 }
 
-// The seven modes the composer offers. The SDK knows four permission modes, so
-// the other three are ours: they ride on the closest SDK mode and the rest is
-// enforced in AgentSession#permission. The renderer keeps the same ids and the
-// labels people see in ui/components/composer.jsx.
+// The four modes the composer offers. Plan, Ask, Auto, and Full bypass mean the
+// same thing for Claude, ChatGPT, Cursor, Grok, and OpenCode: decide() below is
+// the gate, and each CLI is only told the closest mode it already has. The
+// renderer keeps these ids and the labels in ui/components/composer.jsx.
+//
+// Debug, Accept edits, and Ask confirmation always used to be separate. They
+// could not be honored the same way by every CLI, so a saved copy of one of
+// them is read as the mode below that still matches it.
 
 // What each mode asks the SDK for. Anything not listed here is not a mode.
 const SDK_MODE = {
   plan: 'plan',                    // the SDK stops every write itself
   ask: 'default',
-  debug: 'default',                // ask, plus a standing instruction on the turn
   auto: 'acceptEdits',             // edits pass, shell is filtered below
-  acceptEdits: 'acceptEdits',
-  always: 'default',               // nothing is waved through, not even a read
   bypass: 'bypassPermissions',
 };
 
-/* The same seven modes, said in codex's vocabulary. It splits the question in
+/* The same four modes, said in codex's vocabulary. It splits the question in
    two where the SDK asks it once: `sandbox` is what a command may touch, and
    `approvalPolicy` is whether anyone gets asked first.
 
-   Every mode but bypass asks on-request, even the permissive ones, because the
-   answering happens here. decide() below is what waves a call through, exactly
-   as it does for claude, and it cannot judge a command codex never mentioned.
-   Handing codex a looser policy would spend the modes' whole meaning to save a
-   round trip on the local socket. */
+   Every mode but bypass asks on-request, because the answering happens here.
+   decide() below is what waves a call through, exactly as it does for claude,
+   and it cannot judge a command codex never mentioned. */
 const CODEX_MODE = {
   plan: { sandbox: 'read-only', approvalPolicy: 'on-request' },
   ask: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
-  debug: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
   auto: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
-  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: 'on-request' },
-  // `untrusted` rather than `on-request`, which is the difference between codex
-  // asking about everything and codex asking only about what its sandbox has
-  // already stopped. Under on-request the first attempt ran unasked and only
-  // the retry reached decideCodex, so the one mode whose whole promise is
-  // "asks before every tool" was the one quietly not keeping it.
-  always: { sandbox: 'workspace-write', approvalPolicy: 'untrusted' },
   bypass: { sandbox: 'danger-full-access', approvalPolicy: 'never' },
 };
 
 const isMode = (m) => Object.hasOwn(SDK_MODE, m);
 const DEFAULT_MODE = 'ask';
 
-// Tools that only read. Asking about these is noise in every mode but `always`.
+// Old picker values, folded into the four that every agent can keep.
+const RETIRED = {
+  debug: 'ask',
+  acceptEdits: 'auto',
+  always: 'ask',
+};
+
+function normalizeMode(m) {
+  if (isMode(m)) return m;
+  if (Object.hasOwn(RETIRED, m)) return RETIRED[m];
+  return DEFAULT_MODE;
+}
+
+// Tools that only read. Every mode lets these through.
 const READ_ONLY = new Set(['Read', 'Glob', 'Grep', 'NotebookRead', 'TodoWrite', 'WebFetch', 'WebSearch']);
+
+// File writes. Auto runs these. Plan refuses them. Ask waits for a card.
+const WRITES = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
 
 // Shell that can lose work, reach outside the project, or be seen by someone
 // else. Auto mode runs everything else without asking and stops on these.
@@ -91,12 +98,13 @@ function riskOf(command) {
 
 const ALLOW = { action: 'allow' };
 const ask = (reason) => ({ action: 'ask', reason });
+const deny = (reason) => ({ action: 'deny', reason });
 
 /**
- * Whether a tool call runs on its own or waits for the human.
- * The SDK has already had its say: in acceptEdits it never asks about a write,
- * in bypassPermissions it never asks at all, so most calls that reach here are
- * shell, MCP, or something the SDK could not place.
+ * Whether a tool call runs, waits for a card, or is refused.
+ * The same answer for every agent. Claude's SDK still swallows some of these
+ * before they arrive (plan refuses a write, bypass never asks), so the callers
+ * that do not have that layer, Codex and the ACP CLIs, rely on this entirely.
  */
 function decide(mode, tool, input) {
   // The agent asking the human something is the one call no mode may answer on
@@ -104,49 +112,35 @@ function decide(mode, tool, input) {
   // calls canUseTool at all, so the question resolves unanswered.
   if (tool === 'AskUserQuestion') return ask();
 
-  // The one mode where nothing is waved through, reads included.
-  if (mode === 'always') return ask('this mode asks before every tool');
-
   const browser = browserTool(tool);
-  if (browser && READS.has(browser)) return ALLOW;
-  if (READ_ONLY.has(tool)) return ALLOW;
+  const looking = browser && READS.has(browser);
+  if (looking || READ_ONLY.has(tool)) return ALLOW;
 
   if (mode === 'bypass') return ALLOW;
 
-  if (mode === 'auto' && tool === 'Bash') {
-    const why = riskOf(String(input?.command || ''));
-    return why ? ask(why) : ALLOW;
+  if (mode === 'plan') {
+    if (tool === 'ExitPlanMode') return ask();
+    return deny(browser ? 'plan mode only looks at the page' : 'plan mode only reads');
+  }
+
+  if (mode === 'auto') {
+    if (browser) return ALLOW;
+    if (WRITES.has(tool)) return ALLOW;
+    if (tool === 'Bash') {
+      const why = riskOf(String(input?.command || ''));
+      return why ? ask(why) : ALLOW;
+    }
   }
 
   return ask();
 }
 
-/* The same decision for a codex turn. The SDK settles part of this before
-   decide() is ever called: in acceptEdits it never asks about a write, in plan
-   it refuses one itself. codex has no such layer, so every approval it sends
-   arrives here raw, and without these two lines acceptEdits would stop on every
-   file change and plan mode would lean on the sandbox alone to say no. */
+// Codex has no SDK layer in front of this, so it uses the same decision.
 function decideCodex(mode, tool, input) {
-  if (mode === 'always') return decide(mode, tool, input);
-  if (tool === 'Edit') {
-    if (mode === 'plan') return ask('plan mode does not write files');
-    if (mode === 'acceptEdits' || mode === 'auto') return ALLOW;
-  }
   return decide(mode, tool, input);
 }
 
-// Debug mode has no permissions of its own. What it changes is what the agent
-// does with the turn, so it goes in ahead of the next thing the human types and
-// then gets out of the way.
-const DEBUG_PREFACE = [
-  '<debug-mode>',
-  'Reproduce the failure before you change anything. Say what you ran and what came back.',
-  'Name the cause, and the file and line it lives at, before proposing a fix.',
-  'If you cannot reproduce it, say so and ask for what is missing instead of guessing.',
-  '</debug-mode>',
-].join('\n');
-
 module.exports = {
-  SDK_MODE, CODEX_MODE, DEFAULT_MODE, isMode, decide, decideCodex, riskOf, READ_ONLY, DEBUG_PREFACE,
+  SDK_MODE, CODEX_MODE, DEFAULT_MODE, isMode, normalizeMode, decide, decideCodex, riskOf, READ_ONLY,
   browserTool,
 };

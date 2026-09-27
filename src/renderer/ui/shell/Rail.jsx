@@ -8,7 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
-  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,9 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import {
   Sidebar,
@@ -43,8 +46,8 @@ import {
 import { closeProject, openFolder } from '../../project.js';
 import { shortPath, useProject } from '../useProject.js';
 import {
-  activeKey, canMarkDone, doneOpen, getRailVersion, grouped, isDone, isSaved, markAllDone, markDone,
-  projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
+  activeKey, canMarkDone, doneOpen, forgetPin, getRailVersion, grouped, isDone, isPinned, isSaved, markAllDone, markDone,
+  pinChat, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
 
@@ -83,90 +86,97 @@ const GROUP_ACTION = 'top-3 text-sidebar-foreground/60 hover:text-sidebar-foregr
 function Row({ chat, current, onDelete, onRename }) {
   const done = isDone(chat);
   const saved = isSaved(chat);
+  const pinned = isPinned(chat);
   const badge = railBadge(chat);
-  const marked = !!(chat.busy || chat.waiting || chat.agents);
   const working = badge?.tone === 'busy';
 
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        isActive={current}
-        title={chat.title}
-        className={cn(ROW, 'group-has-data-[sidebar=menu-action]/menu-item:pr-2')}
-        onClick={() => window.connChat?.open(chat)}>
-        {/* A dot rather than an icon per row. A turn still going, or a subagent
-            still going after that turn finished, spins green. A finished chat
-            keeps its tick. */}
-        {working ? (
-          <LoaderCircleIcon className="size-3.5! animate-spin text-[hsl(var(--success))]" />
-        ) : done ? (
-          <CircleCheckIcon className="size-3.5! text-muted-foreground" />
-        ) : (
-          <span
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={current}
+            title={chat.title}
+            className={ROW}
+            onClick={() => window.connChat?.open(chat)}>
+            {working ? (
+              <LoaderCircleIcon className="size-3.5! animate-spin text-[hsl(var(--success))]" />
+            ) : pinned ? (
+              <PinIcon className="size-3.5! text-muted-foreground" />
+            ) : done ? (
+              <CircleCheckIcon className="size-3.5! text-muted-foreground" />
+            ) : (
+              <span
+                aria-hidden
+                className={cn('mx-1 size-1.5 shrink-0 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
+            )}
+            <span className="truncate">{chat.title}</span>
+            {badge && (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
+                  badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+                  badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
+                )}>
+                {badge.label}
+              </Badge>
+            )}
+            <span className={`shrink-0 text-[11px] text-muted-foreground ${badge ? '' : 'ml-auto'}`}>
+              {relative(chat.at)}
+            </span>
+          </SidebarMenuButton>
+          <div
             aria-hidden
-            className={cn('mx-1 size-1.5 shrink-0 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
-        )}
-        <span className="truncate">{chat.title}</span>
-        {badge && (
-          <Badge
-            variant="secondary"
-            className={cn(
-              'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
-              badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
-              badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
-            )}>
-            {badge.label}
-          </Badge>
-        )}
-        <span className={`shrink-0 text-[11px] text-muted-foreground ${marked ? '' : 'ml-auto'}`}>
-          {relative(chat.at)}
-        </span>
-      </SidebarMenuButton>
-
-      {/* The row is a button, so this one stops the click on its way up rather
-          than opening the chat it is about to delete. */}
-      {/* The icons sit over the end of the row rather than in a gutter cut out
-          of it. A gutter is there on every row all the time, and it costs the
-          title characters it needs more than the hover needs the space. This
-          fades the row out under them instead, from the same colour the row is
-          wearing while you are on it, so the title runs out rather than being
-          chopped. */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-y-0.5 right-0 w-40 rounded-r-md bg-gradient-to-l from-sidebar-accent from-40% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
-
-      {/* Rename sits with the other two. All three are one click, and all three
-          stop the click on its way up, or the row underneath opens the chat
-          they are about to act on. A chat that has never been written to disk
-          has no id to mark, so the tick is not offered on one. Rename is: the
-          name can change before there is a transcript to keep it in. */}
-      <SidebarMenuAction
-        showOnHover
-        className={saved ? 'right-16' : 'right-8'}
-        title="Rename chat"
-        aria-label={`Rename ${chat.title}`}
-        onClick={(e) => { e.stopPropagation(); onRename(chat); }}>
-        <PencilIcon />
-      </SidebarMenuAction>
-      {saved && (
-        <SidebarMenuAction
-          showOnHover
-          className="right-8 hover:text-[hsl(var(--success))]"
-          title={done ? 'Move back to the list' : 'Mark completed'}
-          aria-label={`${done ? 'Move back' : 'Mark completed'}: ${chat.title}`}
-          onClick={(e) => { e.stopPropagation(); markDone(chat, !done); }}>
+            className="pointer-events-none absolute inset-y-0.5 right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-55% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
+          <SidebarMenuAction
+            showOnHover
+            className={saved ? 'right-14' : 'right-7'}
+            title={pinned ? 'Unpin' : 'Pin'}
+            aria-label={`${pinned ? 'Unpin' : 'Pin'} ${chat.title}`}
+            onClick={(e) => { e.stopPropagation(); pinChat(chat, !pinned); }}>
+            <PinIcon />
+          </SidebarMenuAction>
+          {saved && (
+            <SidebarMenuAction
+              showOnHover
+              className="right-7 hover:text-[hsl(var(--success))]"
+              title={done ? 'Move back to the list' : 'Mark completed'}
+              aria-label={`${done ? 'Move back' : 'Mark completed'}: ${chat.title}`}
+              onClick={(e) => { e.stopPropagation(); markDone(chat, !done); }}>
+              {done ? <RotateCcwIcon /> : <CheckIcon />}
+            </SidebarMenuAction>
+          )}
+          <SidebarMenuAction
+            showOnHover
+            className="hover:text-destructive"
+            title="Delete chat"
+            aria-label={`Delete ${chat.title}`}
+            onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
+            <Trash2Icon />
+          </SidebarMenuAction>
+        </SidebarMenuItem>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => onRename(chat)}>
+          <PencilIcon />
+          Rename
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => pinChat(chat, !pinned)}>
+          <PinIcon />
+          {pinned ? 'Unpin' : 'Pin'}
+        </ContextMenuItem>
+        <ContextMenuItem disabled={!saved} onSelect={() => markDone(chat, !done)}>
           {done ? <RotateCcwIcon /> : <CheckIcon />}
-        </SidebarMenuAction>
-      )}
-      <SidebarMenuAction
-        showOnHover
-        className="hover:text-destructive"
-        title="Delete chat"
-        aria-label={`Delete ${chat.title}`}
-        onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
-        <Trash2Icon />
-      </SidebarMenuAction>
-    </SidebarMenuItem>
+          {done ? 'Move back to the list' : 'Mark completed'}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onSelect={() => onDelete(chat)}>
+          <Trash2Icon />
+          Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
@@ -619,6 +629,7 @@ export default function Rail() {
   const remove = async (chat) => {
     const res = await window.connChat?.remove(chat);
     setDoomed(null);
+    if (!res?.error) forgetPin(chat);
     // Deleting is one click and a confirm; failing at it silently would leave
     // the row sitting there looking like nothing happened.
     if (res?.error) toast('Could not delete that chat', res.error, [{ label: 'OK' }]);

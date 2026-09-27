@@ -14,13 +14,13 @@ const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failure
 async function checkDecide() {
   const cases = [
     ['plan', 'mcp__preview__browser_snapshot', 'allow'],
-    ['plan', 'mcp__preview__browser_navigate', 'ask'],
-    ['plan', 'mcp__preview__browser_evaluate', 'ask'],
+    ['plan', 'mcp__preview__browser_navigate', 'deny'],
+    ['plan', 'mcp__preview__browser_evaluate', 'deny'],
     ['ask', 'mcp__preview__browser_click', 'ask'],
     ['ask', 'mcp__preview__browser_text', 'allow'],
-    ['always', 'mcp__preview__browser_snapshot', 'ask'],
     ['bypass', 'mcp__preview__browser_navigate', 'allow'],
-    ['auto', 'mcp__preview__browser_fill', 'ask'],
+    ['auto', 'mcp__preview__browser_fill', 'allow'],
+    ['auto', 'mcp__preview__browser_snapshot', 'allow'],
   ];
   for (const [mode, tool, want] of cases) {
     const got = decide(mode, tool, {}).action;
@@ -30,8 +30,8 @@ async function checkDecide() {
   }
   for (const tool of ['navigate', 'mcp__conn__browser_navigate']) {
     const got = decide('plan', tool, {}).action;
-    const label = `decide(plan, ${tool}) => ask`;
-    if (got === 'ask') pass(label);
+    const label = `decide(plan, ${tool}) => deny`;
+    if (got === 'deny') pass(label);
     else fail(label, `got ${got}`);
   }
 }
@@ -105,7 +105,8 @@ async function checkDoorWiring() {
 
   if (/async function driveTool\(/.test(indexSrc)
     && /invoke:[\s\S]*?driveTool\(tool/.test(indexSrc)
-    && /run:\s*\(tool,\s*args,\s*from\)\s*=>/.test(indexSrc)) {
+    && /run:\s*\(tool,\s*args,\s*from\)\s*=>\s*runBridgeTool/.test(indexSrc)
+    && !/decide\(chosenMode/.test(indexSrc)) {
     pass('driveTool-is-the-door');
   } else {
     fail('driveTool-is-the-door', 'invoke or bridge run missing driveTool wiring');

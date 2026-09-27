@@ -26,6 +26,8 @@ const state = {
   // session id -> when it was marked. Main owns this and it survives restarts,
   // so a chat you finished with last week is still put away today.
   completed: {},
+  // session id, or a live chat's own key before it has one -> when it was pinned.
+  pinned: {},
 };
 
 const listeners = new Set();
@@ -203,7 +205,8 @@ export function grouped(filter = '') {
     /* Marked chats come out of the folder's list and go in its fold. A chat
        still working stays out in the open whatever it is marked: something
        mid-turn is by definition not finished, and hiding a running turn is how
-       you lose track of one.
+       you lose track of one. A pin does the same: the chat was held at the
+       top on purpose, so the completed fold does not swallow it.
 
        Searching puts them back. Typing a name is asking where something is, and
        answering by tucking the match inside a fold that is shut by default is
@@ -211,7 +214,13 @@ export function grouped(filter = '') {
        reads as put away: it keeps its tick. */
     const open = [];
     const done = [];
-    for (const row of list) (!q && isDone(row) && !keepRailOpen(row) ? done : open).push(row);
+    for (const row of list) {
+      const tucked = !q && isDone(row) && !keepRailOpen(row) && !isPinned(row);
+      (tucked ? done : open).push(row);
+    }
+    // A pin holds the chat at the top. Among pins, the one pinned last is first.
+    // Everything else keeps the newest-first order it already has.
+    open.sort((a, b) => (state.pinned[b.id] || 0) - (state.pinned[a.id] || 0));
 
     // A folder the search missed leaves altogether. A header sitting over
     // nothing reads as a bug, and there is already an empty state for a search
@@ -240,6 +249,76 @@ export function grouped(filter = '') {
 // Whether a row is one the person has put away. Keyed on the session id, which
 // is the only name a chat keeps across restarts.
 export const isDone = (row) => !!row?.id && Object.hasOwn(state.completed, row.id);
+export const isPinned = (row) => !!row?.id && Object.hasOwn(state.pinned, row.id);
+
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PIN_KEY = 'conn.rail.pins';
+
+// A chat with no session id yet is pinned by the pane's own key, which only
+// this window knows. Session ids are the ones main writes down.
+function localPins() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PIN_KEY));
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+    const out = {};
+    for (const [id, at] of Object.entries(saved)) {
+      if (!SESSION_ID.test(id)) out[id] = Number(at) || 0;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function saveLocalPins() {
+  const local = {};
+  for (const [id, at] of Object.entries(state.pinned)) {
+    if (!SESSION_ID.test(id)) local[id] = at;
+  }
+  try { localStorage.setItem(PIN_KEY, JSON.stringify(local)); } catch { /* not worth reporting */ }
+}
+
+// A pin made before the transcript existed was stored under the pane key.
+// Once the session id arrives, the mark follows it.
+function adoptPins() {
+  for (const c of state.live) {
+    if (!c.session || !state.pinned[c.key] || state.pinned[c.session]) continue;
+    const at = state.pinned[c.key];
+    delete state.pinned[c.key];
+    state.pinned[c.session] = at;
+    saveLocalPins();
+    window.conn?.agent.pin(c.session, true).catch(() => {});
+  }
+}
+
+export async function pinChat(row, on = true) {
+  const id = row?.id;
+  if (!id) return { error: 'that chat has not been saved yet' };
+  const prev = state.pinned[id];
+  if (on) state.pinned[id] = Date.now();
+  else delete state.pinned[id];
+  saveLocalPins();
+  changed();
+  if (!SESSION_ID.test(id)) return {};
+  const res = await window.conn.agent.pin(id, on).catch((e) => ({ error: e.message }));
+  if (res?.error) {
+    if (prev) state.pinned[id] = prev;
+    else delete state.pinned[id];
+    saveLocalPins();
+    changed();
+  }
+  return res || {};
+}
+
+export function forgetPin(row) {
+  for (const id of [row?.id, row?.key]) {
+    if (!id || !state.pinned[id]) continue;
+    delete state.pinned[id];
+    if (SESSION_ID.test(id)) window.conn?.agent.pin(id, false).catch(() => {});
+  }
+  saveLocalPins();
+  changed();
+}
 
 // A live chat claude has not written yet is named by our own key, and there is
 // no session id to write down against it.
@@ -282,6 +361,8 @@ export async function refreshRail() {
     const data = await window.conn.agent.history();
     state.projects = data.projects || [];
     state.completed = data.completed || {};
+    state.pinned = { ...localPins(), ...(data.pinned || {}) };
+    adoptPins();
   } catch {
     state.projects = [];
   }
@@ -297,6 +378,7 @@ window.connRail = {
     state.live = chats || [];
     state.activeKey = active || null;
     state.activeProject = activeProject || null;
+    adoptPins();
     changed();
   },
 };

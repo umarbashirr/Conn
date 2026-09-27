@@ -4,7 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
-const { DEFAULT_MODE, isMode, decideCodex, DEBUG_PREFACE, browserTool } = require('../modes');
+const { isMode, normalizeMode, decideCodex, browserTool } = require('../modes');
+const { READS } = require('../pane-lease');
 const { INSTRUCTIONS } = require('../../shared/browser-tools');
 const shellEnv = require('../shell-env');
 
@@ -29,21 +30,19 @@ const KIND_TOOL = {
 };
 
 /* Exact ACP mode ids we will set for each Conn mode. `build` is deliberately
-   absent: OpenCode's build is ordinary work, not ask/always/bypass, and mapping
-   bypass onto it would drop the mode's meaning. Work modes that still need a
-   CLI that allows edits may fall through to `build` in pickMode below. */
+   absent: OpenCode's build is ordinary work, and mapping bypass onto it would
+   drop the mode's meaning. Ask and Auto may fall through to `build` in
+   pickMode below, because those CLIs have no closer name and Conn still gates
+   the call. */
 const MODE_CANDIDATES = {
   plan: ['plan'],
   ask: ['ask', 'default', 'normal'],
-  debug: ['ask', 'default', 'normal'],
   auto: ['auto', 'acceptEdits', 'agent', 'code'],
-  acceptEdits: ['acceptEdits', 'agent', 'auto'],
-  always: ['ask', 'default', 'normal'],
   bypass: ['bypass', 'danger', 'full'],
 };
 
-// Modes that mean "do the work, Conn decides" — never bypass/always/plan.
-const BUILD_FALLBACK = new Set(['ask', 'debug', 'auto', 'acceptEdits']);
+// Modes that mean "do the work, Conn decides". Bypass and plan never inherit build.
+const BUILD_FALLBACK = new Set(['ask', 'auto']);
 
 /* Same words Claude and Codex get, plus the disambiguation Codex needed when
    another browser skill was competing. ACP agents (Cursor, Grok, OpenCode)
@@ -79,9 +78,9 @@ function pickMode(ourMode, available) {
   const ids = new Set(available.map((m) => m.id || m.value).filter(Boolean));
   const hit = (MODE_CANDIDATES[ourMode] || []).find((id) => ids.has(id));
   if (hit) return hit;
-  // OpenCode often only advertises plan/build. Ask/auto still need a CLI that
-  // allows edits so our permission callback can run; bypass and always must not
-  // inherit build or they silently stop meaning what the composer shows.
+  // OpenCode often only advertises plan/build. Ask and Auto still need a CLI
+  // that allows edits so our permission callback can run. Bypass must not
+  // inherit build or it silently stops meaning what the composer shows.
   if (BUILD_FALLBACK.has(ourMode) && ids.has('build')) return 'build';
   return null;
 }
@@ -120,7 +119,7 @@ class AcpSession extends EventEmitter {
     this.cwd = cwd;
     this.resume = resume || null;
     this.model = model || null;
-    this.mode = isMode(mode) ? mode : DEFAULT_MODE;
+    this.mode = normalizeMode(mode);
     this.effort = effort || null;
     this.bridgeEnv = bridgeEnv || {};
     this.mcp = mcp || null;
@@ -132,12 +131,9 @@ class AcpSession extends EventEmitter {
     this.sessionId = null;
     this.rpc = null;
     this.streaming = false;
-    // Debug rides ahead of the next human turn; browser instructions ride ahead
-    // of the first turn only, the same way Codex puts them on thread/start.
-    this.preface = [
-      this.mcp ? ACP_INSTRUCTIONS : null,
-      this.mode === 'debug' ? DEBUG_PREFACE : null,
-    ].filter(Boolean).join('\n\n') || null;
+    // Browser instructions ride ahead of the first turn only, the same way
+    // Codex puts them on thread/start.
+    this.preface = this.mcp ? ACP_INSTRUCTIONS : null;
     this.modes = [];
     this.config = [];
     this.startedAt = 0;
@@ -287,19 +283,7 @@ class AcpSession extends EventEmitter {
 
   async setMode(mode) {
     if (!isMode(mode)) return this.mode;
-    const was = this.mode;
     this.mode = mode;
-    if (mode === 'debug' && was !== 'debug') {
-      this.preface = this.preface
-        ? `${this.preface}\n\n${DEBUG_PREFACE}`
-        : DEBUG_PREFACE;
-    }
-    if (mode !== 'debug' && this.preface) {
-      this.preface = this.preface
-        .split('\n\n')
-        .filter((p) => p !== DEBUG_PREFACE)
-        .join('\n\n') || null;
-    }
     const acpMode = pickMode(mode, this.modes);
     if (acpMode && this.sessionId) {
       try { await this.#set('mode', acpMode); } catch {}
@@ -435,8 +419,17 @@ class AcpSession extends EventEmitter {
     const input = call.rawInput && typeof call.rawInput === 'object' ? call.rawInput : { title: call.title };
     const verdict = decideCodex(this.mode, tool, input);
     const options = params.options || [];
-    if (verdict.action === 'allow') {
+    const browser = browserTool(tool);
+    // A page change is asked once, on the preview bridge, so Grok, Cursor and
+    // OpenCode get the same card a Claude chat gets. Approving here as well
+    // would ask twice.
+    const pageChange = browser && !READS.has(browser);
+    if (verdict.action === 'allow' || (verdict.action === 'ask' && pageChange)) {
       const opt = optionFor(options, 'allow');
+      return respond.result({ outcome: opt ? { outcome: 'selected', optionId: opt.optionId } : { outcome: 'cancelled' } });
+    }
+    if (verdict.action === 'deny') {
+      const opt = optionFor(options, 'deny');
       return respond.result({ outcome: opt ? { outcome: 'selected', optionId: opt.optionId } : { outcome: 'cancelled' } });
     }
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;

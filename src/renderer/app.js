@@ -68,7 +68,7 @@ function syncGuestVisibility() {
 // settings page.
 let prefs = {
   appearance: { theme: 'system', scheme: DEFAULT_SCHEME, zoom: 1 },
-  terminal: { fontSize: 13, fontFamily: 'ui-monospace, monospace' },
+  terminal: { fontSize: 13, fontFamily: '"JetBrainsMono Nerd Font Mono", ui-monospace, monospace' },
   chat: { fontSize: 13, fontFamily: '' },
 };
 try { prefs = window.conn.settings.snapshot() || prefs; } catch {}
@@ -257,6 +257,7 @@ function applyTerminalFont() {
   for (const t of shells.values()) {
     t.term.options.fontFamily = prefs.terminal.fontFamily;
     t.term.options.fontSize = prefs.terminal.fontSize;
+    t.term.options.lineHeight = 1;
   }
   requestAnimationFrame(resizeActive);
 }
@@ -286,7 +287,15 @@ function spawnShell(dir, tabId) {
   const term = new Terminal({
     fontFamily: prefs.terminal.fontFamily,
     fontSize: prefs.terminal.fontSize,
-    lineHeight: 1.25,
+    // A taller line leaves a gap above and below each powerline block, so the
+    // prompt reads as a row of disconnected bars. One line, and xterm draws
+    // the powerline joins itself when the font has no glyph for them.
+    lineHeight: 1,
+    letterSpacing: 0,
+    // The Nerd Font already has the powerline triangles. xterm's own drawing
+    // leaves a gap in the cell, and that gap is the next segment's darker
+    // colour, so the join reads as a thick dark bar.
+    customGlyphs: false,
     cursorBlink: true,
     allowProposedApi: true,
     scrollback: SCROLLBACK,

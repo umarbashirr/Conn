@@ -101,42 +101,43 @@ const Mono = ({ children, title }) => (
   <span className="truncate font-mono text-[13px] text-muted-foreground" title={title || children}>{children}</span>
 );
 
-// A theme swatch is the theme. Both attributes are set on the tile, which is
-// all the stylesheet needs to paint its subtree in that palette, so what you
-// click is a small picture of the window you are about to get rather than an
-// approximation somebody has to keep in step.
+// The palette is painted on the preview only. Putting data-scheme on the
+// button itself made Brutalist's thick border and Glass's ground look like
+// the selection chrome.
 function SchemeTile({ id, label, note, mode, active, onPick }) {
   return (
     <button
       type="button"
-      data-scheme={id}
-      data-theme={mode}
-      title={note}
       aria-pressed={active}
       onClick={() => onPick(id)}
       className={cn(
-        'overflow-hidden rounded-lg border bg-background text-left shadow-sm transition',
-        active ? 'border-primary ring-2 ring-primary/40' : 'hover:ring-2 hover:ring-primary/20',
+        'flex flex-col overflow-hidden rounded-lg border bg-card text-left transition',
+        active
+          ? 'border-primary ring-2 ring-primary/30'
+          : 'border-border hover:border-foreground/25',
       )}>
-      {/* The window in miniature: rail, a couple of lines of transcript, the
-          button you press most, and the terminal along the bottom. */}
-      <div className="flex h-20">
-        <div className="w-6 border-r bg-muted" />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex flex-1 flex-col gap-1 p-2">
-            <div className="h-1.5 rounded-full bg-foreground/20" />
-            <div className="h-1.5 w-2/3 rounded-full bg-foreground/15" />
-            <div className="mt-auto h-3 w-9 rounded-[3px] bg-primary" />
-          </div>
-          <div className="flex h-4 items-center gap-1 bg-[var(--term-bg)] px-1.5">
-            <span className="size-1 rounded-full bg-[var(--term-cursor)]" />
-            <span className="h-1 w-8 rounded-full bg-[var(--term-dim)]" />
+      <div data-scheme={id} data-theme={mode} className="bg-background">
+        <div className="flex h-24">
+          <div className="w-8 border-r bg-muted" />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex flex-1 flex-col gap-1.5 p-2.5">
+              <div className="h-1.5 w-4/5 rounded-full bg-foreground/25" />
+              <div className="h-1.5 w-3/5 rounded-full bg-foreground/15" />
+              <div className="mt-auto h-3.5 w-10 rounded-md bg-primary" />
+            </div>
+            <div className="flex h-5 items-center gap-1.5 bg-[var(--term-bg)] px-2">
+              <span className="size-1.5 rounded-full bg-[var(--term-cursor)]" />
+              <span className="h-1 w-10 rounded-full bg-[var(--term-dim)]" />
+            </div>
           </div>
         </div>
       </div>
-      <div className="flex items-center border-t px-2 py-1.5 text-[13px] text-foreground">
-        {label}
-        {active && <CheckIcon className="ml-auto size-3.5 text-primary" />}
+      <div className="flex items-start gap-2 border-t px-2.5 py-2">
+        <div className="min-w-0">
+          <div className="text-[13px] font-medium text-foreground">{label}</div>
+          <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground">{note}</div>
+        </div>
+        {active && <CheckIcon className="mt-0.5 ml-auto size-3.5 shrink-0 text-primary" />}
       </div>
     </button>
   );
@@ -160,9 +161,7 @@ function Appearance({ settings, set }) {
         <FieldContent>
           <FieldLabel>Style</FieldLabel>
           <FieldDescription>
-            The whole window: chat, rail, panels, dialogs and the terminal. Each one has a light
-            and a dark version, and the switch above picks between them. The last two change more
-            than the colours. Brutalist squares every corner, Glass makes the panels see-through.
+            Colours, corners and surfaces for the whole window. Light or dark is the switch above.
           </FieldDescription>
         </FieldContent>
         <div className="grid grid-cols-3 gap-3">
@@ -507,7 +506,7 @@ function ModelList({ provider, settings, set, agent, installed }) {
   );
 }
 
-const DEFAULT_STACK = 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace';
+const DEFAULT_STACK = '"JetBrainsMono Nerd Font Mono", "JetBrainsMono NFM", "FiraCode Nerd Font Mono", ui-monospace, "Cascadia Code", monospace';
 const DEFAULT_SANS = 'ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif';
 
 // Faces worth offering if the machine has them. Listing a font nobody has

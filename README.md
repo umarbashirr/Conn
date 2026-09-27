@@ -159,20 +159,18 @@ export CONN_APP=~/Apps/conn-0.7.1-x86_64.AppImage
 Type what you want changed and press Enter. The agent has the usual file and shell tools plus the
 browser, wired in already: no MCP config, no restart, no setup step.
 
-- **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Debug, Auto,
-  Accept edits, Ask confirmation always, Full bypass. Plan stops before it touches anything. Ask asks
-  before a file write or a command. Debug asks the same way, and the turn starts by reproducing the
-  failure. Auto runs edits and ordinary commands without asking, and stops on a short list of
-  known-dangerous commands (a forced `rm`, `sudo`, a git history rewrite, and the like). That list
-  is a convenience, not a sandbox. It cannot catch everything a command could do, so anyone who
-  needs real isolation should run the CLI inside an OS-level sandbox instead. Accept edits
-  runs file edits without asking, and still asks before a command. In Ask confirmation always, every
-  tool asks, reads included. Full bypass asks for nothing and checks nothing. Looking at the preview
-  does not ask, except in Ask confirmation always. That covers snapshot, text, screenshot, console,
-  and network. Changing the page asks the same way a write does. The card offers **Allow**, **Always**,
-  or **Deny**. A terminal agent driving the preview through `conn` or the MCP server follows the
-  same mode. It can look in every mode except Ask confirmation always, and it can change the page
-  only in Full bypass, because a terminal has no permission card to answer.
+- **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Auto, Full
+  bypass. The same four apply to Claude, ChatGPT, Cursor, Grok, and OpenCode. Plan looks and reads,
+  and does not edit, run a command, or change the page. Ask looks and reads, and shows a card before
+  an edit, a command, or a page change. Auto runs edits, ordinary commands, and the preview, and
+  stops on a short list of known-dangerous commands (a forced `rm`, `sudo`, a git history rewrite,
+  and the like). That list is a convenience, not a sandbox. It cannot catch everything a command
+  could do, so anyone who needs real isolation should run the CLI inside an OS-level sandbox instead.
+  Full bypass asks for nothing and checks nothing. Looking at the preview does not ask in any mode.
+  That covers snapshot, text, screenshot, console, and network. Changing the page follows the chat
+  on screen: refused in Plan, a card in Ask, allowed in Auto and Full bypass. The card offers
+  **Allow**, **Always**, or **Deny**. A terminal agent driving the preview through `conn` or the MCP
+  server uses that same chat mode, and Ask shows the card in the chat rather than refusing the call.
 - **Stop** interrupts mid-turn.
 - **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so

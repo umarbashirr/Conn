@@ -28,7 +28,6 @@ function checkPickMode() {
   check('ask-falls-to-build', pickMode('ask', OPENCODE_MODES) === 'build', pickMode('ask', OPENCODE_MODES));
   check('auto-falls-to-build', pickMode('auto', OPENCODE_MODES) === 'build', pickMode('auto', OPENCODE_MODES));
   check('bypass-never-build', pickMode('bypass', OPENCODE_MODES) === null, pickMode('bypass', OPENCODE_MODES));
-  check('always-never-build', pickMode('always', OPENCODE_MODES) === null, pickMode('always', OPENCODE_MODES));
 }
 
 function checkToolOf() {
@@ -53,7 +52,9 @@ function checkToolOf() {
   const show = decide('ask', toolOf({ kind: 'other', title: 'browser_show' }), {});
   check('decide-show-allow', show.action === 'allow', show.action);
   const nav = decideCodex('plan', toolOf({ kind: 'other', title: 'browser_navigate' }), {});
-  check('decide-navigate-ask', nav.action === 'ask', nav.action);
+  check('decide-navigate-deny', nav.action === 'deny', nav.action);
+  const autoNav = decide('auto', toolOf({ kind: 'other', title: 'browser_navigate' }), {});
+  check('decide-auto-navigate-allow', autoNav.action === 'allow', autoNav.action);
 }
 
 function checkInstructions() {
@@ -81,17 +82,12 @@ function checkPrefaceWiring() {
   });
   check('preface-without-mcp', bare.preface === null, bare.preface);
 
-  const debug = new AcpSession({
+  const retired = new AcpSession({
     spec: { binary: () => null, cli: 'agent', missing: 'nope' },
     cwd: ROOT,
     mode: 'debug',
-    mcp: { command: 'node', args: ['x'] },
   });
-  check(
-    'preface-debug-and-browser',
-    debug.preface?.includes(ACP_INSTRUCTIONS) && debug.preface?.includes('<debug-mode>'),
-    'expected both prefaces',
-  );
+  check('retired-debug-is-ask', retired.mode === 'ask', retired.mode);
 }
 
 checkPickMode();

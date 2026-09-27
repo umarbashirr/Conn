@@ -6,7 +6,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const { browserTools, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary } = require('./driver');
-const { SDK_MODE, DEFAULT_MODE, isMode, decide, DEBUG_PREFACE } = require('./modes');
+const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const shellEnv = require('./shell-env');
 
 // How a screenshot tool result announces where the file landed. index.js reads
@@ -31,13 +31,12 @@ class AgentSession extends EventEmitter {
     this.closed = false;
     this.busy = false;
     this.pending = new Map();          // permission id -> resolve
-    // The mode the composer shows. The SDK only understands four of the seven,
-    // so modes.js keeps both halves: what the SDK is told, and what this class
-    // enforces on top. `preface` is how a mode gets a word in before the next
-    // thing the human types.
-    this.mode = isMode(mode) ? mode : DEFAULT_MODE;
+    // The mode the composer shows. The SDK is told the closest of its own modes.
+    // decide() is what actually gates the call, and it is the same function the
+    // other agents use.
+    this.mode = normalizeMode(mode);
     this.permissionMode = SDK_MODE[this.mode];
-    this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
+    this.preface = null;
     // Chosen from the cached catalogue before any session existed, so the first
     // query starts on the right model instead of switching after it is up.
     this.model = model || null;
@@ -272,6 +271,12 @@ class AgentSession extends EventEmitter {
     if (verdict.action === 'allow') {
       return Promise.resolve({ behavior: 'allow', updatedInput: input });
     }
+    if (verdict.action === 'deny') {
+      return Promise.resolve({
+        behavior: 'deny',
+        message: verdict.reason || 'This mode refused the action.',
+      });
+    }
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const from = agentID ? this.#actor(agentID) : null;
     return new Promise((resolve) => {
@@ -476,16 +481,12 @@ class AgentSession extends EventEmitter {
     }
   }
 
-  // Takes one of our seven, not one of the SDK's four.
+  // Takes one of the four composer modes, not one of the SDK's own names.
   async setMode(mode) {
     if (!isMode(mode)) return this.mode;
-    const was = this.mode;
     this.mode = mode;
     this.permissionMode = SDK_MODE[mode];
-    // Said once on the way in rather than stapled to every message, so a long
-    // debugging session does not pay for it on every turn.
-    if (mode === 'debug' && was !== 'debug') this.preface = DEBUG_PREFACE;
-    if (mode !== 'debug') this.preface = null;
+    this.preface = null;
     try { await this.query?.setPermissionMode(this.permissionMode); } catch {}
     return this.mode;
   }

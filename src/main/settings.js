@@ -22,7 +22,7 @@ const DEFAULTS = {
   },
   terminal: {
     fontSize: 13,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace',
+    fontFamily: '"JetBrainsMono Nerd Font Mono", "JetBrainsMono NFM", "FiraCode Nerd Font Mono", ui-monospace, "Cascadia Code", monospace',
   },
   // The chat pane only: the transcript and the composer, not the rail, the
   // toolbar or the terminal. 13 is what the window has always drawn it at.

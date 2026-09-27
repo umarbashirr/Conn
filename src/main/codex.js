@@ -26,7 +26,7 @@ const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const { configuredServers } = require('./codex-catalog');
 const { INSTRUCTIONS } = require('../shared/browser-tools');
-const { CODEX_MODE, DEFAULT_MODE, isMode, decideCodex, DEBUG_PREFACE } = require('./modes');
+const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
 const shellEnv = require('./shell-env');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -126,8 +126,8 @@ class CodexSession extends EventEmitter {
     this.bridgeEnv = bridgeEnv || {};
     this.previews = previews;
     this.shared = shared || [];
-    this.mode = isMode(mode) ? mode : DEFAULT_MODE;
-    this.preface = this.mode === 'debug' ? DEBUG_PREFACE : null;
+    this.mode = normalizeMode(mode);
+    this.preface = null;
 
     this.closed = false;
     this.busy = false;
@@ -341,7 +341,7 @@ class CodexSession extends EventEmitter {
   async setMode(mode) {
     if (!isMode(mode)) return { mode: this.mode };
     this.mode = mode;
-    this.preface = mode === 'debug' ? DEBUG_PREFACE : this.preface;
+    this.preface = null;
     this.emit('mode', { mode });
     return { mode };
   }
@@ -635,6 +635,7 @@ class CodexSession extends EventEmitter {
     const input = this.#askInput(spec, params);
     const verdict = decideCodex(this.mode, spec.tool, input);
     if (verdict.action === 'allow') return respond(answer.allow(params));
+    if (verdict.action === 'deny') return respond(answer.deny(params));
 
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     this.pending.set(id, { respond, answer, params, input, tool: spec.tool });
