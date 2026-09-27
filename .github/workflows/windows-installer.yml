@@ -1,0 +1,70 @@
+# The PowerShell install line downloads an .exe from the GitHub release.
+#
+# node-pty 1.1.0 ships N-API prebuilds for win32-x64, so the installer
+# cross-builds on Linux inside electronuserland/builder:wine. See:
+#
+#   npm run dist:win:docker
+#
+# A windows-2022 job never started for v0.8.1 through v0.9.1: GitHub refused
+# the runner because the account is locked on a billing issue. This job uses
+# the Linux runner and the same docker build that already produces the .exe.
+#
+# macOS .dmg is not built here. electron-builder's dmgbuild bundle ships a
+# macOS Python, so a Linux runner cannot produce one.
+
+name: Windows installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach the installer to, for example v0.8.0
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  dist-win:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build the installer
+        run: npm run dist:win:docker
+
+      - name: Checksums
+        run: sh scripts/release-checksums.sh dist
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(dist/conn-*-x64.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no NSIS installer in dist/" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          if [ ! -f dist/SHA256SUMS ]; then
+            echo "no SHA256SUMS in dist/" >&2
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" "${files[@]}" dist/SHA256SUMS --clobber

@@ -1,0 +1,172 @@
+'use strict';
+// Everything the settings page changes, in one JSON file next to the recent
+// projects list. Main owns it because the terminal font, the startup folder and
+// which claude binary to run are all decided before the renderer exists.
+//
+// Reads never throw and never block on a missing file: a corrupt settings.json
+// falls back to the defaults rather than taking the window down with it.
+const fs = require('fs');
+const path = require('path');
+const { EventEmitter } = require('events');
+
+const { DIR } = require('./projects');
+
+const FILE = path.join(DIR, 'settings.json');
+
+const DEFAULTS = {
+  appearance: {
+    theme: 'system',        // system | light | dark
+    scheme: 'zinc',         // which palette that light or dark is made of
+    zoom: 1,
+  },
+  terminal: {
+    fontSize: 13,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace',
+  },
+  // The chat pane only: the transcript and the composer, not the rail, the
+  // toolbar or the terminal. 13 is what the window has always drawn it at.
+  chat: {
+    fontSize: 13,
+    fontFamily: 'ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif',
+  },
+  agent: {
+    model: '',              // empty means whatever the CLI picks
+    mode: 'ask',
+    // How hard the model thinks. Empty means whatever the CLI defaults to,
+    // which is not the same as any level we could name here: naming one would
+    // pin every chat to today's default and never move.
+    effort: '',
+    // Which CLI the panel drives. Both are the person's own install; neither
+    // ships with Conn. See driver.js and codex-driver.js.
+    provider: 'claude',     // claude | cursor | grok | opencode | codex
+    // The model each one is set to. Kept apart because a name from one is
+    // meaningless to the other, and switching provider should not lose the
+    // choice you made on the one you switched away from.
+    codexModel: '',
+    cursorModel: '',
+    grokModel: '',
+    opencodeModel: '',
+  },
+  startup: {
+    reopenProject: true,
+    checkUpdates: true,
+  },
+  // Which editor the toolbar button opens. Empty until someone picks one, and
+  // ignored if that editor is no longer installed.
+  editor: {
+    id: '',
+  },
+  codex: {
+    // Same as claude.binary below: empty means PATH, or the copy inside the
+    // ChatGPT desktop app. A path is for an install neither of those finds.
+    binary: '',
+    hidden: [],
+  },
+  claude: {
+    // Where the claude the agent runs lives. Empty means whatever is on PATH,
+    // which is the answer for anyone who installed it the usual way. A path
+    // here is for an install PATH cannot see. See driver.js.
+    binary: '',
+    // Models the picker leaves out, as for every CLI but OpenCode.
+    hidden: [],
+  },
+  cursor: {
+    binary: '',
+    hidden: [],
+  },
+  grok: {
+    binary: '',
+    hidden: [],
+  },
+  opencode: {
+    binary: '',
+    // Which models the picker lists. Null until someone chooses, which means
+    // the free ones.
+    shown: null,
+  },
+  // The last version each notice was dismissed for, the what's new dialog
+  // included. A person who waved away the news about 0.6.0 should not be told
+  // about 0.6.0 again every time they open a window; 0.6.1 is news again. Kept
+  // here rather than in localStorage so it survives a cleared cache and can be
+  // read back from the file.
+  notices: {
+    app: '',
+    claude: '',
+    whatsNew: '',
+  },
+};
+
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+// One level deep is all this file is. A section in the file that is no longer a
+// section here is dropped, and a key the defaults do not have is ignored, so an
+// old file cannot smuggle junk into a new build.
+function normalize(raw) {
+  const out = clone(DEFAULTS);
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [section, defaults] of Object.entries(DEFAULTS)) {
+    const given = raw[section];
+    if (!given || typeof given !== 'object') continue;
+    for (const key of Object.keys(defaults)) {
+      if (given[key] !== undefined && typeof given[key] === typeof defaults[key]) {
+        out[section][key] = given[key];
+      }
+    }
+  }
+  // claude.binary named one of two builds back when Conn shipped its own.
+  // It holds a path now, and either old word left in place would be shown as
+  // one in the settings box and then written back on the next edit.
+  if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
+  for (const id of ['claude', 'cursor', 'grok', 'codex']) {
+    const hidden = out[id].hidden;
+    out[id].hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
+  }
+  const shown = out.opencode.shown;
+  out.opencode.shown = Array.isArray(shown) ? shown.filter((v) => typeof v === 'string' && v) : null;
+  return out;
+}
+
+class Settings extends EventEmitter {
+  constructor(file = FILE) {
+    super();
+    this.file = file;
+    let raw = null;
+    try { raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch {}
+    this.data = normalize(raw);
+  }
+
+  all() { return clone(this.data); }
+
+  get(section) { return clone(this.data[section] || {}); }
+
+  // Takes a partial tree ({ appearance: { theme: 'dark' } }) and returns the
+  // whole thing back, which is what every IPC handler here answers with: the
+  // panel never has to guess what the file ended up holding.
+  patch(partial) {
+    this.data = normalize({ ...this.data, ...merge(this.data, partial) });
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      fs.writeFileSync(this.file, JSON.stringify(this.data, null, 2));
+    } catch {}
+    this.emit('changed', this.all(), partial);
+    return this.all();
+  }
+
+  reset() {
+    this.data = clone(DEFAULTS);
+    try { fs.unlinkSync(this.file); } catch {}
+    this.emit('changed', this.all(), null);
+    return this.all();
+  }
+}
+
+function merge(base, partial) {
+  const out = {};
+  for (const [section, values] of Object.entries(partial || {})) {
+    if (!values || typeof values !== 'object') continue;
+    out[section] = { ...(base[section] || {}), ...values };
+  }
+  return out;
+}
+
+module.exports = { Settings, DEFAULTS, FILE };

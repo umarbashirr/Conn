@@ -1,0 +1,39 @@
+#!/bin/bash
+# ${productFilename} is only set while electron-builder is running, and an
+# upgrade from an older package may have left the app somewhere else. Ask dpkg
+# where the files actually went instead of guessing.
+PKG=conn
+INSTALL_DIR=""
+
+SANDBOX=$(dpkg -L "$PKG" 2>/dev/null | grep -m1 '/chrome-sandbox$')
+[ -n "$SANDBOX" ] && INSTALL_DIR=$(dirname "$SANDBOX")
+
+if [ -z "$INSTALL_DIR" ]; then
+  for candidate in "/opt/${productFilename}" "/opt/$PKG"; do
+    if [ -d "$candidate" ]; then INSTALL_DIR="$candidate"; break; fi
+  done
+fi
+
+if [ -z "$INSTALL_DIR" ] || [ ! -x "$INSTALL_DIR/conn" ]; then
+  echo "conn: could not locate the installed app; skipping sandbox and CLI setup" >&2
+  exit 0
+fi
+
+# An earlier install.sh --system unpacked an AppImage over this directory and
+# left a marker saying so. dpkg owns these files now, and the marker would send
+# the updater looking for an AppImage.
+rm -f "$INSTALL_DIR/.conn-version"
+
+# Chromium's sandbox helper has to be setuid root or the app refuses to start.
+if [ -f "$INSTALL_DIR/chrome-sandbox" ]; then
+  chown root:root "$INSTALL_DIR/chrome-sandbox" && chmod 4755 "$INSTALL_DIR/chrome-sandbox" \
+    || echo "conn: could not set up $INSTALL_DIR/chrome-sandbox" >&2
+fi
+
+# Put the conn CLI on PATH, running it through the app's own Node.
+cat > /usr/bin/conn <<EOF
+#!/usr/bin/env sh
+ELECTRON_RUN_AS_NODE=1 exec "$INSTALL_DIR/conn" \\
+  "$INSTALL_DIR/resources/app.asar.unpacked/cli/conn.js" "\$@"
+EOF
+chmod 755 /usr/bin/conn

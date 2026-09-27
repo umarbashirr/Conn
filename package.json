@@ -1,0 +1,182 @@
+{
+  "name": "conn",
+  "version": "0.12.2",
+  "description": "A terminal with an agent and a browser it can drive.",
+  "main": "src/main/index.js",
+  "type": "commonjs",
+  "bin": {
+    "conn": "cli/conn.js"
+  },
+  "scripts": {
+    "start": "npm run build:renderer && node scripts/launch.js",
+    "dev": "npm run build:renderer && node scripts/launch.js --dev",
+    "mcp": "node mcp/server.js",
+    "postinstall": "electron-rebuild -f -w node-pty || echo skipped-pty-rebuild",
+    "enable-sandbox": "bash scripts/enable-sandbox.sh",
+    "icon": "electron scripts/make-icon.js",
+    "pack": "npm run build:renderer && electron-builder --dir",
+    "dist": "npm run build:renderer && electron-builder --linux AppImage deb",
+    "build:renderer": "vite build",
+    "dist:win": "npm run build:renderer && electron-builder --win nsis",
+    "dist:win:docker": "npm run build:renderer && bash scripts/build-win.sh"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.238",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@radix-ui/react-use-controllable-state": "^1.2.6",
+    "@streamdown/cjk": "^1.0.3",
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.2",
+    "@streamdown/mermaid": "^1.0.2",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "ai": "^7.0.73",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "lucide": "^1.33.0",
+    "lucide-react": "^1.33.0",
+    "mcp-remote": "0.14.3",
+    "motion": "^13.1.1",
+    "nanoid": "^6.0.1",
+    "next-themes": "^0.4.6",
+    "node-pty": "^1.0.0",
+    "radix-ui": "^1.6.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-resizable-panels": "^4.12.3",
+    "shiki": "^3.23.0",
+    "simple-icons": "^16.32.0",
+    "sonner": "^2.0.8",
+    "streamdown": "^2.5.0",
+    "tailwind-merge": "^3.6.0",
+    "use-stick-to-bottom": "^1.1.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^26.15.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "build": {
+    "afterPack": "scripts/after-pack-linux-sandbox.js",
+    "appId": "dev.conn.app",
+    "productName": "conn",
+    "artifactName": "conn-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "build/renderer/**/*",
+      "cli/**/*",
+      "mcp/**/*",
+      "bin/**/*",
+      "scripts/launch.js",
+      "install.sh",
+      "package.json",
+      "!**/*.map",
+      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+    ],
+    "asarUnpack": [
+      "install.sh",
+      "cli/**",
+      "bin/**",
+      "node_modules/node-pty/**",
+      "node_modules/@anthropic-ai/claude-agent-sdk/**"
+    ],
+    "npmRebuild": true,
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development;TerminalEmulator",
+      "icon": "build/icon.png",
+      "synopsis": "Terminal, agent, and a browser the agent can drive",
+      "desktop": {
+        "entry": {
+          "Name": "Conn",
+          "Comment": "A terminal with an agent and a browser it can drive",
+          "Keywords": "terminal;agent;browser;preview;claude;",
+          "StartupWMClass": "conn"
+        }
+      },
+      "executableName": "conn",
+      "syncDesktopName": true
+    },
+    "deb": {
+      "depends": [
+        "libasound2",
+        "libatspi2.0-0",
+        "libgbm1",
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libsecret-1-0",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils"
+      ],
+      "afterInstall": "build/deb-postinstall.sh",
+      "afterRemove": "build/deb-postremove.sh"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "extraFiles": [
+        {
+          "from": "build/conn.cmd",
+          "to": "bin/conn.cmd"
+        }
+      ]
+    },
+    "appImage": {
+      "executableArgs": []
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Conn",
+      "uninstallDisplayName": "Conn ${version}",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    }
+  },
+  "author": {
+    "name": "Umar Bashir Rather",
+    "email": "79753135+umarbashirr@users.noreply.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/umarbashirr/Conn.git"
+  },
+  "homepage": "https://github.com/umarbashirr/Conn",
+  "desktopName": "conn.desktop"
+}

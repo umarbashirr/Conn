@@ -1,0 +1,943 @@
+/* shadcn/ui design tokens (zinc). The app is vanilla JS, so this is the token
+   system and component styling rather than the React components. Every colour
+   below is an HSL triple, which is what shadcn ships, and the older --bg/--fg
+   names are kept as aliases so existing rules keep working. */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 240 5.9% 10%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent-bg: 240 4.8% 95.9%;
+  --destructive: 0 72% 51%;
+  --success: 142 71% 35%;
+  --warning: 38 92% 40%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 240 10% 3.9%;
+  --radius: 0.5rem;
+
+  /* A prompt holds three things that are not prose: the skill it starts with,
+     a file it points at, and whatever was clipped to it. One hue each, kept
+     apart from the greys so none of them reads as ordinary text. */
+  --token-skill: 262 83% 58%;
+  --token-skill-fg: 262 62% 42%;
+  --token-path: 205 90% 45%;
+  --token-path-fg: 205 82% 34%;
+  --token-element: 32 92% 48%;
+  --token-element-fg: 26 80% 34%;
+
+  /* aliases used throughout this stylesheet */
+  --bg: hsl(var(--background));
+  --bg-2: hsl(var(--card));
+  --bg-3: hsl(var(--accent-bg));
+  --bg-4: hsl(var(--secondary));
+  --rail: hsl(var(--muted) / .55);
+  --line: hsl(var(--border));
+  --line-soft: hsl(var(--border) / .6);
+  --fg: hsl(var(--foreground));
+  --fg-dim: hsl(var(--muted-foreground));
+  --fg-faint: hsl(var(--muted-foreground) / .75);
+  --accent: hsl(var(--primary));
+  --accent-soft: hsl(var(--ring) / .12);
+  --accent-2: hsl(var(--muted-foreground));
+  --accent-2-soft: hsl(var(--muted) / .8);
+  --on-accent: hsl(var(--primary-foreground));
+  --ok: hsl(var(--success));
+  --warn: hsl(var(--warning));
+  --err: hsl(var(--destructive));
+  --err-soft: hsl(var(--destructive) / .12);
+  --code: hsl(var(--foreground) / .9);
+  --shadow: 0 4px 14px hsl(240 10% 3.9% / .10);
+  --scroll: hsl(var(--border));
+  /* The terminal's colours in the dark theme. Each scheme below picks its own
+     dark; the light theme replaces them all further down, so the terminal
+     follows the page. app.js reads these and hands them to xterm, and anything
+     the app paints on top of the terminal reads the same greys. */
+  --term-bg: #0b0d12;
+  --term-fg: #d7dce6;
+  --term-dim: #79839a;
+  --term-line: #1b2130;
+  --term-cursor: #6ea8fe;
+  --term-selection: #2a3550;
+  --term-black: #171b26;
+  --term-red: #ef6a6a;
+  --term-green: #58d18a;
+  --term-yellow: #e5b567;
+  --term-blue: #6ea8fe;
+  --term-magenta: #b58cf6;
+  --term-cyan: #5fd0d0;
+  --term-white: #d7dce6;
+  --r: var(--radius);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Code", monospace;
+}
+
+[data-theme="dark"] {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 10% 5.5%;
+  --popover: 240 10% 3.9%;
+  --primary: 0 0% 98%;
+  --primary-foreground: 240 5.9% 10%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 15.9%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent-bg: 240 3.7% 15.9%;
+  --destructive: 0 72% 58%;
+  --success: 142 60% 55%;
+  --warning: 38 92% 62%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 15.9%;
+  --ring: 240 4.9% 83.9%;
+  --shadow: 0 8px 24px hsl(0 0% 0% / .55);
+
+  /* Lighter and less saturated against the dark ground, and the fill drops to
+     a tint so a badge is outlined rather than a bright block of colour. */
+  --token-skill: 262 83% 66%;
+  --token-skill-fg: 264 90% 82%;
+  --token-path: 205 90% 60%;
+  --token-path-fg: 203 90% 78%;
+  --token-element: 38 92% 58%;
+  --token-element-fg: 40 92% 74%;
+}
+
+/* ---------------------------------------------------------------- themes */
+
+/* A theme is a palette, not a mode. The two are separate settings: data-theme
+   on <html> is light or dark, data-scheme is which colours that light or dark
+   is made of. Zinc is the pair above, so it needs nothing here.
+
+   Every rule below is written [data-scheme][data-theme], which outranks the
+   :root and [data-theme="dark"] blocks whatever order they land in. Nothing
+   else in the app has to know a theme exists: the aliases at the top of this
+   file, the Tailwind names in index.css and the token badges all read these
+   same triples. Set the two attributes on any element and its subtree is
+   painted in that theme, which is how the swatches in settings work. */
+
+/* Ocean. Blue, the way a code editor is blue. */
+[data-scheme="ocean"][data-theme="light"] {
+  --background: 210 40% 99%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 212 84% 43%;
+  --primary-foreground: 210 40% 99%;
+  --secondary: 210 38% 94%;
+  --secondary-foreground: 222 47% 16%;
+  --muted: 210 38% 94%;
+  --muted-foreground: 215 20% 45%;
+  --accent-bg: 210 55% 93%;
+  --destructive: 0 72% 48%;
+  --success: 160 78% 29%;
+  --warning: 32 92% 40%;
+  --border: 214 32% 88%;
+  --input: 214 32% 88%;
+  --ring: 212 84% 43%;
+  --shadow: 0 4px 14px hsl(222 47% 11% / .12);
+}
+
+[data-scheme="ocean"][data-theme="dark"] {
+  /* Zinc dark sits at 3.9% lightness, which is near enough to black that a hue
+     at that depth is invisible on a real screen. A theme that is not the
+     neutral one has to be light enough to see the colour in, so the grounds
+     here start around 11% and the chrome climbs from there. */
+  --background: 220 34% 11%;
+  --foreground: 210 38% 96%;
+  --card: 220 30% 14%;
+  --popover: 220 32% 12%;
+  --primary: 210 90% 62%;
+  --primary-foreground: 222 47% 10%;
+  --secondary: 217 26% 21%;
+  --secondary-foreground: 210 38% 96%;
+  --muted: 217 26% 21%;
+  --muted-foreground: 213 20% 70%;
+  --accent-bg: 217 27% 24%;
+  --destructive: 0 75% 66%;
+  --success: 160 60% 52%;
+  --warning: 38 92% 64%;
+  --border: 217 24% 24%;
+  --input: 217 24% 24%;
+  --ring: 210 90% 62%;
+  --shadow: 0 8px 24px hsl(222 60% 2% / .6);
+}
+
+[data-scheme="ocean"] {
+  --term-bg: #0b1826;
+  --term-fg: #cfe0f3;
+  --term-dim: #6d87a3;
+  --term-line: #14212f;
+  --term-cursor: #58a6ff;
+  --term-selection: #1c3a5a;
+  --term-black: #16202c;
+  --term-blue: #6cb6ff;
+  --term-cyan: #56d4dd;
+  --term-white: #cfe0f3;
+}
+
+/* Forest. Green, low saturation, easy to sit in front of for a long day. */
+[data-scheme="forest"][data-theme="light"] {
+  --background: 140 30% 99%;
+  --foreground: 150 25% 10%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 152 58% 28%;
+  --primary-foreground: 140 40% 98%;
+  --secondary: 140 24% 94%;
+  --secondary-foreground: 150 25% 15%;
+  --muted: 140 24% 94%;
+  --muted-foreground: 150 12% 42%;
+  --accent-bg: 145 32% 92%;
+  --destructive: 4 72% 48%;
+  --success: 152 58% 30%;
+  --warning: 32 90% 38%;
+  --border: 145 20% 87%;
+  --input: 145 20% 87%;
+  --ring: 152 58% 28%;
+  --shadow: 0 4px 14px hsl(150 25% 10% / .12);
+}
+
+[data-scheme="forest"][data-theme="dark"] {
+  --background: 155 20% 10%;
+  --foreground: 140 18% 95%;
+  --card: 154 18% 13%;
+  --popover: 155 19% 11%;
+  --primary: 150 58% 52%;
+  --primary-foreground: 155 30% 8%;
+  --secondary: 153 14% 21%;
+  --secondary-foreground: 140 18% 95%;
+  --muted: 153 14% 21%;
+  --muted-foreground: 145 11% 68%;
+  --accent-bg: 153 15% 24%;
+  --destructive: 2 74% 64%;
+  --success: 150 58% 52%;
+  --warning: 40 90% 62%;
+  --border: 152 12% 24%;
+  --input: 152 12% 24%;
+  --ring: 150 58% 50%;
+  --shadow: 0 8px 24px hsl(155 40% 2% / .6);
+}
+
+[data-scheme="forest"] {
+  --term-bg: #0d1712;
+  --term-fg: #d4e5d8;
+  --term-dim: #7b9285;
+  --term-line: #17241b;
+  --term-cursor: #57d18a;
+  --term-selection: #1f3a2a;
+  --term-black: #14201a;
+  --term-green: #6bd99a;
+  --term-cyan: #58cfc0;
+  --term-white: #d4e5d8;
+}
+
+/* Violet. The loudest of the six, and the only one that reads as a choice
+   rather than a shade of grey. */
+[data-scheme="violet"][data-theme="light"] {
+  --background: 270 40% 99%;
+  --foreground: 265 30% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 263 70% 52%;
+  --primary-foreground: 270 40% 99%;
+  --secondary: 270 28% 95%;
+  --secondary-foreground: 265 30% 16%;
+  --muted: 270 28% 95%;
+  --muted-foreground: 265 12% 46%;
+  --accent-bg: 268 42% 94%;
+  --destructive: 350 75% 50%;
+  --success: 150 58% 32%;
+  --warning: 32 90% 42%;
+  --border: 268 25% 90%;
+  --input: 268 25% 90%;
+  --ring: 263 70% 52%;
+  --shadow: 0 4px 14px hsl(265 30% 12% / .12);
+}
+
+[data-scheme="violet"][data-theme="dark"] {
+  --background: 264 26% 11%;
+  --foreground: 270 25% 96%;
+  --card: 264 24% 14%;
+  --popover: 264 25% 12%;
+  --primary: 263 85% 72%;
+  --primary-foreground: 265 40% 10%;
+  --secondary: 264 18% 23%;
+  --secondary-foreground: 270 25% 96%;
+  --muted: 264 18% 23%;
+  --muted-foreground: 266 14% 73%;
+  --accent-bg: 264 20% 26%;
+  --destructive: 350 84% 68%;
+  --success: 150 58% 54%;
+  --warning: 40 90% 64%;
+  --border: 264 16% 26%;
+  --input: 264 16% 26%;
+  --ring: 263 85% 70%;
+  --shadow: 0 8px 24px hsl(265 50% 2% / .6);
+}
+
+[data-scheme="violet"] {
+  --term-bg: #151020;
+  --term-fg: #e0d8f0;
+  --term-dim: #8b81a3;
+  --term-line: #1e1830;
+  --term-cursor: #b58cf6;
+  --term-selection: #33255a;
+  --term-black: #1a1428;
+  --term-magenta: #c79cff;
+  --term-blue: #8aa8ff;
+  --term-white: #e0d8f0;
+}
+
+/* Sand. Warm greys instead of cool ones, and an amber where the blue is. */
+[data-scheme="sand"][data-theme="light"] {
+  --background: 40 40% 98%;
+  --foreground: 25 25% 12%;
+  --card: 40 50% 99%;
+  --popover: 40 50% 99%;
+  --primary: 25 68% 40%;
+  --primary-foreground: 40 40% 98%;
+  --secondary: 38 28% 92%;
+  --secondary-foreground: 25 25% 16%;
+  --muted: 38 28% 92%;
+  --muted-foreground: 30 10% 42%;
+  --accent-bg: 36 42% 90%;
+  --destructive: 5 70% 47%;
+  --success: 145 52% 29%;
+  --warning: 32 90% 38%;
+  --border: 34 22% 85%;
+  --input: 34 22% 85%;
+  --ring: 25 68% 40%;
+  --shadow: 0 4px 14px hsl(25 25% 12% / .12);
+}
+
+[data-scheme="sand"][data-theme="dark"] {
+  --background: 28 13% 11%;
+  --foreground: 40 28% 94%;
+  --card: 28 12% 14%;
+  --popover: 28 13% 12%;
+  --primary: 32 88% 62%;
+  --primary-foreground: 28 40% 10%;
+  --secondary: 30 11% 23%;
+  --secondary-foreground: 40 28% 94%;
+  --muted: 30 11% 23%;
+  --muted-foreground: 35 12% 69%;
+  --accent-bg: 30 12% 26%;
+  --destructive: 6 76% 66%;
+  --success: 145 50% 52%;
+  --warning: 38 92% 64%;
+  --border: 30 10% 26%;
+  --input: 30 10% 26%;
+  --ring: 32 88% 60%;
+  --shadow: 0 8px 24px hsl(28 40% 2% / .6);
+}
+
+[data-scheme="sand"] {
+  --term-bg: #1a1510;
+  --term-fg: #eadfd0;
+  --term-dim: #9c8b78;
+  --term-line: #241d15;
+  --term-cursor: #e5a44a;
+  --term-selection: #4a3820;
+  --term-black: #1f1913;
+  --term-yellow: #e8b96a;
+  --term-red: #ef7b62;
+  --term-white: #eadfd0;
+}
+
+/* Aurora. The one that is not a recolour. A theme owns --radius and --shadow
+   as well as the palette, so this one is rounder than the rest (12px against
+   8px), sits its cards a clear step above the ground rather than a shade, and
+   keeps the greys cool and the accent indigo. Everything reads it: buttons,
+   the composer, dialogs, the rail rows, the code blocks. */
+[data-scheme="aurora"][data-theme="light"] {
+  --background: 240 30% 99%;
+  --foreground: 240 24% 12%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 243 72% 58%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 24% 94%;
+  --secondary-foreground: 240 24% 16%;
+  --muted: 240 22% 93%;
+  --muted-foreground: 240 9% 45%;
+  --accent-bg: 243 40% 95%;
+  --destructive: 352 76% 52%;
+  --success: 158 62% 32%;
+  --warning: 35 92% 42%;
+  --border: 240 18% 91%;
+  --input: 240 18% 91%;
+  --ring: 243 72% 58%;
+  --radius: 0.75rem;
+  --shadow: 0 10px 30px hsl(240 30% 20% / .10);
+}
+
+[data-scheme="aurora"][data-theme="dark"] {
+  --background: 235 16% 10%;
+  --foreground: 240 20% 97%;
+  --card: 235 14% 14%;
+  --popover: 235 15% 12%;
+  --primary: 245 90% 74%;
+  --primary-foreground: 245 45% 12%;
+  --secondary: 235 14% 24%;
+  --secondary-foreground: 240 20% 97%;
+  /* The rail, the composer and every hover state are this colour at a third
+     of an alpha, so on a ground this dark it has to be lifted well clear of
+     it or the layers all collapse back into one flat sheet. */
+  --muted: 235 14% 24%;
+  --muted-foreground: 238 13% 71%;
+  --accent-bg: 235 13% 23%;
+  --destructive: 352 88% 70%;
+  --success: 158 62% 52%;
+  --warning: 38 92% 65%;
+  --border: 235 10% 23%;
+  --input: 235 10% 23%;
+  --ring: 245 90% 74%;
+  --radius: 0.75rem;
+  --shadow: 0 12px 32px hsl(240 50% 2% / .7);
+}
+
+[data-scheme="aurora"] {
+  --term-bg: #0e0e18;
+  --term-fg: #e4e3f2;
+  --term-dim: #8d8aab;
+  --term-line: #1c1b2b;
+  --term-cursor: #a5a1ff;
+  --term-selection: #2f2c55;
+  --term-black: #191826;
+  --term-blue: #8f9bff;
+  --term-magenta: #c39bff;
+  --term-cyan: #63d6e0;
+  --term-white: #e4e3f2;
+}
+
+/* Nord. Somebody else's palette, used as published: the Polar Night greys
+   under the dark theme, Snow Storm under the light one, and the Aurora hues
+   in the terminal rather than this file's own. */
+[data-scheme="nord"][data-theme="light"] {
+  --background: 218 27% 94%;
+  --foreground: 220 16% 22%;
+  --card: 218 27% 97%;
+  --popover: 218 27% 97%;
+  --primary: 213 34% 43%;
+  --primary-foreground: 218 27% 96%;
+  --secondary: 219 28% 88%;
+  --secondary-foreground: 220 16% 22%;
+  --muted: 219 28% 88%;
+  --muted-foreground: 220 16% 40%;
+  --accent-bg: 219 28% 88%;
+  --destructive: 354 42% 45%;
+  --success: 92 28% 34%;
+  --warning: 40 60% 38%;
+  --border: 219 24% 84%;
+  --input: 219 24% 84%;
+  --ring: 213 34% 43%;
+  --shadow: 0 4px 14px hsl(220 16% 22% / .14);
+}
+
+[data-scheme="nord"][data-theme="dark"] {
+  --background: 220 16% 15%;
+  --foreground: 218 27% 92%;
+  --card: 220 16% 18%;
+  --popover: 220 16% 17%;
+  --primary: 193 43% 67%;
+  --primary-foreground: 220 16% 15%;
+  --secondary: 222 16% 25%;
+  --secondary-foreground: 218 27% 92%;
+  --muted: 222 16% 25%;
+  --muted-foreground: 219 20% 71%;
+  --accent-bg: 220 17% 28%;
+  --destructive: 354 42% 58%;
+  --success: 92 28% 65%;
+  --warning: 40 71% 73%;
+  --border: 220 17% 27%;
+  --input: 220 17% 27%;
+  --ring: 193 43% 67%;
+  --shadow: 0 8px 24px hsl(220 20% 4% / .6);
+}
+
+[data-scheme="nord"] {
+  --term-bg: #2e3440;
+  --term-fg: #d8dee9;
+  --term-dim: #98a3bb;
+  --term-line: #3b4252;
+  --term-cursor: #88c0d0;
+  --term-selection: #434c5e;
+  --term-black: #3b4252;
+  --term-red: #bf616a;
+  --term-green: #a3be8c;
+  --term-yellow: #ebcb8b;
+  --term-blue: #81a1c1;
+  --term-magenta: #b48ead;
+  --term-cyan: #88c0d0;
+  --term-white: #e5e9f0;
+}
+
+/* Brutalist. The colours are the smallest part of this one: what makes it is
+   the geometry. Corners come off entirely, the shadow stops being a blur and
+   becomes a solid slab thrown down and to the right, and anything that draws a
+   hairline draws two pixels instead. What is left to choose is paper, ink, and
+   one loud orange that only ever appears on something you can press. */
+[data-scheme="brutal"][data-theme="light"] {
+  --background: 45 62% 94%;
+  --foreground: 0 0% 5%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 14 88% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 45 48% 87%;
+  --secondary-foreground: 0 0% 5%;
+  --muted: 45 40% 89%;
+  --muted-foreground: 0 0% 30%;
+  /* Hover is the yellow. Every other theme darkens the row a shade; this one
+     lights it up, because a style with no soft edges has nothing else to say
+     "the pointer is here" with. */
+  --accent-bg: 47 100% 72%;
+  --destructive: 0 82% 45%;
+  --success: 145 70% 26%;
+  --warning: 35 100% 36%;
+  --border: 0 0% 5%;
+  --input: 0 0% 5%;
+  --ring: 14 88% 48%;
+  --radius: 0rem;
+  --shadow: 4px 4px 0 hsl(0 0% 5%);
+}
+
+[data-scheme="brutal"][data-theme="dark"] {
+  --background: 0 0% 7%;
+  --foreground: 45 40% 96%;
+  --card: 0 0% 11%;
+  --popover: 0 0% 9%;
+  --primary: 18 95% 56%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 0 0% 20%;
+  --secondary-foreground: 45 40% 96%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 45 10% 70%;
+  --accent-bg: 0 0% 26%;
+  --destructive: 0 85% 62%;
+  --success: 145 60% 50%;
+  --warning: 40 95% 60%;
+  /* Bone rather than white. Two pixels of pure white around every card is a
+     window of light boxes with a dark room behind them, and the boxes win. */
+  --border: 45 18% 74%;
+  --input: 45 18% 74%;
+  --ring: 18 95% 56%;
+  --radius: 0rem;
+  --shadow: 4px 4px 0 hsl(45 18% 74%);
+}
+
+/* --radius is what the shell reads, and Tailwind's rounded-* utilities read
+   three steps derived from it in index.css, the smallest of which still leaves
+   two pixels of corner. Square means square, so the steps are pinned here as
+   well. rounded-full is left alone: it is scrollbar thumbs, status dots and
+   the loading bar, none of which are corners. */
+[data-scheme="brutal"] {
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --radius-2xl: 0px;
+}
+
+[data-scheme="brutal"] {
+  --term-bg: #0a0a0a;
+  --term-fg: #f2ead7;
+  --term-dim: #8b8474;
+  --term-line: #262626;
+  --term-cursor: #ff6a1f;
+  --term-selection: #4a3a22;
+  --term-black: #171717;
+  --term-red: #ff5f4d;
+  --term-green: #4ede8a;
+  --term-yellow: #ffd21f;
+  --term-blue: #4d9dff;
+  --term-magenta: #ff6ad5;
+  --term-cyan: #3fd8d8;
+  --term-white: #f2ead7;
+}
+
+/* Named surfaces and named controls, rather than every border in the window: a
+   rule that thickened all of them would put a two-pixel box around each row of
+   the transcript and each line of a diff. Ghost buttons are left out for the
+   same reason, since the toolbars are made of them and they have no border to
+   thicken in the first place. */
+[data-scheme="brutal"] :is(
+  [data-slot="card"],
+  [data-slot="alert"],
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="menubar-content"],
+  [data-slot="select-content"],
+  [data-slot="select-trigger"],
+  [data-slot="input"],
+  [data-slot="input-group"],
+  [data-slot="textarea"],
+  [data-slot="button"]:is([data-variant="default"], [data-variant="destructive"], [data-variant="secondary"], [data-variant="outline"])
+) {
+  border-width: 2px;
+  border-color: hsl(var(--border));
+  box-shadow: var(--shadow);
+}
+
+/* The seams the shell draws itself, which are declared one side at a time, so
+   setting all four widths only lands on the side that has a style. */
+[data-scheme="brutal"] :is(#titlebar, #right) { border-width: 2px; }
+
+/* The one piece of motion the style gets: a press pushes the control into its
+   own shadow and lands flush, which is where the offset came from. */
+[data-scheme="brutal"] [data-slot="button"]:is([data-variant="default"], [data-variant="destructive"], [data-variant="secondary"], [data-variant="outline"]):active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+[data-scheme="brutal"] :is([data-slot="button"], [data-slot="tabs-trigger"], [data-slot="dialog-title"]) {
+  font-weight: 700;
+}
+
+/* The swatch in settings wears the attribute itself, which is the one element
+   a descendant rule cannot reach. */
+button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
+
+/* Glass. The window stops being a stack of opaque panels: there is one
+   coloured ground painted on <html>, and everything above it is a tint with a
+   blur behind it, so the rail shows you a smeared version of the chat it is
+   sitting on rather than a flat grey.
+
+   Two things stay solid on purpose. The terminal is a canvas xterm repaints
+   per frame and a transcript legible through it is a transcript in the way,
+   and the preview is a native view the window paints over this document, which
+   nothing in a stylesheet can see through. */
+[data-scheme="glass"][data-theme="light"] {
+  --background: 220 46% 95%;
+  --foreground: 224 40% 14%;
+  --card: 0 0% 100%;
+  --popover: 0 0% 100%;
+  --primary: 222 84% 55%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 40% 90%;
+  --secondary-foreground: 224 40% 16%;
+  --muted: 220 40% 92%;
+  --muted-foreground: 222 16% 40%;
+  --accent-bg: 222 62% 92%;
+  --destructive: 352 78% 50%;
+  --success: 160 62% 30%;
+  --warning: 35 92% 40%;
+  --border: 224 30% 82%;
+  --input: 224 30% 82%;
+  --ring: 222 84% 55%;
+  --radius: 1rem;
+  --shadow: 0 16px 40px hsl(224 50% 30% / .18);
+}
+
+[data-scheme="glass"][data-theme="dark"] {
+  --background: 232 42% 9%;
+  --foreground: 220 30% 96%;
+  /* Read at roughly half alpha everywhere below, so this is the colour of the
+     sheet rather than the colour of a panel: too dark here and the blur behind
+     it stops being visible at all. */
+  --card: 230 30% 24%;
+  --popover: 230 32% 20%;
+  --primary: 214 95% 66%;
+  --primary-foreground: 230 45% 10%;
+  --secondary: 230 24% 30%;
+  --secondary-foreground: 220 30% 96%;
+  --muted: 230 24% 32%;
+  --muted-foreground: 224 20% 76%;
+  --accent-bg: 230 26% 34%;
+  --destructive: 352 88% 68%;
+  --success: 160 62% 52%;
+  --warning: 38 92% 65%;
+  --border: 228 22% 44%;
+  --input: 228 22% 44%;
+  --ring: 214 95% 66%;
+  --radius: 1rem;
+  --shadow: 0 18px 46px hsl(230 60% 3% / .6);
+}
+
+[data-scheme="glass"] {
+  --term-bg: #0b0f1e;
+  --term-fg: #dde3f5;
+  --term-dim: #7c86a8;
+  --term-line: #1a2038;
+  --term-cursor: #6aa8ff;
+  --term-selection: #2b3560;
+  --term-black: #151a2c;
+  --term-blue: #6aa8ff;
+  --term-magenta: #b39bff;
+  --term-cyan: #5ed3e0;
+  --term-white: #dde3f5;
+}
+
+/* The ground: one colour and three lights in it. Painted on whatever carries
+   the attribute, which is <html> for the window and the tile itself for the
+   swatch in settings, so the picker is a small picture of the real thing.
+
+   The three are spread across the whole window rather than tucked into the
+   corners. Corners are where the rail and the column sit, and a light nobody
+   can see through a panel is a light that may as well not be lit: the first
+   pass put them at 6% and 94% and the chat, which is most of the window, came
+   out flat. */
+[data-scheme="glass"] {
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(70% 60% at 18% 8%, hsl(var(--primary) / .40), transparent 66%),
+    radial-gradient(60% 55% at 82% 34%, hsl(var(--token-skill) / .34), transparent 68%),
+    radial-gradient(75% 60% at 45% 96%, hsl(var(--token-path) / .30), transparent 70%);
+}
+
+/* <body> is what actually covers the window, so it has to get out of the way
+   of the gradient on <html> above it. */
+[data-scheme="glass"] body { background: transparent; }
+
+/* The title bar is already painted in --rail, which is a tint, so it only
+   wants the blur. The panes are solid in every other theme and are cut back to
+   a sheet here. */
+[data-scheme="glass"] #titlebar {
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* The two panes are the biggest sheets in the window, so their tint is the one
+   number that decides whether the ground is visible at all. A third is about
+   the limit: past that the gradient is gone, under it the transcript starts
+   sitting on colour rather than on glass. */
+[data-scheme="glass"] :is(#agent, #right) {
+  background: hsl(var(--card) / .30);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+
+[data-scheme="glass"] :is(
+  [data-slot="card"],
+  [data-slot="alert"],
+  [data-slot="dialog-content"],
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="menubar-content"],
+  [data-slot="select-content"],
+  [data-slot="command"],
+  [data-slot="input-group"],
+  [data-slot="sidebar-inner"]
+) {
+  background-color: hsl(var(--card) / .55);
+  border-color: hsl(var(--foreground) / .14);
+  backdrop-filter: blur(24px) saturate(150%);
+}
+
+/* A dialog is the one time the whole window goes behind something, so the
+   whole window is what gets blurred. */
+[data-scheme="glass"] [data-slot="dialog-overlay"] { backdrop-filter: blur(6px); }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+/* The terminal in the light theme, for every scheme: the page's own background
+   and text, so the pane matches the window around it, and ANSI colours dark
+   enough to read on it. html[...] outranks the per-scheme blocks above, which
+   only set a dark terminal. The brights matter as much as the normals: a
+   prompt that draws in bright white would otherwise vanish. */
+html[data-theme="light"] {
+  --term-bg: hsl(var(--background));
+  --term-fg: hsl(var(--foreground));
+  --term-dim: hsl(var(--muted-foreground));
+  --term-line: hsl(var(--border));
+  --term-cursor: hsl(var(--primary));
+  --term-selection: hsl(var(--primary) / .18);
+  --term-black: #24292f;
+  --term-red: #cf222e;
+  --term-green: #116329;
+  --term-yellow: #9a6700;
+  --term-blue: #0550ae;
+  --term-magenta: #8250df;
+  --term-cyan: #1b7c83;
+  --term-white: #6e7781;
+  --term-bright-black: #57606a;
+  --term-bright-red: #a40e26;
+  --term-bright-green: #1a7f37;
+  --term-bright-yellow: #633c01;
+  --term-bright-blue: #218bff;
+  --term-bright-magenta: #a475f9;
+  --term-bright-cyan: #3192aa;
+  --term-bright-white: #8c959f;
+}
+
+html, body {
+  margin: 0; height: 100%;
+  background: var(--bg); color: var(--fg);
+  font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body { display: flex; flex-direction: column; }
+
+/* React renders the whole window, so the column that used to be <body>'s
+   children is now one level down. */
+#root { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* A resizable panel wraps its children in a div of its own. Nothing in here
+   should be the thing that decides a panel's size, so let them all shrink. */
+[data-panel], [data-panel] > * { min-width: 0; min-height: 0; }
+
+/* The chrome's own buttons are unstyled by default. The React panel styles its
+   own, and its overlays (dialogs, menus) are portalled to <body>, outside
+   #agent-root, so exempt anything sitting under a shadcn data-slot as well or
+   this rule strips their borders and colours.
+
+   A shadcn button wears a data-slot of its own, and the two :not(#…) clauses
+   above make this selector outrank anything a theme can say, so a button that
+   happened to have no data-slot ancestor was one the Brutalist theme could not
+   put a border on. Carrying the slot is the same claim as sitting under one. */
+button:not(#agent-root button):not([data-slot] button):not([data-slot]) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+.dim { color: var(--fg-dim); }
+
+kbd {
+  font: 10px/1.6 var(--mono);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 4px; margin-left: 6px;
+  color: var(--fg-dim);
+}
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+
+/* ------------------------------------------------------------- title bar */
+
+/* One strip, the window frame we draw ourselves: the mark, the sidebar switch
+   and the menus on the left, the app's controls and the three window buttons on
+   the right, and everything between them a drag handle. */
+
+#titlebar {
+  display: flex; align-items: center; gap: 6px;
+  height: 42px; padding: 0 0 0 10px;
+  background: var(--rail);
+  border-bottom: 1px solid var(--line);
+  -webkit-app-region: drag;
+}
+#titlebar button, #titlebar input { -webkit-app-region: no-drag; }
+
+
+/* The preview's loading bar. A page load has no percentage worth reporting, so
+   this says "something is happening" and nothing else: a short bar crossing the
+   top of the pane until the load stops. */
+@keyframes pane-load {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(420%); }
+}
+.pane-load { animation: pane-load 1.05s ease-in-out infinite; }
+
+/* Grows toward ~90% while a page loads, then snaps off. Reduced motion holds
+   a still bar so the chrome still says "working" without the sweep. */
+.preview-loading-progress {
+  transform: scaleX(0);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.preview-loading-progress[data-loading] {
+  opacity: 1;
+  animation: preview-loading-progress 5.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+@keyframes preview-loading-progress {
+  from { transform: scaleX(0.04); }
+  to { transform: scaleX(0.9); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-loading-progress[data-loading] {
+    animation: none;
+    transform: scaleX(0.9);
+  }
+}
+
+/* ------------------------------------------------------------------ shell */
+
+[data-slot="resizable-handle"]:hover { background: var(--accent); }
+
+/* The chat pane. React fills it, and the welcome state sits over it until a
+   folder has been chosen, which is what the positioning is for. */
+#agent { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+/* The chat pane has its own type size, set apart from the shell's zoom and the
+   terminal's font. Scaling rather than sizing: the transcript is a mix of
+   inherited prose and Tailwind's own sizes, so a font-size here would grow the
+   paragraphs and leave every badge and tool row behind. Zoom takes the padding
+   with it and the pane keeps its proportions at any size. The number in
+   settings is what the body text ends up at; --chat-scale is that over the
+   13px this has always been. */
+#agent-root {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  zoom: var(--chat-scale, 1);
+  font-family: var(--chat-font, inherit);
+}
+
+/* --------------------------------------------------------- preview pane */
+
+#right { height: 100%; display: flex; flex-direction: column; background: var(--bg-2); border-left: 1px solid var(--line); }
+
+/* Full width: the chat panel and its splitter are not rendered at all, and the
+   right column is the only panel left in the group. The rail is untouched, so
+   it stays open if it was open, and closing it hands the page the last of the
+   window. */
+#right[data-full] { border-left: none; }
+
+/* The page is a separate web contents the window paints on top of this
+   document, so this div is the hole it is flown into and stays empty. */
+#stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
+#paneslot { position: absolute; inset: 0; }
+
+/* A menu opening over the pane would open behind it, so the page is
+   photographed and the picture hung here until the menu closes. */
+.pane-still { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ----------------------------------------------------------- files pane */
+
+/* Shiki hands back finished HTML rather than components, so the highlighted
+   file is the one thing in this pane still styled from a stylesheet. */
+#file-view .shiki {
+  margin: 0; padding: 0; background: transparent !important;
+  font: 12px/1.55 var(--mono); tab-size: 2;
+}
+/* A flex column, not a block: Shiki puts a newline between every pair of line
+   spans and `white-space: pre` would render each one as a blank row. A flex
+   container drops whitespace-only children, which is exactly what those are. */
+#file-view .shiki code { display: flex; flex-direction: column; counter-reset: line; }
+#file-view .shiki .line { padding-right: 16px; white-space: pre; }
+#file-view .shiki .line::before {
+  counter-increment: line; content: counter(line);
+  display: inline-block; width: 4ch; margin-right: 16px;
+  text-align: right; color: var(--fg-faint); user-select: none;
+}
+#file-view .shiki .line:hover { background: var(--bg-3); }
+/* Wrapped, a long line continues under its own text rather than under the
+   line number: the padding makes room for the number and the negative indent
+   pulls the first row back over it. */
+#file-view[data-wrap] .shiki .line {
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  padding-left: calc(4ch + 16px); text-indent: calc(-4ch - 16px);
+}
+/* Shiki writes both themes into the markup: colour attributes for light and a
+   --shiki-dark custom property alongside. Picking one here means switching
+   theme costs nothing, where re-highlighting a long file would stutter. */
+[data-theme="dark"] #file-view .shiki span { color: var(--shiki-dark) !important; }
+#file-view .shiki.plain .line { color: var(--code); }
+
+/* ------------------------------------------------------------ terminals */
+
+/* xterm renders into a host element and owns every node under it, so the tab
+   strip above is React's and this is not. Only the active host is displayed:
+   they are stacked, and a hidden one keeps its scrollback. */
+#terms { flex: 1; min-height: 0; position: relative; background: var(--term-bg); }
+.term-host { position: absolute; inset: 0; padding: 8px 6px 6px 12px; display: none; }
+.term-host.active { display: block; }
+/* The one thing in the panel that is not painted from a --term-* property
+   directly: a thumb the colour of the grid lines disappears against the
+   ground, so it is mixed up out of the terminal's own two colours and
+   follows the theme with them. */
+.xterm-viewport::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--term-fg) 22%, var(--term-bg)); }
+
+

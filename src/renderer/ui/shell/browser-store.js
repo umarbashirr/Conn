@@ -1,0 +1,619 @@
+/* Everything a preview knows about the page it is showing: the address, whether
+   it loaded, what it logged, and what the network did.
+
+   The pane itself is a native view the window paints over this document, so
+   none of it is readable from here. Main sends it across and this is where it
+   lands.
+
+   A folder can have several previews open at once, one per preview tab in its
+   strip, so this is a record per tab. Tab ids are minted once for the life of
+   the window and never reused, which is what makes them safe to key on: a
+   record can never be handed the page of some tab that came before it. Main
+   keys its native views off the same ids, so the two halves agree without
+   either one keeping a table of the other's names.
+
+   `browserState` is the preview the chrome speaks for, which is whichever one
+   the focused folder is reading. The rest are parked and still running, and
+   what they say still lands here: a build error a tab logged while you were
+   reading another one is in its console when you click over to it. */
+'use strict';
+import { act, layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
+import { activateTab, activeTab, chatOfTab, everyTab, openTab, previewTabs, setTabTitle, subscribeTabs } from './tabs-store.js';
+import { toast } from './toast.jsx';
+
+const blank = () => ({
+  // The address bar is split so that http:// can be shown as a warning and
+  // https:// left off entirely.
+  scheme: '',
+  url: '',
+  canGoBack: false,
+  canGoForward: false,
+  // A page is "live" once something other than about:blank is loaded.
+  live: false,
+  // Fetching. The status line said so in words, which is not something anyone
+  // reads while they are waiting to see whether the pane is stuck.
+  loading: false,
+  status: '',
+  error: null,
+  favicon: '',
+  console: [],
+  network: [],
+  drawerOpen: false,
+  drawerTab: 'console',
+  viewport: '',
+  // The frame's scale, pinned while a handle is being dragged. Refitting on
+  // every move would slide the handle out from under the pointer.
+  hold: null,
+  picking: false,
+});
+
+/* Whether the native guest should paint in the hole. Empty and error Stages
+   own that rectangle in the shell document, and the guest composites above it,
+   so those states must keep the view hidden. Menu cover is a separate layer
+   (pane-cover.js) and is applied on top of this answer. */
+export function guestWanted() {
+  const tab = onScreen();
+  if (!tab) return false;
+  const b = previewOf(tab);
+  return !!(b.live && !b.error);
+}
+
+const bumpGuest = () => act('syncGuestVisibility');
+
+const byTab = new Map(); // tab id -> record
+const ownerOf = new Map(); // tab id -> the folder whose strip that tab is in
+
+// Whether a local server the terminal printed opens without asking. That is an
+// answer about the folder rather than about one of its previews, so it is not
+// in the records: saying "always" once and having a second preview tab ask you
+// again would read as the setting not taking.
+const autoOpen = new Set();
+
+// The preview each folder was last reading. Flipping to the diff and hitting
+// the drawer key should go back to the preview you were on, not to the first
+// one in the strip.
+const lastPreview = new Map();
+
+let focusedDir = '';
+let shown = null; // the tab main has in the box
+let current = null; // the tab browserState points at
+let drawn = ''; // what the chrome was last told about those two
+
+// A window with nothing previewed anywhere still has a status bar. Nothing ever
+// writes to this one.
+const idle = blank();
+
+export let browserState = idle;
+
+function recordOf(tab) {
+  let s = byTab.get(tab);
+  if (!s) { s = blank(); byTab.set(tab, s); }
+  return s;
+}
+
+/* Reading a tab that may not have said anything yet, which is every tab for the
+   first second of its life. The blank is shared and never written to, so a
+   frame drawing a tab with no record draws an empty page rather than the page
+   of whatever tab is current. */
+export const previewOf = (tab) => (tab && byTab.get(tab)) || idle;
+
+const listeners = new Set();
+let version = 0;
+
+export const getBrowserVersion = () => version;
+
+export function subscribeBrowser(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+// A page that logs in a loop used to repaint the drawer per message, and did it
+// while the drawer was closed and nobody could see it. Coalesce to one repaint
+// per frame.
+let queued = false;
+function changed({ soon = false } = {}) {
+  version += 1;
+  if (!soon) {
+    for (const fn of listeners) fn();
+    return;
+  }
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(() => {
+    queued = false;
+    for (const fn of listeners) fn();
+  });
+}
+
+export const consoleErrors = (tab = current) => previewOf(tab).console.filter((c) => c.level === 'error').length;
+
+// ------------------------------------------------------- which one is where
+
+/* The preview in the box. There is one box and one native view allowed in it,
+   so this is the focused folder's active tab and only when that tab is a
+   preview at all. Everything else main parks offscreen, where it goes on
+   loading. */
+export function onScreen() {
+  if (!layout.rightOpen) return null;
+  const tab = activeTab(focusedDir);
+  return tab?.kind === 'browser' ? tab.id : null;
+}
+
+/* The preview the address bar, the drawer key and the status bar speak for. It
+   outlives what is in the box: reading a folder's diff does not make its
+   preview stop being the page that folder is on. */
+function currentOf(dir) {
+  const tab = activeTab(dir);
+  if (tab?.kind === 'browser') return tab.id;
+
+  const open = previewTabs(dir);
+  const last = lastPreview.get(dir);
+  if (last && open.includes(last)) return last;
+  return open[0] || null;
+}
+
+// Every preview the window knows about, in the order they were opened. The view
+// draws one frame each, including the folders nobody is looking at, so that a
+// half-typed address survives a trip to another project.
+export const previews = () => [...ownerOf].map(([tab, dir]) => ({ tab, dir }));
+
+/* A tab that left the strip takes its native view with it, and a
+   WebContentsView nobody disposes stays in the window with its debugger
+   attached. Watching the store rather than waiting to be told means the close
+   button, a folder or a chat going away and anything else that drops a tab all
+   arrive here by the same road. Every chat's previews count, since a chat not
+   on screen keeps its pages. */
+function reap() {
+  const live = new Set(everyTab().filter((e) => e.tab.kind === 'browser').map((e) => e.tab.id));
+  for (const tab of [...ownerOf.keys()]) if (!live.has(tab)) forget(tab);
+}
+
+function forget(tab) {
+  ownerOf.delete(tab);
+  byTab.delete(tab);
+  window.conn.browser.closeTab(tab);
+}
+
+/* One place decides which preview is in the box and which one the chrome is
+   drawing. Tab changes, focus moves and the column opening or shutting all come
+   in here, so no caller has to remember to say. Running it when nothing moved
+   costs a map walk and sends nothing. */
+function syncPreview() {
+  // A tab the user opened from the strip has never spoken, so this is where
+  // most previews are first heard of.
+  for (const tab of previewTabs(focusedDir)) ownerOf.set(tab, focusedDir);
+  reap();
+
+  const box = onScreen();
+  if (box !== shown) {
+    shown = box;
+    window.conn.browser.show(box, null, box && chatOfTab(box));
+  }
+  if (box) lastPreview.set(focusedDir, box);
+
+  const now = currentOf(focusedDir);
+  if (now !== current) {
+    current = now;
+    browserState = now ? recordOf(now) : idle;
+    // A network fetch still out for the preview we just left would otherwise
+    // land in this one's drawer.
+    fetchSeq += 1;
+  }
+
+  // The chrome reads all three of these, not only the record: which frame is on
+  // screen and which frames exist at all are answered out of this file too.
+  const mark = `${shown} ${current} ${[...ownerOf.keys()]}`;
+  if (mark === drawn) return;
+  drawn = mark;
+  changed();
+  bumpGuest();
+}
+
+/* Bring a preview forward: its folder's strip goes to it and the column opens.
+   A folder you are not looking at does not get to do this, so its errors and
+   its loads wait for you rather than pulling the column off the folder in
+   front. */
+function reveal(tab) {
+  if (!tab || !previewTabs(focusedDir).includes(tab)) return;
+  activateTab(focusedDir, tab);
+  if (!layout.rightOpen) setLayout({ rightOpen: true });
+  syncPreview();
+}
+
+// ------------------------------------------------------------- navigation
+
+/* An address that named a folder rather than a tab: `conn go 3000` typed in a
+   shell, a dev server printing itself, the command palette. It goes to the
+   preview that folder is reading and opens one if the folder has none. */
+export function navigate(url, project) {
+  return navigateTab(url, previewIn(project || focusedDir));
+}
+
+function previewIn(dir) {
+  const held = currentOf(dir);
+  if (held) return held;
+
+  // Opening a tab opens the column, which is right when the address is for the
+  // folder in front of you and wrong when it came from one behind it.
+  const tab = openTab(dir, 'browser', null, { reveal: dir === focusedDir });
+  if (!tab) return null;
+  ownerOf.set(tab.id, dir);
+  syncPreview();
+  return tab.id;
+}
+
+export async function navigateTab(url, tab) {
+  if (!tab) return;
+  const b = recordOf(tab);
+  b.url = url;
+  reveal(tab);
+  if (b === browserState) changed();
+  // The folder goes with it. A URL a shell printed in a folder nobody is
+  // looking at reaches main before the strip has had a chance to name that tab,
+  // and a page filed under the wrong folder would go when that one closed.
+  await window.conn.browser.action('navigate', url, tab, ownerOf.get(tab));
+}
+
+// Omitting the tab means the one on screen, which is the only one a button you
+// can click belongs to.
+export const go = (action, tab) => window.conn.browser.action(action, undefined, tab);
+
+// ------------------------------------------------------------------ drawer
+
+/* The single way in: the tab strip, Ctrl+Shift+J, the menu and Show Details on
+   a failed load all land here. They each used to open the drawer their own way,
+   and the three orderings disagreed about when the pane got remeasured. */
+let fetchSeq = 0;
+
+export async function showDrawer(which, tab = current) {
+  if (!tab) return;
+  const b = recordOf(tab);
+  reveal(tab);
+  b.drawerTab = which || b.drawerTab;
+  b.drawerOpen = true;
+  // The rows still in the body belong to whatever was open last, and they would
+  // sit there in plain sight while the fetch is out.
+  if (b.drawerTab === 'network') b.network = [];
+  changed();
+
+  // Stamped on every open, not only the ones that fetch, so clicking straight
+  // over to the console retires a network fetch that is still out instead of
+  // letting it land behind the tab that replaced it.
+  const seq = ++fetchSeq;
+  if (b.drawerTab !== 'network') return;
+
+  const rows = await window.conn.browser.action('network', undefined, tab).catch(() => []);
+  if (seq !== fetchSeq || !b.drawerOpen) return;
+  b.network = Array.isArray(rows) ? rows : [];
+  changed();
+}
+
+export function hideDrawer(tab = current) {
+  const b = previewOf(tab);
+  if (!b.drawerOpen) return;
+  b.drawerOpen = false;
+  changed();
+}
+
+export const toggleDrawer = () => (browserState.drawerOpen ? hideDrawer() : showDrawer());
+
+export function clearLogs(tab = current) {
+  const b = previewOf(tab);
+  b.console = [];
+  b.network = [];
+  changed();
+}
+
+// ---------------------------------------------------------------- viewport
+
+export const VIEWPORTS = [
+  { size: '390x844', label: 'Phone', note: '390 × 844', icon: 'smartphone' },
+  { size: '768x1024', label: 'Tablet', note: '768 × 1024', icon: 'tablet' },
+  { size: '1280x800', label: 'Laptop', note: '1280 × 800', icon: 'laptop' },
+  { size: '1920x1080', label: 'Desktop', note: '1920 × 1080', icon: 'monitor' },
+];
+
+export const MIN_VIEWPORT = 200;
+export const MAX_VIEWPORT = 4000;
+// Room around the frame for its handles, in the shell's CSS pixels.
+export const FRAME_EDGE = 20;
+const FRAME_TOP = 12;
+
+/* Where the device frame sits in the slot, relative to the slot. Top and
+   centred, the way Chrome's device mode has it: the right handle then only has
+   to follow the pointer if a drag grows the frame on both sides, which is what
+   the handles do. Shrunk to fit and never grown past 1. A held scale is a
+   ceiling rather than a pin, so a frame dragged into the edge of the pane
+   keeps growing by shrinking. */
+export function frameBox(slot, dims, hold = null) {
+  const room = { width: slot.width - 2 * FRAME_EDGE, height: slot.height - FRAME_TOP - FRAME_EDGE };
+  const scale = Math.max(0.05, Math.min(room.width / dims.width, room.height / dims.height, hold ?? 1));
+  const width = Math.max(1, Math.round(dims.width * scale));
+  const height = Math.max(1, Math.round(dims.height * scale));
+  return { x: (slot.width - width) / 2, y: FRAME_TOP, width, height, scale };
+}
+
+export function holdScale(scale, tab = current) {
+  if (!tab) return;
+  recordOf(tab).hold = scale;
+  changed();
+  act('syncPreviewBounds');
+}
+
+export function parseViewport(size) {
+  if (!size) return null;
+  const m = /^(\d+)x(\d+)$/.exec(String(size));
+  if (!m) return null;
+  const width = Number(m[1]);
+  const height = Number(m[2]);
+  if (!width || !height) return null;
+  return { width, height };
+}
+
+// A viewport belongs to the preview it was chosen in: the phone frame you put
+// the marketing page in is no reason to shrink the admin page beside it.
+export function setViewport(size, tab = current) {
+  if (!tab) return undefined;
+  recordOf(tab).viewport = size || '';
+  changed();
+  act('syncPreviewBounds');
+  if (!size) return window.conn.browser.action('setViewport', null, tab);
+  const dims = parseViewport(size);
+  if (!dims) return undefined;
+  return window.conn.browser.action('setViewport', dims, tab);
+}
+
+// Responsive mode starts at the size the page already has, so turning it on
+// changes nothing until you drag.
+export async function toggleResponsive(tab = current) {
+  if (!tab) return undefined;
+  if (recordOf(tab).viewport) return setViewport('', tab);
+  const b = await window.conn.browser.action('bounds', null, tab).catch(() => null);
+  const width = Math.max(MIN_VIEWPORT, Math.round(b?.width || 0)) || 1280;
+  const height = Math.max(MIN_VIEWPORT, Math.round(b?.height || 0)) || 800;
+  return setViewport(`${width}x${height}`, tab);
+}
+
+export function rotateViewport(tab = current) {
+  if (!tab) return undefined;
+  const dims = parseViewport(recordOf(tab).viewport);
+  if (!dims) return undefined;
+  return setViewport(`${dims.height}x${dims.width}`, tab);
+}
+
+// ------------------------------------------------------------------ tools
+
+export async function screenshot(tab = current) {
+  const r = await window.conn.browser.action('screenshot', { fullPage: true }, tab);
+  toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
+}
+
+export async function pickElement(tab = current) {
+  const b = previewOf(tab);
+  if (!b.live) {
+    toast('Nothing to point at', 'Load a page in the preview first.', [{ label: 'ok', primary: true }]);
+    return;
+  }
+
+  reveal(tab);
+  b.picking = true;
+  changed();
+
+  let hit = null;
+  try {
+    hit = await window.conn.browser.action('pick', undefined, tab);
+  } finally {
+    b.picking = false;
+    changed();
+  }
+  if (!hit) return;
+
+  // Grab the element itself so the agent can look at it, not just read about it.
+  let shotPath = null;
+  try {
+    const shot = await window.conn.browser.action('screenshot', { target: hit.ref, name: `pick-${Date.now()}` }, tab);
+    shotPath = shot?.path || null;
+  } catch { /* the description is worth sending without the picture */ }
+
+  window.addAttachment?.(hit, shotPath);
+}
+
+window.pickElement = pickElement;
+
+export function askAboutError(tab = current) {
+  const e = previewOf(tab).error;
+  if (!e) return;
+  window.sendToAgent?.(
+    `The preview failed to load ${e.url || 'the page'} with "${e.message}". `
+    + 'Work out why: check whether the dev server is running, what port it is actually on, '
+    + 'and start it or point me at the right URL.',
+  );
+}
+
+// --------------------------------------------------------------- recents
+
+const RECENTS_KEY = 'conn.browser.recents';
+const MAX_RECENTS = 12;
+
+function loadRecents() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((e) => e && e.url).slice(0, MAX_RECENTS) : [];
+  } catch {
+    return [];
+  }
+}
+
+let recents = loadRecents();
+const servers = new Map(); // project -> { url, at }
+
+function saveRecents() {
+  try { localStorage.setItem(RECENTS_KEY, JSON.stringify(recents)); } catch { /* quota */ }
+}
+
+function rememberVisit(url, title) {
+  if (!url || url === 'about:blank') return;
+  const full = /^(https?:\/\/)/i.test(url) ? url : `http://${url}`;
+  recents = [
+    { url: full, title: title || '', at: Date.now() },
+    ...recents.filter((e) => e.url !== full),
+  ].slice(0, MAX_RECENTS);
+  saveRecents();
+  changed({ soon: true });
+}
+
+export const recentUrls = () => recents;
+
+export function removeRecent(url) {
+  recents = recents.filter((e) => e.url !== url);
+  saveRecents();
+  changed();
+}
+
+export function localServers(project = focusedDir) {
+  const hit = servers.get(project);
+  return hit ? [hit] : [];
+}
+
+export function rememberServer(url, project) {
+  if (!url || !project) return;
+  servers.set(project, { url, at: Date.now() });
+  changed({ soon: true });
+}
+
+// ------------------------------------------------------------------ wiring
+
+/* Nothing below tells main to make a pane visible. `show` names the one preview
+   that belongs in the box and main parks every other, so a page finishing its
+   load in a tab you are not on can no longer lift the cover off the tab you
+   are. */
+
+window.conn.browser.onState((s) => {
+  // Every event names its tab. One that does not can only be about the preview
+  // in the box, because an untagged path has no other view to reach.
+  const tab = s.tab || shown;
+  if (!tab) return;
+  const b = recordOf(tab);
+  if (s.project) ownerOf.set(tab, s.project);
+  const drawing = b === browserState;
+  const wasLive = b.live;
+  const hadError = !!b.error;
+  const hadViewport = b.viewport;
+  if (s.viewport !== undefined) b.viewport = s.viewport;
+
+  // Retyping an address while the page is still loading should not have the old
+  // one land back on top of it. The bar keeps a local draft while focused; the
+  // record still tracks the real page so a blur or an agent navigation can
+  // catch up.
+  if (s.url && s.url !== 'about:blank') {
+    const m = /^(https?:\/\/)(.*)$/.exec(s.url);
+    b.scheme = m ? (m[1] === 'https://' ? '' : 'http://') : '';
+    b.url = m ? m[2] : s.url;
+  }
+
+  b.canGoBack = !!s.canGoBack;
+  b.canGoForward = !!s.canGoForward;
+  if (s.favicon !== undefined) b.favicon = s.favicon || '';
+
+  if (s.error) {
+    b.error = { message: s.error, url: s.failedUrl || s.url };
+    if (drawing) reveal(tab);
+  } else if (s.loading) {
+    // A new load attempt retires the previous failure. A later stop-loading
+    // event still carries the failed URL and must not wipe the error card.
+    b.error = null;
+  }
+
+  const empty = !s.url || s.url === 'about:blank';
+  b.live = !empty;
+  b.loading = !!s.loading && !s.error;
+
+  b.status = s.error
+    ? `error: ${s.error}`
+    : empty ? '' : (s.loading ? 'loading…' : (s.title || ''));
+
+  // The strip labels a preview with the page in it. A page that never gave
+  // itself a title is better named by its address than by nothing.
+  const owner = ownerOf.get(tab);
+  if (owner) setTabTitle(owner, tab, empty ? '' : (s.title || b.url));
+
+  if (b.live && !b.loading && !b.error && s.url && s.url !== 'about:blank') {
+    rememberVisit(s.url, s.title || '');
+  }
+
+  // Nothing on screen moved for a tab that is not drawing, and its record is
+  // read whole when you click back to it.
+  if (drawing) {
+    changed();
+    if (wasLive !== b.live || hadError !== !!b.error || hadViewport !== b.viewport) {
+      bumpGuest();
+      act('syncPreviewBounds');
+    }
+  }
+});
+
+window.conn.browser.onConsole((c) => {
+  const tab = c.tab || shown;
+  if (!tab) return;
+  const b = recordOf(tab);
+  if (c.project) ownerOf.set(tab, c.project);
+  b.console.push(c);
+  if (b.console.length > 500) b.console.shift();
+  if (b === browserState) changed({ soon: true });
+});
+
+/* An agent asked for a preview in a chat with no tab open for one. Main has
+   already made the native view and minted the id, so the strip takes that id
+   rather than one of its own and the two ends stay one thing. The tab goes in
+   the panel of the chat main made it for; a terminal agent has no chat and gets
+   the one its folder is showing. */
+window.conn.browser.onOpenTab(({ project, tab, chat }) => {
+  if (!project || !tab) return;
+  ownerOf.set(tab, project);
+  if (chatOfTab(tab) !== null) activateTab(project, tab);
+  // The column is only brought up for the folder on screen. An agent working
+  // somewhere you are not looking at gets its tab made and waiting.
+  else openTab(project, 'browser', tab, { reveal: project === focusedDir, ...(chat ? { chat } : {}) });
+  syncPreview();
+});
+
+window.conn.term.onUrl(({ url, project }) => {
+  rememberServer(url, project);
+  if (autoOpen.has(project)) { navigate(url, project); return; }
+  // A shell in a folder you are not looking at prints an address too, and it is
+  // that folder's preview the address belongs in, so say whose it is.
+  const name = (project || '').split('/').pop();
+  const where = project === focusedDir || !name ? url : `${url} in ${name}`;
+  toast('Local server detected', where, [
+    { label: 'Open', primary: true, run: () => navigate(url, project) },
+    { label: 'Always', run: () => { autoOpen.add(project); navigate(url, project); } },
+    { label: 'Ignore' },
+  ]);
+});
+
+/* Opens, closes, reorders and focus moves all arrive as this one event with the
+   whole set, so the only way to tell what happened is to compare. */
+function projectsChanged(info) {
+  const dir = info?.focused || '';
+  const open = new Set((info?.projects || []).map((p) => p.dir));
+
+  // A closed folder took its previews with it. Nobody will ask what their
+  // consoles said, so let the records go rather than hold a window's worth of
+  // logs for a project that is gone, and dispose the native views behind them.
+  for (const [tab, owner] of ownerOf) if (!open.has(owner)) forget(tab);
+  for (const key of [...lastPreview.keys()]) if (!open.has(key)) lastPreview.delete(key);
+  for (const key of [...autoOpen]) if (!open.has(key)) autoOpen.delete(key);
+  for (const key of [...servers.keys()]) if (!open.has(key)) servers.delete(key);
+
+  focusedDir = dir;
+  syncPreview();
+}
+
+window.conn.project.onChanged(projectsChanged);
+window.conn.project.info().then(projectsChanged).catch(() => {});
+
+/* The three things that move the box. The strip says which tab is active, the
+   layout says whether the column is open at all, and focus says whose strip we
+   are reading, which arrives above with the projects. */
+subscribeTabs(syncPreview);
+subscribeLayout(syncPreview);

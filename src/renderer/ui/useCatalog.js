@@ -1,0 +1,79 @@
+import { useCallback, useEffect, useState } from 'react';
+
+const conn = () => window.conn;
+const EMPTY = { skills: [], agents: [], mcp: [], live: false, connectors: true };
+
+// The skills and MCP servers this folder has. Main reads them off disk, so the
+// lists are there on first paint; a running session corrects them through
+// onChanged. Every action here returns the whole listing back, which keeps the
+// panel and the config files from drifting apart.
+export function useCatalog() {
+  const [data, setData] = useState(EMPTY);
+  const [error, setError] = useState(null);
+
+  const take = useCallback((next) => {
+    if (!next) return;
+    setError(next.error || null);
+    if (next.skills) {
+      setData({
+        skills: next.skills,
+        agents: next.agents || [],
+        mcp: next.mcp || [],
+        live: !!next.live,
+        connectors: next.connectors !== false,
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    conn().catalog.info().then(take).catch(() => {});
+    const off = conn().catalog.onChanged(take);
+    const offProject = conn().project.onChanged(() => { conn().catalog.info().then(take).catch(() => {}); });
+    return () => { off?.(); offProject?.(); };
+  }, [take]);
+
+  const run = useCallback(async (fn) => {
+    try { take(await fn()); } catch (e) { setError(e.message); }
+  }, [take]);
+
+  // A server's add or sign-in in flight, or how it failed, keyed by name. It
+  // lives here rather than in the row so a sign-in that takes minutes in the
+  // browser survives the page switching tabs. Its errors belong to the row.
+  const [pending, setPending] = useState({});
+  const forServer = useCallback(async (name, fn) => {
+    setPending((p) => ({ ...p, [name]: { busy: true } }));
+    let error = null;
+    try {
+      const next = await fn();
+      error = next?.error || null;
+      take({ ...next, error: null });
+    } catch (e) {
+      error = e.message;
+    }
+    setPending(({ [name]: _, ...rest }) => (error ? { ...rest, [name]: { error } } : rest));
+  }, [take]);
+
+  return {
+    ...data,
+    error,
+    pending,
+    refresh: () => run(() => conn().catalog.refresh()),
+    setSkill: (name, enabled) => run(() => conn().catalog.skill(name, enabled)),
+    setConnectors: (enabled) => run(() => conn().catalog.connectors(enabled)),
+    toggleMcp: (name, enabled) => run(() => conn().catalog.mcpToggle(name, enabled)),
+    reconnectMcp: (name) => run(() => conn().catalog.mcpReconnect(name)),
+    loginMcp: async (name) => {
+      const res = await conn().catalog.mcpLogin(name);
+      if (res.error) { setError(res.error); return null; }
+      setError(null);
+      return res.command;
+    },
+    addMcp: (server) => run(() => conn().catalog.mcpAdd(server)),
+    addGalleryMcp: (name, config) => forServer(name, () => conn().catalog.mcpAdd({ name, scope: 'conn', config })),
+    authMcp: (name) => forServer(name, () => conn().catalog.mcpAuth(name)),
+    addTokenMcp: (name, token) => forServer(name, () => conn().catalog.mcpAddToken(name, token)),
+    cliSignedIn: (name) => conn().catalog.mcpCliSignedIn(name),
+    openTokenPage: (name) => conn().catalog.mcpTokenPage(name),
+    removeMcp: (name, scope) => run(() => conn().catalog.mcpRemove(name, scope)),
+  };
+}
