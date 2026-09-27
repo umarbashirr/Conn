@@ -42,6 +42,8 @@ import {
 } from './editors-store';
 import { useFocusedDir, useLayout, usePaneCover, VIEW_KINDS } from './Shell';
 import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
+import { formatChord, keyOf } from '@/lib/keys';
+import { useSettings } from '../useSettings';
 
 const ICON_BUTTON = 'size-6 rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
 
@@ -154,19 +156,22 @@ function Driver() {
    the strip is not on screen when the column is shut. */
 function ViewStrip() {
   const { changesCount } = useLayout();
+  const { settings } = useSettings();
 
   return (
     <div className="flex items-center gap-0.5">
       {KINDS.map((kind) => {
-        const { icon: Icon, command, hint } = VIEW_KINDS[kind];
+        const { icon: Icon, command, bind, title: name } = VIEW_KINDS[kind];
+        const shortcut = bind ? formatChord(keyOf(settings?.keybindings, bind)) : '';
+        const title = shortcut ? `${name} (${shortcut})` : name;
         return (
           <Button
             key={kind}
             variant="ghost"
             size="icon-xs"
             className={`${ICON_BUTTON} relative`}
-            title={hint}
-            aria-label={hint}
+            title={title}
+            aria-label={title}
             onClick={() => runCommand(command)}>
             <Icon />
             {/* A glance at the count says whether the agent has been writing. It

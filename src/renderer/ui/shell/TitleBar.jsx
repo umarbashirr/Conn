@@ -18,6 +18,8 @@ import {
   MenubarTrigger,
 } from '@/components/ui/menubar';
 import { runCommand } from '../../app.js';
+import { formatChord, keyOf } from '@/lib/keys';
+import { useSettings } from '../useSettings';
 import { onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
 import { chosenEditor, editors, getEditorsVersion, openEditor, subscribeEditors } from './editors-store';
 import { coverPane, uncoverPane } from './pane-cover';
@@ -74,7 +76,7 @@ const Note = ({ children }) => (
 
 const MENU_TRIGGER = 'h-6 rounded-sm px-2 py-0 text-[12px] font-normal text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground';
 
-function FileMenu({ folder }) {
+function FileMenu({ folder, settings }) {
   // The toolbar's own button is the short way in; this lists them all, because
   // a button with no label is a button nobody finds on purpose.
   useSyncExternalStore(subscribeEditors, getEditorsVersion, getEditorsVersion);
@@ -88,11 +90,11 @@ function FileMenu({ folder }) {
         <MenubarGroup>
           <MenubarItem onSelect={() => openFolder()}>
             Open folder…
-            <MenubarShortcut>^O</MenubarShortcut>
+            <Chord id="openFolder" settings={settings} />
           </MenubarItem>
           <MenubarItem onSelect={() => openFolder({ newWindow: true })}>
             Open folder in new window…
-            <MenubarShortcut>^⇧O</MenubarShortcut>
+            <Chord id="openFolderWindow" settings={settings} />
           </MenubarItem>
         </MenubarGroup>
 
@@ -131,10 +133,13 @@ function FileMenu({ folder }) {
 
         <MenubarSeparator />
         <MenubarGroup>
-          <MenubarItem onSelect={() => runCommand('newChat')}>New chat</MenubarItem>
+          <MenubarItem onSelect={() => runCommand('newChat')}>
+            New chat
+            <Chord id="newChat" settings={settings} />
+          </MenubarItem>
           <MenubarItem onSelect={() => runCommand('newTerminal')}>
             New terminal
-            <MenubarShortcut>^⇧T</MenubarShortcut>
+            <Chord id="newTerminal" settings={settings} />
           </MenubarItem>
         </MenubarGroup>
 
@@ -142,7 +147,7 @@ function FileMenu({ folder }) {
         <MenubarGroup>
           <MenubarItem onSelect={() => runCommand('settings')}>
             Settings…
-            <MenubarShortcut>^,</MenubarShortcut>
+            <Chord id="settings" settings={settings} />
           </MenubarItem>
         </MenubarGroup>
       </MenubarContent>
@@ -160,43 +165,43 @@ const MENUS = [
     value: 'edit',
     label: 'Edit',
     items: [
-      ['Undo', edit('undo'), '^Z'],
-      ['Redo', edit('redo'), '^⇧Z'],
+      ['Undo', edit('undo'), null, '^Z'],
+      ['Redo', edit('redo'), null, '^⇧Z'],
       null,
-      ['Cut', edit('cut'), '^X'],
-      ['Copy', edit('copy'), '^C'],
-      ['Paste', edit('paste'), '^V'],
-      ['Select all', edit('selectAll'), '^A'],
+      ['Cut', edit('cut'), null, '^X'],
+      ['Copy', edit('copy'), null, '^C'],
+      ['Paste', edit('paste'), null, '^V'],
+      ['Select all', edit('selectAll'), null, '^A'],
     ],
   },
   {
     value: 'view',
     label: 'View',
     items: [
-      ['Sessions', command('rail'), '^⇧S'],
-      ['Full screen', edit('fullScreen'), 'F11'],
-      ['Terminal', command('terminal'), '^`'],
-      ['Preview browser', command('preview'), '^⇧B'],
-      ['Project files', command('files'), '^⇧D'],
-      ['Uncommitted changes', command('changes'), '^⇧G'],
-      ['Right pane at full width', command('previewFull'), '^⇧F'],
-      ['Console and network', command('drawer'), '^⇧J'],
+      ['Sessions', command('rail'), 'rail'],
+      ['Full screen', edit('fullScreen'), null, 'F11'],
+      ['Terminal', command('terminal'), 'terminal'],
+      ['Preview browser', command('preview'), 'preview'],
+      ['Project files', command('files'), 'files'],
+      ['Uncommitted changes', command('changes'), 'changes'],
+      ['Right pane at full width', command('previewFull'), 'previewFull'],
+      ['Console and network', command('drawer'), 'drawer'],
       null,
-      ['Bigger', command('zoomIn'), '^+'],
-      ['Smaller', command('zoomOut'), '^-'],
-      ['Reset size', command('zoomReset'), '^0'],
+      ['Bigger', command('zoomIn'), 'zoomIn'],
+      ['Smaller', command('zoomOut'), 'zoomOut'],
+      ['Reset size', command('zoomReset'), 'zoomReset'],
       null,
-      ['Light or dark', command('theme')],
-      ['Theme…', command('appearance')],
+      ['Light or dark', command('theme'), 'theme'],
+      ['Theme…', command('appearance'), 'appearance'],
     ],
   },
   {
     value: 'help',
     label: 'Help',
     items: [
-      ['Copy MCP command', command('copyMcp')],
-      ['Check for updates…', command('updates')],
-      ['About', command('about')],
+      ['Copy MCP command', command('copyMcp'), 'copyMcp'],
+      ['Check for updates…', command('updates'), 'updates'],
+      ['About', command('about'), 'about'],
     ],
   },
 ];
@@ -210,7 +215,7 @@ function groups(items) {
   return out;
 }
 
-function SimpleMenu({ menu }) {
+function SimpleMenu({ menu, settings }) {
   return (
     <MenubarMenu value={menu.value}>
       <MenubarTrigger className={MENU_TRIGGER}>{menu.label}</MenubarTrigger>
@@ -219,10 +224,11 @@ function SimpleMenu({ menu }) {
           <Fragment key={group[0][0]}>
             {i > 0 && <MenubarSeparator />}
             <MenubarGroup>
-              {group.map(([label, run, hint]) => (
+              {group.map(([label, run, bind, fixed]) => (
                 <MenubarItem key={label} onSelect={run}>
                   {label}
-                  {hint && <MenubarShortcut>{hint}</MenubarShortcut>}
+                  {fixed && <MenubarShortcut>{fixed}</MenubarShortcut>}
+                  {!fixed && <Chord id={bind} settings={settings} />}
                 </MenubarItem>
               ))}
             </MenubarGroup>
@@ -233,12 +239,19 @@ function SimpleMenu({ menu }) {
   );
 }
 
+function Chord({ id, settings }) {
+  const text = formatChord(keyOf(settings?.keybindings, id), { compact: true });
+  if (!text) return null;
+  return <MenubarShortcut>{text}</MenubarShortcut>;
+}
+
 const WINDOW_BUTTON = 'h-full w-10 rounded-none text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
 
 export default function TitleBar() {
   const folder = useProject();
   const maximized = useWindowState();
   const [open, setOpen] = useState('');
+  const { settings } = useSettings();
   usePaneCover(open);
 
   // Frameless windows do not get the double-click-to-maximise the desktop gives
@@ -257,8 +270,8 @@ export default function TitleBar() {
         value={open}
         onValueChange={setOpen}
         className="h-auto rounded-none border-0 bg-transparent p-0 shadow-none">
-        <FileMenu folder={folder} />
-        {MENUS.map((menu) => <SimpleMenu key={menu.value} menu={menu} />)}
+        <FileMenu folder={folder} settings={settings} />
+        {MENUS.map((menu) => <SimpleMenu key={menu.value} menu={menu} settings={settings} />)}
       </Menubar>
 
       {/* The room between the menus and the app's controls, which is also

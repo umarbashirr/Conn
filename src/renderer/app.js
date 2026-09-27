@@ -12,6 +12,7 @@ import {
 } from './ui/shell/tabs-store.js';
 import { activeKey, activeProject, liveKeys, subscribeRail } from './ui/shell/rail-store.js';
 import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
+import { chordSteals, findBinding, inTerminal, setOverrides } from './ui/lib/keys.js';
 
 export const $ = (sel) => document.querySelector(sel);
 
@@ -71,6 +72,7 @@ let prefs = {
   chat: { fontSize: 13, fontFamily: '' },
 };
 try { prefs = window.conn.settings.snapshot() || prefs; } catch {}
+setOverrides(prefs.keybindings);
 
 const save = (partial) => { try { window.conn.settings.set(partial); } catch {} };
 
@@ -239,6 +241,7 @@ window.conn.settings.onChanged((next) => {
   if (!next) return;
   const before = prefs;
   prefs = next;
+  setOverrides(next.keybindings);
   if (next.appearance.theme !== before.appearance.theme
     || next.appearance.scheme !== before.appearance.scheme) applyTheme();
   if (next.appearance.zoom !== zoom) drawZoom(next.appearance.zoom || 1);
@@ -292,7 +295,7 @@ function spawnShell(dir, tabId) {
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon((_e, uri) => navigate(uri)));
-  term.attachCustomKeyEventHandler((e) => !isAppChord(e));
+  term.attachCustomKeyEventHandler((e) => !chordSteals(e));
   term.open(host);
 
   const shell = { tabId, dir, id: null, term, fit, host };
@@ -812,6 +815,16 @@ export function runCommand(name, arg) {
     case 'settings': return window.connChat?.settings?.(arg);
     case 'updates': return window.connChat?.settings?.('updates');
     case 'appearance': return window.connChat?.settings?.('appearance');
+    case 'focusComposer':
+      return document.querySelector('#agent-root [contenteditable="true"]')?.focus();
+    case 'focusAddress': return openPreview(true);
+    case 'pickElement': return pickElement();
+    case 'terminalTab': {
+      if (!shownShell()) return undefined;
+      const tab = tabsOf(state.focused).filter((t) => t.kind === 'terminal')[Number(arg) - 1];
+      if (tab) activateTab(state.focused, tab.id);
+      return undefined;
+    }
     case 'newChat': return window.connChat?.newChat();
     case 'newChatNoFolder': return window.conn.project.info().then((i) => window.connChat?.newChat(i.chats));
     case 'copyMcp': return copyMcpCommand();
@@ -837,33 +850,17 @@ wire(() => new ResizeObserver(() => syncBounds()).observe($('#paneslot')));
 
 // ---------------------------------------------------------------- keys
 
-// Ctrl+Shift+<key> and Ctrl+` only: everything else belongs to the shell.
-function isAppChord(e) {
-  const mod = e.ctrlKey || e.metaKey;
-  const k = (e.key || '').toLowerCase();
-  if (mod && e.shiftKey && ['b', 'd', 'g', 't', 'l', 'e', 'j', 's', 'k', 'p'].includes(k)) return true;
-  if (mod && k === '`') return true;
-  if (mod && !e.shiftKey && k.length === 1 && k >= '1' && k <= '9') return true;
-  return false;
-}
-
+// The settings page is the list. A chord it names is the one that runs, and a
+// terminal only gives up a key the list says it should.
 window.addEventListener('keydown', (e) => {
-  const mod = e.ctrlKey || e.metaKey;
-  const shift = e.shiftKey;
-  const k = (e.key || '').toLowerCase();
-  if (mod && k === '`') { e.preventDefault(); runCommand('terminal'); }
-  else if (mod && shift && k === 'b') { e.preventDefault(); togglePreview(); }
-  else if (mod && shift && k === 'd') { e.preventDefault(); toggleFiles(); }
-  else if (mod && shift && k === 'g') { e.preventDefault(); toggleChanges(); }
-  else if (mod && shift && k === 't') { e.preventDefault(); newTerminalTab(); }
-  else if (mod && shift && k === 'k') { e.preventDefault(); document.querySelector('#agent-root [contenteditable="true"]')?.focus(); }
-  else if (mod && shift && k === 'l') { e.preventDefault(); openPreview(true); }
-  else if (mod && shift && k === 'e') { e.preventDefault(); pickElement(); }
-  else if (mod && shift && k === 'j') { e.preventDefault(); toggleDrawer(); }
-  else if (mod && e.key >= '1' && e.key <= '9' && shownShell()) {
-    const t = tabsOf(state.focused).filter((tab) => tab.kind === 'terminal')[Number(e.key) - 1];
-    if (t) { e.preventDefault(); activateTab(state.focused, t.id); }
-  }
+  const hit = findBinding(e);
+  if (!hit) return;
+  // Ctrl+K belongs to the shell when the cursor is in one. The other way into
+  // the palette is a different chord and is allowed through.
+  if (hit.scope === 'shell' && inTerminal(e.target)) return;
+  if (hit.command === 'terminalTab' && !shownShell()) return;
+  e.preventDefault();
+  runCommand(hit.command, hit.arg);
 });
 
 // ---------------------------------------------------------------- boot

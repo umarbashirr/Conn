@@ -35,8 +35,10 @@ function sandboxUsable() {
 // nvm refuses to load under npm_config_prefix, and an `npm install` the agent
 // runs would take this repo's npm settings for its own. The installed app is
 // never launched through npm, so dropping them here makes the two match.
+// ELECTRON_RUN_AS_NODE makes this binary start as plain Node, where `app` does
+// not exist, so a shell that set it cannot be allowed to hand it on.
 const env = Object.fromEntries(
-  Object.entries(process.env).filter(([k]) => !/^npm_/i.test(k) && k !== 'INIT_CWD'),
+  Object.entries(process.env).filter(([k]) => !/^npm_/i.test(k) && k !== 'INIT_CWD' && k !== 'ELECTRON_RUN_AS_NODE'),
 );
 
 const child = spawn(electron, [path.join(__dirname, '..'), ...args], { stdio: 'inherit', env });

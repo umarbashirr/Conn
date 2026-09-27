@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
-  InfoIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
+  InfoIcon, KeyboardIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
   RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 
@@ -25,6 +25,7 @@ import { VISIBILITY } from '@/lib/model-visibility';
 import { ProviderLogo } from '@/components/provider-logo';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
+import { KeyboardPage } from '@/components/keyboard-page';
 import { CHAT_SIZES, runCommand, toast, ZOOM_STEPS } from '../../app.js';
 
 export const SETTINGS_SECTIONS = [
@@ -32,6 +33,7 @@ export const SETTINGS_SECTIONS = [
   ['agent', 'Agent', SparklesIcon],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
+  ['keyboard', 'Keyboard', KeyboardIcon],
   ['updates', 'Updates', DownloadIcon],
   ['startup', 'Startup', PowerIcon],
   ['about', 'About', InfoIcon],
@@ -892,6 +894,7 @@ export function SettingsPanel({ section, ...props }) {
       )}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
+      {section === 'keyboard' && <KeyboardPage {...props} />}
       {section === 'updates' && <Updates {...props} />}
       {section === 'startup' && <Startup {...props} />}
       {section === 'about' && <About {...props} />}

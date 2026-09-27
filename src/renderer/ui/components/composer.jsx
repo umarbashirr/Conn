@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { AttachmentPreview } from '@/components/attachment-preview';
 import { MentionMenu, fileRows, skillRows } from '@/components/mention-menu';
 import { TokenInput } from '@/components/token-input';
+import { matches } from '@/lib/keys';
 import { TokenText } from '@/components/token-text';
 import { UsageMeter } from '@/components/usage-meter';
 import { tokenFor } from '@/lib/tokens';
@@ -838,8 +839,9 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
       if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); return pick(rows[cursor]); }
       if (e.key === 'Escape') { e.preventDefault(); return setDismissed(true); }
     }
-    if (e.key === 'Tab' && e.shiftKey) { e.preventDefault(); cycleMode(); }
-  }, [menu, rows, cursor, pick, cycleMode]);
+    if (matches(e, 'stop') && agent.busy) { e.preventDefault(); return stop(); }
+    if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
+  }, [menu, rows, cursor, pick, cycleMode, stop, agent.busy]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">

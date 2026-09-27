@@ -8,26 +8,39 @@
 // handled in the renderer, and registering them here too would fire twice.
 const os = require('os');
 const { Menu } = require('electron');
+const { accelerators } = require('../shared/keybindings');
 
 const home = os.homedir();
 const short = (p) => (p === home ? '~' : p.startsWith(home + '/') ? '~' + p.slice(home.length) : p);
 
-function buildMenu({ recents = [], actions }) {
+function buildMenu({ recents = [], actions, keys = {} }) {
   const isMac = process.platform === 'darwin';
-  const command = (label, name, accelerator) => ({
-    label,
-    accelerator,
-    registerAccelerator: false,
-    click: () => actions.command(name),
-  });
+  // A cleared shortcut is absent, not an accelerator of "".
+  const chord = (id) => accelerators(id, keys[id])[0];
+  const command = (label, name, id) => {
+    const item = {
+      label,
+      registerAccelerator: false,
+      click: () => actions.command(name),
+    };
+    const accelerator = chord(id);
+    if (accelerator) item.accelerator = accelerator;
+    return item;
+  };
   // The one chord the menu really owns. With the preview at full width the
   // focus is usually inside the page, where a renderer keydown never lands, so
   // this accelerator is registered for real and the renderer leaves it alone.
-  const hotkey = (label, name, accelerator) => ({
-    label,
-    accelerator,
-    click: () => actions.command(name),
-  });
+  const hotkey = (label, name, id) => {
+    const item = { label, click: () => actions.command(name) };
+    const accelerator = typeof id === 'string' && id.includes('+') ? id : chord(id);
+    if (accelerator) item.accelerator = accelerator;
+    return item;
+  };
+  const labeled = (label, accelerator, click) => {
+    const item = { label, click };
+    if (accelerator) item.accelerator = accelerator;
+    return item;
+  };
 
   const recentItems = recents.length
     ? [
@@ -42,14 +55,14 @@ function buildMenu({ recents = [], actions }) {
     {
       label: '&File',
       submenu: [
-        { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => actions.openFolder() },
-        { label: 'Open Folder in New Window…', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openFolder({ newWindow: true }) },
+        labeled('Open Folder…', chord('openFolder'), () => actions.openFolder()),
+        labeled('Open Folder in New Window…', chord('openFolderWindow'), () => actions.openFolder({ newWindow: true })),
         { label: 'Open Recent', submenu: recentItems },
         { type: 'separator' },
-        command('New Chat', 'newChat'),
-        command('New Terminal', 'newTerminal', 'CmdOrCtrl+Shift+T'),
+        command('New Chat', 'newChat', 'newChat'),
+        command('New Terminal', 'newTerminal', 'newTerminal'),
         { type: 'separator' },
-        hotkey('Settings…', 'settings', 'CmdOrCtrl+,'),
+        hotkey('Settings…', 'settings', 'settings'),
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -61,30 +74,34 @@ function buildMenu({ recents = [], actions }) {
         // Display only, like its neighbours: the renderer owns Ctrl+K so that a
         // shell with the cursor in it keeps kill-to-end-of-line, which a real
         // accelerator here would take from every terminal in the window.
-        command('Command Palette', 'palette', 'CmdOrCtrl+K'),
+        command('Command Palette', 'palette', 'palette'),
         { type: 'separator' },
-        command('Sessions', 'rail', 'CmdOrCtrl+Shift+S'),
-        command('Terminal', 'terminal', 'CmdOrCtrl+`'),
-        command('Preview Browser', 'preview', 'CmdOrCtrl+Shift+B'),
-        command('Project Files', 'files', 'CmdOrCtrl+Shift+D'),
-        command('Uncommitted Changes', 'changes', 'CmdOrCtrl+Shift+G'),
-        hotkey('Right Pane at Full Width', 'previewFull', 'CmdOrCtrl+Shift+F'),
-        command('Console and Network', 'drawer', 'CmdOrCtrl+Shift+J'),
+        command('Sessions', 'rail', 'rail'),
+        command('Terminal', 'terminal', 'terminal'),
+        command('Preview Browser', 'preview', 'preview'),
+        command('Project Files', 'files', 'files'),
+        command('Uncommitted Changes', 'changes', 'changes'),
+        hotkey('Right Pane at Full Width', 'previewFull', 'previewFull'),
+        command('Console and Network', 'drawer', 'drawer'),
         { type: 'separator' },
-        command('Light or Dark', 'theme'),
-        command('Theme…', 'appearance'),
+        command('Light or Dark', 'theme', 'theme'),
+        command('Theme…', 'appearance', 'appearance'),
         { type: 'separator' },
         // The renderer owns the zoom, because the app shell and the preview
         // pane are different web contents and only one of them should scale.
         // These are registered for real: with the preview at full width the
         // focus is inside the page, where a renderer keydown never lands.
-        hotkey('Zoom In', 'zoomIn', 'CmdOrCtrl+Plus'),
+        hotkey('Zoom In', 'zoomIn', 'zoomIn'),
         // Same command on the unshifted key, which is what most keyboards
         // actually produce. A menu item carries one accelerator, so it takes
-        // two of them to cover both.
-        { ...hotkey('Zoom In', 'zoomIn', 'CmdOrCtrl+='), visible: false },
-        hotkey('Zoom Out', 'zoomOut', 'CmdOrCtrl+-'),
-        hotkey('Reset Zoom', 'zoomReset', 'CmdOrCtrl+0'),
+        // two of them to cover both, and only while zoom in is still the
+        // default plus key.
+        ...accelerators('zoomIn', keys.zoomIn).slice(1).map((accelerator) => ({
+          ...hotkey('Zoom In', 'zoomIn', accelerator),
+          visible: false,
+        })),
+        hotkey('Zoom Out', 'zoomOut', 'zoomOut'),
+        hotkey('Reset Zoom', 'zoomReset', 'zoomReset'),
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { role: 'toggleDevTools', label: 'Developer Tools (app shell)' },
@@ -93,9 +110,9 @@ function buildMenu({ recents = [], actions }) {
     {
       label: '&Help',
       submenu: [
-        command('Copy MCP Command', 'copyMcp'),
-        command('Check for Updates…', 'updates'),
-        command('About', 'about'),
+        command('Copy MCP Command', 'copyMcp', 'copyMcp'),
+        command('Check for Updates…', 'updates', 'updates'),
+        command('About', 'about', 'about'),
       ],
     },
   ];

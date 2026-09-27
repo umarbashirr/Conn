@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/dialog';
 import { runCommand } from '../../app.js';
 import { openFolder } from '../../project.js';
+import { formatChord, keyOf } from '@/lib/keys';
+import { useSettings } from '../useSettings';
 import { shortPath, useProject } from '../useProject.js';
 import { getRailVersion, grouped, refreshRail, relative, subscribeRail } from './rail-store';
 
@@ -36,33 +38,32 @@ import { getRailVersion, grouped, refreshRail, relative, subscribeRail } from '.
    of their own, and a palette that lists every branch of a switch statement is
    a switch statement with a search box. */
 const COMMANDS = [
-  { name: 'preview', label: 'Preview browser', icon: GlobeIcon, hint: 'Ctrl+Shift+B' },
-  { name: 'files', label: 'Project files', icon: FolderTreeIcon, hint: 'Ctrl+Shift+D' },
-  { name: 'changes', label: 'Uncommitted changes', icon: GitCompareIcon, hint: 'Ctrl+Shift+G' },
-  { name: 'terminal', label: 'Terminal', icon: TerminalIcon, hint: 'Ctrl+`' },
-  { name: 'drawer', label: 'Console and network', icon: SquareTerminalIcon, hint: 'Ctrl+Shift+J' },
-  { name: 'previewFull', label: 'Right pane at full width', icon: MaximizeIcon, hint: 'Ctrl+Shift+F' },
-  { name: 'newTerminal', label: 'New terminal', icon: PlusIcon, hint: 'Ctrl+Shift+T' },
-  { name: 'newChat', label: 'New chat', icon: SquarePenIcon },
-  { name: 'newChatNoFolder', label: 'New chat without a folder', icon: MessageSquareIcon },
-  { name: 'theme', label: 'Light or dark', icon: SunMoonIcon },
-  { name: 'appearance', label: 'Theme and appearance', icon: PaletteIcon },
-  { name: 'settings', label: 'Settings', icon: SettingsIcon, hint: 'Ctrl+,' },
-  { name: 'copyMcp', label: 'Copy MCP command', icon: ClipboardIcon },
-  { name: 'updates', label: 'Check for updates', icon: DownloadIcon },
-  { name: 'about', label: 'About Conn', icon: InfoIcon },
+  { name: 'preview', bind: 'preview', label: 'Preview browser', icon: GlobeIcon },
+  { name: 'files', bind: 'files', label: 'Project files', icon: FolderTreeIcon },
+  { name: 'changes', bind: 'changes', label: 'Uncommitted changes', icon: GitCompareIcon },
+  { name: 'terminal', bind: 'terminal', label: 'Terminal', icon: TerminalIcon },
+  { name: 'drawer', bind: 'drawer', label: 'Console and network', icon: SquareTerminalIcon },
+  { name: 'previewFull', bind: 'previewFull', label: 'Right pane at full width', icon: MaximizeIcon },
+  { name: 'newTerminal', bind: 'newTerminal', label: 'New terminal', icon: PlusIcon },
+  { name: 'newChat', bind: 'newChat', label: 'New chat', icon: SquarePenIcon },
+  { name: 'newChatNoFolder', bind: 'newChatNoFolder', label: 'New chat without a folder', icon: MessageSquareIcon },
+  { name: 'theme', bind: 'theme', label: 'Light or dark', icon: SunMoonIcon },
+  { name: 'appearance', bind: 'appearance', label: 'Theme and appearance', icon: PaletteIcon },
+  { name: 'settings', bind: 'settings', label: 'Settings', icon: SettingsIcon },
+  { name: 'copyMcp', bind: 'copyMcp', label: 'Copy MCP command', icon: ClipboardIcon },
+  { name: 'updates', bind: 'updates', label: 'Check for updates', icon: DownloadIcon },
+  { name: 'about', bind: 'about', label: 'About Conn', icon: InfoIcon },
 ];
 
-// A key pressed with the cursor in a terminal belongs to the shell. xterm
-// forwards it to the pty and the event carries on up here regardless, so the
-// only way to tell is to ask where it started.
-const inTerminal = (target) => !!(target instanceof Element && target.closest('.xterm'));
+// A key pressed with the cursor in a terminal belongs to the shell. The
+// palette's own chord knows that; this file no longer listens for it.
 
 export default function Palette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [files, setFiles] = useState([]);
   const window_ = useProject();
+  const { settings } = useSettings();
 
   // The rail's store already holds every chat this window knows about, in the
   // order it draws them, with the ones marked done kept apart. Reading it here
@@ -119,22 +120,11 @@ export default function Palette() {
   const nothing = !chatRows.length && !files.length && !folderRows.length
     && !recentRows.length && !commandRows.length && !findFolder;
 
-  /* The two ways in. Ctrl+Shift+P is in the app's own chord range, so the
-     terminal hands it over; plain Ctrl+K is not, so it arrives here even from a
-     shell that has already acted on it, and that one is turned away. */
+  /* The chords live with the rest of the keyboard list. This only has to be
+     findable once the window is up, which is when a menu or a key asks for it. */
   useEffect(() => {
     window.connPalette = { open: () => setOpen(true), toggle: () => setOpen((v) => !v) };
-    const onKey = (e) => {
-      const mod = e.ctrlKey || e.metaKey;
-      const k = (e.key || '').toLowerCase();
-      const wanted = (mod && e.shiftKey && k === 'p')
-        || (mod && !e.shiftKey && k === 'k' && !inTerminal(e.target));
-      if (!wanted) return;
-      e.preventDefault();
-      setOpen((v) => !v);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => { window.removeEventListener('keydown', onKey); window.connPalette = null; };
+    return () => { window.connPalette = null; };
   }, []);
 
   return (
@@ -203,7 +193,11 @@ export default function Palette() {
                     onSelect={() => run(() => runCommand(c.name))}>
                     <c.icon />
                     <span>{c.label}</span>
-                    {c.hint && <span className="ml-auto shrink-0 text-muted-foreground text-xs">{c.hint}</span>}
+                    {formatChord(keyOf(settings?.keybindings, c.bind)) && (
+                      <span className="ml-auto shrink-0 text-muted-foreground text-xs">
+                        {formatChord(keyOf(settings?.keybindings, c.bind))}
+                      </span>
+                    )}
                   </CommandItem>
                 ))}
               </CommandGroup>

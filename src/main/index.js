@@ -438,6 +438,7 @@ const projectInfo = () => ({
 function refreshMenu() {
   applyMenu({
     recents: projectInfo().recents,
+    keys: settings.get('keybindings'),
     actions: {
       command: (name) => send('app:command', { name }),
       openFolder: (opts) => openFolder(opts),
@@ -1226,6 +1227,11 @@ function registerIpc() {
     shell.showItemInFolder(settings.file);
     return { ok: true };
   });
+  // While a shortcut is being recorded the menu must not run the old one.
+  // The switch lives on the page, not the window.
+  ipcMain.on('keys:capture', (e, { on } = {}) => {
+    e.sender.setIgnoreMenuShortcuts(!!on);
+  });
   ipcMain.handle('settings:set', async (_e, partial) => {
     const next = settings.patch(partial || {});
     if (partial?.agent?.mode && isMode(partial.agent.mode)) {
@@ -1243,12 +1249,14 @@ function registerIpc() {
       await applyBinaries();
     }
     if (partial?.agent?.provider !== undefined) await applyProvider(partial.agent.provider);
+    if (partial?.keybindings) refreshMenu();
     send('settings:changed', next);
     return next;
   });
   ipcMain.handle('settings:reset', async () => {
     const next = settings.reset();
     await applyBinaries();
+    refreshMenu();
     send('settings:changed', next);
     return next;
   });

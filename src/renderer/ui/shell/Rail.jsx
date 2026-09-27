@@ -636,8 +636,10 @@ export default function Rail() {
     setLeaving(null);
   };
 
+  // The handle beside this pane is the seam. A border here too sits against
+  // it, and the line reads twice as thick.
   return (
-    <Sidebar collapsible="none" className="h-full w-full border-r">
+    <Sidebar collapsible="none" className="h-full w-full">
       <SidebarHeader className="gap-0 pb-0">
         {/* Where you start from, as rows rather than buttons. */}
         <SidebarMenu>

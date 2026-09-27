@@ -96,16 +96,16 @@ function useCollapse(ref, open) {
 /* What the column can show, in one place. The tab and the toolbar button that
    opens it should be the same picture and the same word, so both read this.
    `command` is app.js's name for the opening, which is unchanged: the commands
-   still do the work and this only says which one. `hint` names the shortcut,
-   which only the toolbar has the room to say. */
+   still do the work and this only says which one. `bind` is the shortcut the
+   toolbar names, which is the one the keyboard page can change. */
 export const VIEW_KINDS = {
   // `adds` is what the strip's plus runs when the kind can be opened more than
   // once. Only a preview can.
-  browser: { icon: GlobeIcon, label: 'Browser', command: 'preview', adds: 'newPreview', hint: 'Preview browser (Ctrl+Shift+B)' },
-  files: { icon: FolderTreeIcon, label: 'Files', command: 'files', hint: 'Project files (Ctrl+Shift+D)' },
-  changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', hint: 'Uncommitted changes (Ctrl+Shift+G)' },
-  terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', hint: 'Terminal (Ctrl+`)' },
-  agents: { icon: BotIcon, label: 'Agents', command: 'agents', hint: "This chat's subagents" },
+  browser: { icon: GlobeIcon, label: 'Browser', command: 'preview', adds: 'newPreview', bind: 'preview', title: 'Preview browser' },
+  files: { icon: FolderTreeIcon, label: 'Files', command: 'files', bind: 'files', title: 'Project files' },
+  changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', bind: 'changes', title: 'Uncommitted changes' },
+  terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
+  agents: { icon: BotIcon, label: 'Agents', command: 'agents', title: "This chat's subagents" },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
@@ -260,8 +260,8 @@ export default function Shell() {
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChange={relayoutNow}>
         <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize="18" minSize="180px" maxSize="420px">
-            {/* The provider is only here for the context and the Ctrl+Shift+S
-                shortcut; the panel around it owns the width. */}
+            {/* The provider is here for the rail's context. The shortcut lives
+                with the other chords, on the keyboard page. */}
             <SidebarProvider
               className="h-full min-h-0"
               open={railOpen}

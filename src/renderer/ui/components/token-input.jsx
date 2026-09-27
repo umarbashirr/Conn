@@ -1,8 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 
 import { hoistSkill, leadsWithSkill, parse, pendingToken } from '@/lib/tokens';
-import { tokenElement } from '@/components/token-badge';
 import { cn } from '@/lib/utils';
+import { tokenElement } from '@/components/token-badge';
+import { matches } from '@/lib/keys';
 
 // A textarea holds characters and nothing else, so a badge with an icon in it
 // is not something a textarea can be talked into. This is the same box built
@@ -339,13 +340,24 @@ export const TokenInput = forwardRef(function TokenInput({
       return restore(1);
     }
 
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Send and the new line are shortcuts, so the settings page can move them.
+    // A queue row that already handled Enter has stopped the event, and this
+    // leaves that alone.
+    if (matches(e, 'newline')) {
+      e.preventDefault();
+      const box = boxRef.current;
+      const text = valueOf(box);
+      const offset = caretOffset(box) ?? text.length;
+      apply(`${text.slice(0, offset)}\n${text.slice(offset)}`, offset + 1);
+      return;
+    }
+    if (matches(e, 'send')) {
       e.preventDefault();
       const form = e.currentTarget.closest('form');
       const submit = form?.querySelector('button[type="submit"]');
       if (!submit?.disabled) form?.requestSubmit();
     }
-  }, [onKeyDown, restore]);
+  }, [onKeyDown, restore, apply]);
 
   const handlePaste = useCallback((e) => {
     // The composer takes files off the clipboard first and stops the event if

@@ -34,6 +34,7 @@ import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { runCommand } from '../../app.js';
+import { matches } from '@/lib/keys';
 import { onProject, project } from '../../project.js';
 import {
   askAboutChange,
@@ -421,14 +422,14 @@ export default function ChangesView() {
     return () => window.connChanges.deactivate();
   }, [showing]);
 
-  // Alt and an arrow walks the changes in the open file. Plain keys would fight
-  // with the chat box, which is one Tab away from here.
+  // Alt and an arrow walks the changes in the open file, unless the keyboard
+  // page moved that chord. Plain keys would fight with the chat box, which is
+  // one Tab away from here.
   useEffect(() => {
     if (!showing) return undefined;
     const onKey = (e) => {
-      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-      if (e.key === 'ArrowDown') { e.preventDefault(); jumpBlock(1); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); jumpBlock(-1); }
+      if (matches(e, 'nextChange')) { e.preventDefault(); jumpBlock(1); }
+      else if (matches(e, 'prevChange')) { e.preventDefault(); jumpBlock(-1); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

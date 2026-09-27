@@ -201,6 +201,12 @@ contextBridge.exposeInMainWorld('conn', {
     onChanged: on('settings:changed'),
   },
 
+  keys: {
+    // The settings page asks for this while it is listening for a new chord,
+    // so the menu does not run the shortcut being replaced.
+    capture: (on) => ipcRenderer.send('keys:capture', { on: !!on }),
+  },
+
   // Whether a newer Conn or a newer Claude CLI exists, and fetching the one
   // that matches how this copy was installed.
   updates: {

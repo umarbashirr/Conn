@@ -10,6 +10,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 
 const { DIR } = require('./projects');
+const { defaultKeybindings } = require('../shared/keybindings');
 
 const FILE = path.join(DIR, 'settings.json');
 
@@ -98,6 +99,9 @@ const DEFAULTS = {
     opencode: '',
     whatsNew: '',
   },
+  // One chord per command. Empty means the command has no shortcut until
+  // someone records one. See shared/keybindings.js for what each id runs.
+  keybindings: defaultKeybindings(),
 };
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
