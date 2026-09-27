@@ -12,6 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
+import { ForkDialog } from '@/components/fork-dialog';
 import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenText } from '@/components/token-text';
@@ -439,6 +440,7 @@ export default function App() {
     return (
       <>
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
         <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
         <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
         <CustomizePage
@@ -458,6 +460,7 @@ export default function App() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+      <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
       <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">

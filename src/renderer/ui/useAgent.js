@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
+import { handover } from './handover.js';
 
 const conn = () => window.conn;
+
+const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
@@ -72,66 +75,6 @@ function replay(messages, parent) {
 // an agent carries that agent's Agent-call id as `parent`, and the tree is put
 // back together at render time. Patching a tool result by id then works the
 // same whoever ran it.
-/* The conversation so far, as something the other CLI can read. A fork cannot
-   hand over a thread, so it hands over the transcript: neither CLI can open the
-   other's, and the new model starting from nothing is the thing a fork exists
-   to avoid.
-
-   Everything said goes across. Both sides of it, and every tool call by name
-   and argument, because "I ran this and then that" is most of what a coding
-   conversation is and a handover missing it reads as a summary of itself.
-
-   The two caps below are the only things dropped, and both are announced in the
-   text where they bite rather than silently.
-
-   OUTPUT is per tool result. One `cat` of a large file or one verbose build log
-   can be bigger than everything else combined, and it is also the most stale
-   thing in the transcript: the new model is about to run its own commands
-   against a tree that may have moved on. So the head of each result goes and
-   the rest is marked.
-
-   TOTAL is the backstop against a chat that will not fit in any window. It is
-   set against real context windows rather than caution: 400k characters is
-   roughly 100k tokens, which leaves room in a 200k window for the reply and the
-   work after it. Trimming takes from the front, because a follow-up is nearly
-   always about the recent end. */
-const OUTPUT = 4000;
-const TOTAL = 400000;
-
-const clip = (text, n) => {
-  const str = typeof text === 'string' ? text : JSON.stringify(text ?? null);
-  if (!str || str.length <= n) return str || '';
-  return `${str.slice(0, n)}\n… ${str.length - n} more characters of output, not carried over`;
-};
-
-function carriedHistory(items) {
-  const lines = [];
-  for (const it of items) {
-    if (it.kind === 'user') lines.push(`Me:\n${it.text}`);
-    else if (it.kind === 'assistant' && it.text?.trim()) lines.push(`Other assistant:\n${it.text}`);
-    else if (it.kind === 'tool') {
-      const args = clip(it.input, OUTPUT);
-      const out = it.output === undefined ? '' : `\nResult:\n${clip(it.output, OUTPUT)}`;
-      lines.push(`Other assistant ran ${it.name}:\n${args}${out}`);
-    }
-  }
-
-  let body = lines.join('\n\n');
-  const cut = body.length > TOTAL;
-  if (cut) body = body.slice(-TOTAL);
-
-  return [
-    '<handover>',
-    cut
-      ? 'A conversation I was having with a different coding assistant. It was too long to carry whole, so this is the end of it:'
-      : 'A conversation I was having with a different coding assistant, in full:',
-    body,
-    '</handover>',
-    'Pick it up from here. Anything above is what the other assistant said, not something you did,',
-    'and its tool output may be out of date. Read the files yourself before relying on any of it.',
-  ].join('\n');
-}
-
 const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   key: uid('c'),
   // Which CLI this chat runs on. Fixed once it sends: a thread belongs to the
@@ -227,6 +170,10 @@ export function useAgent() {
   if (!first.current) first.current = blankChat(null, undefined, startMode.current);
   const [chats, setChats] = useState(() => [first.current]);
   const [activeKey, setActiveKey] = useState(first.current.key);
+  // A cross-CLI pick on a chat with messages, waiting on how much to hand over.
+  // Read through the ref so a double click cannot answer the same fork twice.
+  const [pendingFork, setPendingFork] = useState(null);
+  const pendingForkRef = useRef(null);
   const [models, setModels] = useState([]);
   const [model, setModel] = useState('');
   const [driver, setDriver] = useState(null);
@@ -660,6 +607,15 @@ export function useAgent() {
 
   const usage = useMemo(() => totals(active.usage), [active.usage]);
 
+  const fork = useMemo(() => {
+    if (!pendingFork || active.key !== pendingFork.chatKey || !active.items.length) return null;
+    const size = (kind) => handover(kind, active.items).length.toLocaleString();
+    return {
+      label: PROVIDER_LABEL[pendingFork.provider] || pendingFork.provider,
+      sizes: { summary: size('summary'), complete: size('complete') },
+    };
+  }, [pendingFork, active.key, active.items]);
+
   // Every agent still going, at any depth. The strip above the composer is the
   // only thing that says a background agent exists once the transcript has
   // scrolled past the row that started it.
@@ -1084,28 +1040,47 @@ export function useAgent() {
      The list holds both CLIs. Crossing from one to the other is fine on a chat
      that has said nothing, and impossible on one that has: the conversation
      lives inside a thread only its own CLI can open. So a chat with messages
-     forks. The old one is left exactly as it was, still on its own CLI, and the
-     new one opens with the conversation carried over as text. */
+     asks, then forks. The old one is left exactly as it was, still on its own
+     CLI, and the new one opens with a handover of the conversation as text. */
+  const holdFork = useCallback((slot) => {
+    pendingForkRef.current = slot;
+    setPendingFork(slot);
+  }, []);
+
+  const forkTo = useCallback(async (chat, value, want, text) => {
+    const next = {
+      ...blankChat(chat.project, want, chat.mode),
+      title: chat.title,
+      usage: { ...blankUsage(), model: value },
+    };
+    chatsRef.current = [...chatsRef.current, next];
+    setChats(chatsRef.current);
+    switchTo(next.key);
+    setModel(value);
+    setProvider(want);
+    const res = await conn().agent.setModel(next.key, value);
+    if (res?.models?.length) setModels(res.models);
+    if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
+    sendTo(next.key, text);
+  }, [switchTo, sendTo]);
+
+  const answerFork = useCallback((answer) => {
+    const slot = pendingForkRef.current;
+    if (!slot) return undefined;
+    holdFork(null);
+    if (answer === 'cancel') return undefined;
+    const chat = chatsRef.current.find((c) => c.key === slot.chatKey);
+    if (!chat?.items.length) return undefined;
+    return forkTo(chat, slot.model, slot.provider, handover(answer, chat.items));
+  }, [holdFork, forkTo]);
+
   const changeModel = useCallback(async (value) => {
     const chat = chatsRef.current.find((c) => c.key === activeRef.current);
     const want = models.find((m) => m.value === value)?.provider;
     const crossing = want && chat?.provider && want !== chat.provider;
 
     if (crossing && chat.items.length) {
-      const next = {
-        ...blankChat(chat.project, want, chat.mode),
-        title: chat.title,
-        usage: { ...blankUsage(), model: value },
-      };
-      chatsRef.current = [...chatsRef.current, next];
-      setChats(chatsRef.current);
-      switchTo(next.key);
-      setModel(value);
-      setProvider(want);
-      const res = await conn().agent.setModel(next.key, value);
-      if (res?.models?.length) setModels(res.models);
-      if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
-      sendTo(next.key, carriedHistory(chat.items));
+      holdFork({ chatKey: chat.key, model: value, provider: want });
       return;
     }
 
@@ -1139,7 +1114,7 @@ export function useAgent() {
     if (res?.models?.length) setModels(res.models);
     if (res?.provider) setProvider(res.provider);
     if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
-  }, [models, switchTo, sendTo]);
+  }, [models, holdFork]);
 
   // Drops a hand-typed name. The main process answers with what is left and
   // which of those the picker should land on.
@@ -1216,9 +1191,9 @@ export function useAgent() {
     queued: active.queued,
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
-    chats, activeKey, checking,
+    chats, activeKey, checking, fork,
     send, enqueue, unqueue, editQueued,
-    decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, forgetModel,
+    decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
     stopAgent, backgroundAgent, openAgent, peekAgent,
