@@ -694,7 +694,7 @@ export function useAgent() {
   }, [chats, activeKey]);
 
   const sendTo = useCallback(async (key, text, images = []) => {
-    if (!text.trim()) return;
+    if (!text.trim() && !(images || []).length) return;
     const chat = chatsRef.current.find((c) => c.key === key);
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
@@ -763,22 +763,29 @@ export function useAgent() {
     }));
   }, []);
 
-  // Hand the parked messages over. Sent one at a time and in order: the CLI
-  // takes a message mid-turn and folds it into the turn already running, which
-  // is the whole point of the queue. One being edited is left where it is.
+  // One parked message leaves per idle turn, and only the one at the front.
+  // Handing the rest over in the same breath would land them inside the turn
+  // that just started. A message being edited stays at the front until the
+  // edit is saved, so the ones behind it keep their order. The set stops a
+  // second pass sending the next message before this one has been marked busy.
+  const flushing = useRef(new Set());
   const flushChat = useCallback(async (key) => {
+    if (flushing.current.has(key)) return;
     const chat = chatsRef.current.find((c) => c.key === key);
-    const ready = (chat?.queued || []).filter((m) => !m.held);
-    if (!ready.length) return;
-    const sending = new Set(ready.map((m) => m.id));
-    edit(key, (c) => ({ ...c, queued: c.queued.filter((m) => !sending.has(m.id)) }));
-    for (const m of ready) await sendTo(key, m.text, m.images);
+    if (!chat || chat.busy) return;
+    const head = chat.queued?.[0];
+    if (!head || head.held) return;
+    flushing.current.add(key);
+    edit(key, (c) => ({ ...c, queued: c.queued.filter((m) => m.id !== head.id) }));
+    try {
+      if (head.text?.trim() || (head.images || []).length) await sendTo(key, head.text, head.images);
+    } finally {
+      flushing.current.delete(key);
+    }
   }, [edit, sendTo]);
 
-  const flushQueue = useCallback(() => flushChat(activeRef.current), [flushChat]);
-
-  // Whatever is still parked when a chat goes idle goes out on its own, so a
-  // queue nobody flushed does not sit there forever. Background chats included.
+  // A parked message goes out on its own once that chat is idle. Background
+  // chats included, still one message per turn.
   useEffect(() => {
     for (const c of chats) if (!c.busy && c.queued.length) flushChat(c.key);
   }, [chats, flushChat]);
@@ -1178,7 +1185,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking,
-    send, enqueue, unqueue, editQueued, flushQueue,
+    send, enqueue, unqueue, editQueued,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

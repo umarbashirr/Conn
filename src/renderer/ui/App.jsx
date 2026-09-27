@@ -403,19 +403,15 @@ export default function App() {
     ], { id: 'restart-conn', duration: Infinity });
   }, [updates.restart?.ready, updates.restart?.installed, updates.relaunch]);
 
-  // Enter while the agent is working parks the message instead of losing it.
-  // Enter on an empty box is the second half of that gesture: it hands
-  // everything parked to the turn already running.
+  // Enter while the agent is working parks the message. It goes out on its
+  // own after this turn finishes, and the one behind it waits for that
+  // follow-up to finish too.
   const submit = useCallback((_message, e) => {
     e?.preventDefault?.();
     const body = text.trim();
     // An attachment with nothing typed is still a message: a screenshot and a
-    // note say plenty. Only an empty box with nothing clipped to it is nothing
-    // to send, and that is the keystroke that releases a parked queue.
-    if (!body && !attachments.length) {
-      if (agent.queued.length) agent.flushQueue();
-      return;
-    }
+    // note say plenty. An empty box with nothing clipped to it is nothing to send.
+    if (!body && !attachments.length) return;
     const full = attachmentText(attachments) + body;
     const images = attachments.filter((a) => a.kind === 'image');
     if (agent.busy) agent.enqueue(full, images);

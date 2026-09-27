@@ -350,7 +350,7 @@ function ModeMenu({ agent }) {
   );
 }
 
-const BRANCH_ROW = 'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] hover:bg-accent disabled:pointer-events-none disabled:opacity-50';
+const BRANCH_ROW = 'flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left text-[12px] hover:bg-accent disabled:pointer-events-none disabled:opacity-50';
 
 /* The branch under the composer. Search switches to one that exists. Create
    Branch always asks for the name, even when the search box is empty, and the
@@ -428,27 +428,27 @@ function BranchPicker({ dir, branch }) {
         className="w-64 gap-0 p-0"
         onOpenAutoFocus={(e) => { e.preventDefault(); search.current?.focus(); }}>
         <div className="flex items-center gap-2 border-b px-2.5">
-          <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <SearchIcon className="size-3 shrink-0 text-muted-foreground" />
           <input
             ref={search}
             value={query}
             onChange={(e) => { setQuery(e.target.value); setError(''); }}
             onKeyDown={onKeyDown}
             placeholder="Search branches..."
-            className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+            className="h-8 w-full bg-transparent text-[12px] outline-none placeholder:text-muted-foreground" />
         </div>
         <div className="max-h-64 overflow-y-auto p-1">
           {shown.map((name) => (
             <button key={name} type="button" className={BRANCH_ROW} disabled={busy} onClick={() => run(name, false)}>
               <span className="min-w-0 flex-1 truncate">{name}</span>
-              {name === branch && <CheckIcon className="size-3.5 shrink-0 text-muted-foreground" />}
+              {name === branch && <CheckIcon className="size-3 shrink-0 text-muted-foreground" />}
             </button>
           ))}
           {!shown.length && <p className="px-2 py-1.5 text-muted-foreground text-xs">No branches match.</p>}
         </div>
         <div className="border-t p-1">
           <button type="button" className={BRANCH_ROW} disabled={busy} onClick={askCreate}>
-            <PlusIcon className="size-3.5 shrink-0" />
+            <PlusIcon className="size-3 shrink-0" />
             Create Branch
           </button>
         </div>
@@ -856,7 +856,11 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
           <div className="mb-1 flex items-center gap-2 text-muted-foreground text-xs">
             <span>{agent.queued.length} queued</span>
             <span className="opacity-70">
-              {agent.busy ? 'press Enter on an empty box to send now' : 'sending…'}
+              {agent.queued[0]?.held
+                ? 'sends when you save'
+                : agent.busy
+                  ? 'sends after this turn'
+                  : 'sending…'}
             </span>
           </div>
           <div className="flex flex-col gap-1">
@@ -922,7 +926,7 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
               aria-controls={menu ? 'composer-mentions' : undefined}
               aria-activedescendant={menu ? `mention-${cursor}` : undefined}
               placeholder={agent.busy
-                ? 'Working. Enter parks this, Enter again sends it into this turn'
+                ? 'Working. Enter adds this to the queue'
                 : agent.folderless ? 'Ask anything' : 'Plan, build, or ask about this project'}
               className={cn('min-h-[76px] px-4 pb-2 text-[13.5px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5')} />
           </PromptInputBody>
