@@ -739,14 +739,40 @@ export function useAgent() {
     edit(activeRef.current, (c) => ({ ...c, queued: c.queued.filter((m) => m.id !== id) }));
   }, [edit]);
 
+  // Rewrite a parked message, or mark it held while that rewrite is on screen.
+  // A held one stays put when the turn ends: flushing it then would send the
+  // text the keystrokes have not landed in yet. The id is looked up across
+  // chats, because leaving the chat unmounts the editor and that release has
+  // to land on the chat the message belongs to.
+  const editQueued = useCallback((id, patch) => {
+    setChats((cur) => cur.map((c) => {
+      if (!c.queued.some((m) => m.id === id)) return c;
+      return {
+        ...c,
+        queued: c.queued.flatMap((m) => {
+          if (m.id !== id) return [m];
+          const next = { ...m, ...patch };
+          if (patch.text !== undefined) {
+            const text = String(patch.text ?? '').trim();
+            if (!text && !(m.images || []).length) return [];
+            next.text = text;
+          }
+          return [next];
+        }),
+      };
+    }));
+  }, []);
+
   // Hand the parked messages over. Sent one at a time and in order: the CLI
   // takes a message mid-turn and folds it into the turn already running, which
-  // is the whole point of the queue.
+  // is the whole point of the queue. One being edited is left where it is.
   const flushChat = useCallback(async (key) => {
     const chat = chatsRef.current.find((c) => c.key === key);
-    if (!chat?.queued.length) return;
-    edit(key, (c) => ({ ...c, queued: [] }));
-    for (const m of chat.queued) await sendTo(key, m.text, m.images);
+    const ready = (chat?.queued || []).filter((m) => !m.held);
+    if (!ready.length) return;
+    const sending = new Set(ready.map((m) => m.id));
+    edit(key, (c) => ({ ...c, queued: c.queued.filter((m) => !sending.has(m.id)) }));
+    for (const m of ready) await sendTo(key, m.text, m.images);
   }, [edit, sendTo]);
 
   const flushQueue = useCallback(() => flushChat(activeRef.current), [flushChat]);
@@ -1152,7 +1178,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking,
-    send, enqueue, unqueue, flushQueue,
+    send, enqueue, unqueue, editQueued, flushQueue,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

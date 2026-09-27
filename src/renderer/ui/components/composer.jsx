@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GitBranchIcon, MessageSquareIcon, PaperclipIcon, PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
+  FolderIcon, GitBranchIcon, MessageSquareIcon, PaperclipIcon, PencilIcon, PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
 import {
@@ -604,6 +604,115 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
+// One parked message. The row is the edit control: the text opens into the
+// same box the composer types in, so a token stays a token. Enter writes it
+// back, Escape puts the row back as it was. While that box is open the
+// message is held, so a turn ending underneath it does not send the old text.
+function QueuedItem({ item, index, onEdit, onDrop }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(item.text);
+  const input = useRef(null);
+  const editingRef = useRef(false);
+  const images = item.images || [];
+
+  useEffect(() => {
+    if (editing) input.current?.focus();
+  }, [editing]);
+
+  useEffect(() => () => {
+    if (editingRef.current) onEdit(item.id, { held: false });
+  }, [onEdit, item.id]);
+
+  const start = () => {
+    editingRef.current = true;
+    setDraft(item.text);
+    setEditing(true);
+    onEdit(item.id, { held: true });
+  };
+
+  const save = () => {
+    editingRef.current = false;
+    onEdit(item.id, { text: draft, held: false });
+    setEditing(false);
+  };
+
+  const cancel = () => {
+    editingRef.current = false;
+    onEdit(item.id, { held: false });
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="rounded-md border border-border border-dashed px-2.5 py-1.5">
+        <div className="mb-1 flex items-center gap-2 text-muted-foreground text-[10px]">
+          <span className="font-mono">{index + 1}</span>
+          <span>Editing</span>
+          {images.length > 0 && (
+            <span className="ml-auto">{images.length === 1 ? '1 image attached' : `${images.length} images attached`}</span>
+          )}
+        </div>
+        <TokenInput
+          ref={input}
+          value={draft}
+          onChange={setDraft}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+          }}
+          placeholder="Edit this message"
+          className="min-h-8 px-0 py-0.5 text-[13px]" />
+        <div className="mt-1.5 flex justify-end gap-1">
+          <Button type="button" variant="ghost" size="xs" onClick={cancel}>Cancel</Button>
+          <Button
+            type="button"
+            size="xs"
+            disabled={!draft.trim() && !images.length}
+            onClick={save}>
+            Save
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border border-dashed px-2.5 py-1.5">
+      <span className="font-mono text-muted-foreground text-[10px]">{index + 1}</span>
+      <button
+        type="button"
+        title="Edit this message"
+        onClick={start}
+        className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-left text-xs">
+        <TokenText text={item.text} />
+      </button>
+      {images.length > 0 && (
+        <span className="shrink-0 text-[10px] text-muted-foreground">
+          {images.length === 1 ? '1 image' : `${images.length} images`}
+        </span>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        title="Edit this message"
+        onClick={start}
+        className="size-4 text-muted-foreground">
+        <PencilIcon className="size-3" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        title="Drop this one"
+        onClick={onDrop}
+        className="size-4 text-muted-foreground">
+        <XIcon className="size-3" />
+      </Button>
+    </div>
+  );
+}
+
 export function Composer({ agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
@@ -752,23 +861,12 @@ export function Composer({ agent, settings, catalog, text, setText, attachments,
           </div>
           <div className="flex flex-col gap-1">
             {agent.queued.map((m, i) => (
-              <div
+              <QueuedItem
                 key={m.id}
-                className="flex items-center gap-2 rounded-md border border-border border-dashed px-2.5 py-1.5">
-                <span className="font-mono text-muted-foreground text-[10px]">{i + 1}</span>
-                <span className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-xs">
-                  <TokenText text={m.text} />
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-xs"
-                  title="Drop this one"
-                  onClick={() => agent.unqueue(m.id)}
-                  className="size-4 text-muted-foreground">
-                  <XIcon className="size-3" />
-                </Button>
-              </div>
+                item={m}
+                index={i}
+                onEdit={agent.editQueued}
+                onDrop={() => agent.unqueue(m.id)} />
             ))}
           </div>
         </div>
