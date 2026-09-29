@@ -39,6 +39,19 @@ own() {
 }
 own
 
+# sharp loads a per-platform addon, and npm only installed the one for this
+# machine. Drop the win32 one in for the build and take it out again after, so
+# the Linux packages do not carry it.
+SHARP_WIN=$ROOT/node_modules/@img/sharp-win32-x64
+if [ ! -d "$SHARP_WIN" ]; then
+  SHARP_VERSION=$(node -p "require('$ROOT/node_modules/sharp/package.json').version")
+  PACK_DIR=$(mktemp -d)
+  trap 'rm -rf "$SHARP_WIN" "$PACK_DIR"' EXIT
+  ( cd "$PACK_DIR" && npm pack --silent "@img/sharp-win32-x64@$SHARP_VERSION" >/dev/null )
+  mkdir -p "$SHARP_WIN"
+  tar -xzf "$PACK_DIR"/*.tgz -C "$SHARP_WIN" --strip-components=1
+fi
+
 # The electron and electron-builder caches are shared with the host so a second
 # run does not pull another 100MB of electron.
 docker run --rm \
