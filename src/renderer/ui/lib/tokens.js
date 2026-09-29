@@ -1,23 +1,34 @@
-// Three things in a prompt are not prose: the skill it starts with, a file it
-// points at, and whatever was clipped to it. Splitting them out of the string
-// happens here and nowhere else, so the composer and the transcript can never
-// disagree about what counts as a token.
+// Four things in a prompt are not prose: the skill it starts with, a file it
+// points at, a part of Conn it names with a $, and whatever was clipped to it.
+// Splitting them out of the string happens here and nowhere else, so the
+// composer and the transcript can never disagree about what counts as a token.
 //
 // A string goes in and a string comes back out unchanged. That round trip is
 // the whole contract: everything upstream — the per-chat drafts, the queue,
 // the text a stopped turn parks back in the box — still passes plain text.
+import { MENTIONS } from './conn-mentions.js';
 
 // Only at the very start, which is how the CLI reads a slash command too.
 const SKILL = /^\/([a-zA-Z0-9][\w:.-]*)/;
 
 // Preceded by a space or an opening bracket, so an email address in the middle
-// of a sentence is left alone. The last character cannot be punctuation, or
-// "look at @src/app.js." would swallow the full stop.
-const PATH = /(^|[\s([])@([\w.\-/]*[\w\-/])/;
+// of a sentence is left alone. For a path the last character cannot be
+// punctuation, or "look at @src/app.js." would swallow the full stop. A $
+// names only a row of MENTIONS, whole, so $5, $HOME and $browserUrl stay text.
+const INLINE = new RegExp(`(^|[\\s([])(?:@([\\w.\\-/]*[\\w\\-/])|\\$(${Object.keys(MENTIONS).join('|')})(?![\\w-]))`);
 
-// What the composer prepends for an attachment: a bracketed head line, its
-// indented detail lines, and a blank line between blocks.
-const ATTACHED = /^\[(preview element|attached image|attached file)\]([^\n]*)((?:\n {2}[^\n]*)*)\n\n/;
+// What the composer prepends for an attachment or a mention: a bracketed head
+// line, its indented detail lines, and a blank line between blocks. A mention's
+// block is for the agent; the person already sees the $ badge they typed.
+const HEAD_KIND = {
+  'preview element': 'element',
+  'attached image': 'element',
+  'attached file': 'element',
+  'conn canvas selection': 'frames',
+  'conn browser': 'context',
+  'conn canvas': 'context',
+};
+const ATTACHED = new RegExp(`^\\[(${Object.keys(HEAD_KIND).join('|')})\\]([^\\n]*)((?:\\n {2}[^\\n]*)*)\\n\\n`);
 
 const basename = (p) => {
   const parts = p.replace(/\/+$/, '').split('/');
@@ -31,8 +42,14 @@ function attachedLabel(head, detail, tail) {
     const line = /\n {2}element: (.+)/.exec(tail);
     return line ? line[1].replace(/"/g, '') : 'element';
   }
+  if (head === 'conn canvas selection') {
+    const names = [...tail.matchAll(/ {2}\((.+)\)$/gm)].map((m) => m[1]);
+    return names.length === 1 ? names[0] : `${names.length} frames`;
+  }
   return detail.trim() || head;
 }
+
+const mention = (name) => ({ type: 'token', kind: 'conn', raw: `$${name}`, label: MENTIONS[name].label, title: MENTIONS[name].note, icon: name });
 
 export function parse(input) {
   const nodes = [];
@@ -41,9 +58,11 @@ export function parse(input) {
 
   // Attachments are always the head of the message, one block each.
   for (let m; (m = ATTACHED.exec(rest));) {
+    const kind = HEAD_KIND[m[1]];
     nodes.push({
       type: 'token',
-      kind: 'element',
+      kind,
+      icon: kind === 'element' ? undefined : m[1].split(' ')[1],
       raw: m[0],
       label: attachedLabel(m[1], m[2], m[3]),
       title: m[0].trim(),
@@ -60,12 +79,14 @@ export function parse(input) {
     rest = rest.slice(skill[0].length);
   }
 
-  for (let m; (m = PATH.exec(rest));) {
+  for (let m; (m = INLINE.exec(rest));) {
     const at = m.index + m[1].length;
     text(rest.slice(0, at));
-    const raw = `@${m[2]}`;
-    nodes.push({ type: 'token', kind: 'path', raw, label: basename(m[2]), title: m[2] });
-    rest = rest.slice(at + raw.length);
+    const node = m[2] !== undefined
+      ? { type: 'token', kind: 'path', raw: `@${m[2]}`, label: basename(m[2]), title: m[2] }
+      : mention(m[3]);
+    nodes.push(node);
+    rest = rest.slice(at + node.raw.length);
   }
 
   text(rest);
@@ -100,8 +121,14 @@ export function pendingToken(before, atStart, hasSkill) {
   const at = /(?:^|[\s([])@([\w.\-/]*)$/.exec(before);
   if (at) return { kind: 'path', query: at[1], length: at[1].length + 1 };
 
+  const dollar = /(?:^|[\s([])\$([a-z]*)$/.exec(before);
+  if (dollar) return { kind: 'conn', query: dollar[1], length: dollar[1].length + 1 };
+
   return null;
 }
+
+// The parts of Conn a message names, typed by hand or picked.
+export const mentionsIn = (text) => new Set(parse(text).filter((n) => n.kind === 'conn').map((n) => n.raw.slice(1)));
 
 // Where a skill goes: after the attachment blocks, which always lead.
 function headEnd(text) {

@@ -29,6 +29,7 @@ import { clock, useTick } from '@/lib/clock';
 import { TokenText } from '@/components/token-text';
 import { UsageMeter } from '@/components/usage-meter';
 import { tokenFor } from '@/lib/tokens';
+import { mentionRows } from '@/lib/conn-mentions';
 import { cn } from '@/lib/utils';
 import { branchNameError } from '../../../shared/branch-name';
 import { useProject, shortPath } from '../useProject';
@@ -44,6 +45,11 @@ export const MODES = [
 ];
 
 const MODE_LABEL = Object.fromEntries(MODES.map(([v, label]) => [v, label]));
+
+const MENU_NOTE = {
+  path: '↑↓ to move · ↵ to pick · the badge shows the name, the agent gets the path',
+  conn: "↑↓ to move · ↵ to pick · tells the agent you mean Conn's, not its own",
+};
 
 const cleanModelName = (m) =>
   (m.displayName || m.value).replace(/\s*\((recommended|default|1M context)\)\s*$/i, '');
@@ -645,16 +651,6 @@ function Attachment({ item, onOpen, onRemove }) {
     );
   }
 
-  if (item.kind === 'design') {
-    return (
-      <Badge variant="secondary" className="gap-1 font-normal" title="The agent designs this on the canvas, and you can export it as code or to Figma">
-        <PaletteIcon className="size-3 opacity-70" />
-        Design on canvas
-        {remove}
-      </Badge>
-    );
-  }
-
   // Mirrors the selection on the board, so letting go of the chip lets go of
   // the frames too rather than leaving the two out of step.
   if (item.kind === 'frames') {
@@ -893,7 +889,7 @@ export function Composer({
   }, [attach]);
 
   // The box says what is being typed at the caret, if it is the start of a
-  // token: a slash at the head of the message, or an @ anywhere.
+  // token: a slash at the head of the message, or an @ or a $ anywhere.
   const kind = pending?.kind ?? null;
   const query = pending?.query ?? '';
 
@@ -904,6 +900,7 @@ export function Composer({
   // which is no help, so the list waits for a character.
   useEffect(() => {
     if (kind === 'skill') { setRows(skillRows(catalog.skills, query)); return undefined; }
+    if (kind === 'conn') { setRows(mentionRows(query)); return undefined; }
     if (kind !== 'path' || !query) { setRows([]); return undefined; }
     let live = true;
     const timer = setTimeout(async () => {
@@ -1010,7 +1007,7 @@ export function Composer({
             active={cursor}
             onActive={setActive}
             onPick={pick}
-            note={kind === 'path' ? '↑↓ to move · ↵ to pick · the badge shows the name, the agent gets the path' : undefined} />
+            note={MENU_NOTE[kind]} />
         )}
         {dropping && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-primary/60 border-dashed bg-background/80 text-sm">
@@ -1083,7 +1080,7 @@ export function Composer({
                   <DropdownMenuItem disabled={agent.folderless} onSelect={() => window.connChat?.design()}>
                     <PaletteIcon className="size-4 text-muted-foreground" />
                     Design a UI
-                    <span className="ml-auto text-muted-foreground text-xs">on the canvas</span>
+                    <span className="ml-auto font-mono text-muted-foreground text-xs">$canvas</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

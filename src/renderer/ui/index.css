@@ -117,6 +117,7 @@
   .tok-skill { --tok: var(--token-skill); --tok-fg: var(--token-skill-fg); }
   .tok-path { --tok: var(--token-path); --tok-fg: var(--token-path-fg); }
   .tok-element { --tok: var(--token-element); --tok-fg: var(--token-element-fg); }
+  .tok-conn, .tok-frames, .tok-context { --tok: var(--token-conn); --tok-fg: var(--token-conn-fg); }
 
   /* Inside the box the badge is one atom: the caret cannot get into it, a
      click selects it whole rather than dropping a cursor mid-word. */

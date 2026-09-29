@@ -138,12 +138,14 @@ export function nextSlot(frames) {
   };
 }
 
-// What the agent is told when a message is a design request. Short enough to
-// ride on every such message, complete enough that the schema is never guessed.
+// What $canvas means, told to the agent on the message that says it. Short
+// enough to ride along every time, complete enough that the schema is never
+// guessed, and plain that no canvas of the agent's own is meant.
 export function designBrief(slot) {
   return [
-    '[design on canvas]',
-    `  Design what follows on Conn's canvas. Each frame is one JSON file in ${CANVAS_DIR}/ in this project, drawn live as you edit it.`,
+    '[conn canvas] $canvas',
+    '  "Canvas" here means the Canvas board in Conn, the app this chat runs in, shown beside this chat. It is not Cursor Canvas, a Claude artifact, Figma, or any design tool of your own. You draw on it by writing files, not with a tool.',
+    `  Each frame is one JSON file in ${CANVAS_DIR}/ in this project, drawn live as you edit it.`,
     `  A new frame is a new file, ${CANVAS_DIR}/<kebab-name>.json, placed at x ${slot.x}, y ${slot.y}, which is clear of every frame on the board. Change a frame by editing its file. Never move or touch frames you were not asked about.`,
     '  Frame file: {"type":"frame","name":"Pricing","x":0,"y":0,"width":1280,"height":900,"fill":"#ffffff","layout":{"direction":"column","gap":24,"padding":[48,64]},"children":[...]}',
     '  Every node takes name, width, height and opacity. x and y only apply inside a parent with no layout. Node types:',
@@ -160,7 +162,7 @@ export function designBrief(slot) {
 
 export function selectionBrief(frames) {
   return [
-    '[canvas selection]',
+    '[conn canvas selection]',
     `  Change only these frames. Leave every other file in ${CANVAS_DIR}/ alone.`,
     ...frames.map((f) => `  ${CANVAS_DIR}/${f.file}  (${f.name})`),
   ].join('\n');

@@ -25,7 +25,7 @@ const { EventEmitter } = require('events');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const { configuredServers } = require('./codex-catalog');
-const { INSTRUCTIONS } = require('../shared/browser-tools');
+const { INSTRUCTIONS, TOOL_PREFIX } = require('../shared/browser-tools');
 const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
 const shellEnv = require('./shell-env');
 
@@ -110,7 +110,7 @@ const text = (v) => (typeof v === 'string' ? v : JSON.stringify(v ?? null, null,
  * there waiting. Naming ours and saying which one is on screen is the whole
  * fix. */
 const CODEX_INSTRUCTIONS = [
-  INSTRUCTIONS.replace(/\bbrowser_/g, 'mcp__conn__browser_'),
+  INSTRUCTIONS.replace(/\bbrowser_/g, `${TOOL_PREFIX.codex}browser_`),
   'These mcp__conn__ tools drive the preview pane inside this app, which is the browser the human is looking at.',
   'Prefer mcp__conn__browser_show after a change you want the human to see.',
   'Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',

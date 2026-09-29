@@ -1,6 +1,6 @@
 'use strict';
 /* The design canvas, end to end in the real app. A project with two frames in
-   .conn/canvas/ opens; "Design a UI" puts the brief chip in the chat box and
+   .conn/canvas/ opens; "Design a UI" puts a $canvas badge in the chat box and
    the Canvas tab on screen; the board draws both frames from their JSON; it
    pans and zooms; a drag and a resize land in the files; an agent-style edit
    redraws without moving the viewport or dropping the selection; broken files
@@ -290,7 +290,12 @@ async function main() {
       return t.includes('Canvas') && t;
     });
     check('canvas-tab-opens', Array.isArray(tabs), `tabs=${tabs}`);
-    check('design-chip-in-composer', await page.evaluate(() => document.querySelector('#agent-root')?.textContent.includes('Design on canvas')));
+    const badge = await until(page, () => document.querySelector('#agent-root [contenteditable="true"] .tok-conn')?.dataset.raw || null, null, 2000);
+    check('design-inserts-canvas-mention', badge === '$canvas', `badge=${badge}`);
+    await page.evaluate(() => window.connChat.design());
+    await sleep(200);
+    const badges = await page.evaluate(() => document.querySelectorAll('#agent-root [contenteditable="true"] .tok-conn').length);
+    check('design-twice-inserts-once', badges === 1, `badges=${badges}`);
 
     // ---------------------------------------------------------------- draws
 
@@ -404,8 +409,8 @@ async function main() {
       }
       return '';
     })();
-    check('prompt-names-selected-frame', sent.includes('[canvas selection]') && sent.includes('.conn/canvas/landing.json  (Landing)') && !sent.includes('pricing.json'), sent.slice(0, 400));
-    check('prompt-carries-schema-brief', sent.includes('[design on canvas]') && sent.includes('"type":"frame"') && sent.includes('vector {viewBox'), sent.slice(0, 200));
+    check('prompt-names-selected-frame', sent.includes('[conn canvas selection]') && sent.includes('.conn/canvas/landing.json  (Landing)') && !sent.includes('pricing.json'), sent.slice(0, 400));
+    check('prompt-carries-schema-brief', sent.split('[conn canvas] $canvas').length === 2 && sent.includes('"type":"frame"') && sent.includes('vector {viewBox'), sent.slice(0, 200));
     check('prompt-places-new-frames-clear', /placed at x 1990, y 0/.test(sent), (sent.match(/placed at[^,]*,[^,]*/) || [''])[0]);
     check('prompt-ends-with-request', sent.trim().endsWith('make this darker'), sent.slice(-80));
     check('selection-survives-send', await page.evaluate(() => document.querySelector('#agent-root').textContent.includes('Landing')));

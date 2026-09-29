@@ -15,7 +15,9 @@ export function TokenText({ text }) {
     <span>
       {nodes.map((n, i) => {
         if (n.type === 'text') return <span key={i}>{n.text}</span>;
-        const badge = <TokenBadge key={i} kind={n.kind} label={n.label} title={n.title} />;
+        // What a $ mention told the agent. The $ badge in the message says it.
+        if (n.kind === 'context') return null;
+        const badge = <TokenBadge key={i} kind={n.kind} icon={n.icon} label={n.label} title={n.title} />;
         if (!n.note) return badge;
         return <span key={i}>{badge} {n.note}{'\n'}</span>;
       })}

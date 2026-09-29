@@ -17,6 +17,7 @@ const SOURCE_LABEL = {
 const DOT = {
   skill: 'bg-[hsl(var(--token-skill))]',
   path: 'bg-[hsl(var(--token-path))]',
+  conn: 'bg-[hsl(var(--token-conn))]',
 };
 
 export function matchSkills(skills, query) {

@@ -31,6 +31,8 @@
   --token-path-fg: 205 82% 34%;
   --token-element: 32 92% 48%;
   --token-element-fg: 26 80% 34%;
+  --token-conn: 168 76% 36%;
+  --token-conn-fg: 170 80% 26%;
 
   /* aliases used throughout this stylesheet */
   --bg: hsl(var(--background));
@@ -108,6 +110,8 @@
   --token-path-fg: 203 90% 78%;
   --token-element: 38 92% 58%;
   --token-element-fg: 40 92% 74%;
+  --token-conn: 166 70% 50%;
+  --token-conn-fg: 164 76% 70%;
 }
 
 /* The rail is a solid step from the chat, the same relationship as the

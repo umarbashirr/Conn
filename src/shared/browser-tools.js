@@ -148,4 +148,10 @@ const BRIDGE_TOOL = new Map([
   ['browser_highlight', 'highlight'],
 ]);
 
-module.exports = { browserTools, INSTRUCTIONS, BRIDGE_TOOL };
+/* What each agent calls these tools. Claude gets them from the in-process SDK
+   server named `preview`, which it namespaces; codex and the ACP agents get
+   them from the `conn` MCP server, which codex namespaces and the ACP agents
+   list under their bare names. */
+const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '' };
+
+module.exports = { browserTools, INSTRUCTIONS, BRIDGE_TOOL, TOOL_PREFIX };

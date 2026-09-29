@@ -30,7 +30,9 @@ import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { publish, showAgent } from './shell/agents-store.js';
 import { canvasState, onSelection, select } from './shell/canvas-store.js';
-import { designBrief, nextSlot, selectionBrief } from './shell/canvas-schema.js';
+import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
+import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
+import { mentionsIn } from './lib/tokens.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -42,7 +44,14 @@ import { designBrief, nextSlot, selectionBrief } from './shell/canvas-schema.js'
 // would end the block early and leave the rest as loose prose.
 const noteLine = (a) => (a.note ? `  note: ${String(a.note).replace(/\s+/g, ' ').trim()}` : null);
 
-function attachmentText(list) {
+// Frames picked on the board are a $canvas mention nobody had to type.
+function mentionNames(list, body) {
+  const names = mentionsIn(body);
+  if (list.some((a) => a.kind === 'frames')) names.add('canvas');
+  return names;
+}
+
+function attachmentText(list, body, names, provider) {
   const lines = [];
 
   for (const a of list) {
@@ -73,8 +82,7 @@ function attachmentText(list) {
       lines.push(selectionBrief(a.frames));
     }
   }
-  // Once per message, however it became a design request.
-  if (list.some((a) => a.kind === 'design' || a.kind === 'frames')) lines.push(designBrief(nextSlot(canvasState.board)));
+  lines.push(...mentionBlocks(names, body, { provider, slot: nextSlot(canvasState.board) }));
 
   return lines.length ? lines.join('\n\n') + '\n\n' : '';
 }
@@ -343,10 +351,9 @@ export default function App() {
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
       dictate: dictation.toggle,
-      // The next message is a design brief: it carries the canvas's rules to
-      // the agent, and the canvas opens to show what comes back.
+      // A shortcut for typing $canvas, and the canvas opens to show what comes back.
       design: () => {
-        setAttachments((a) => (a.some((x) => x.kind === 'design') ? a : [...a, { id: 'design', kind: 'design' }]));
+        setText((t) => (mentionsIn(t).has('canvas') ? t : `${t}${t && !/\s$/.test(t) ? ' ' : ''}$canvas `));
         runCommand('canvas', true);
         runCommand('focusComposer');
       },
@@ -443,10 +450,13 @@ export default function App() {
     // An attachment with nothing typed is still a message: a screenshot and a
     // note say plenty. An empty box with nothing clipped to it is nothing to send.
     if (!body && !attachments.length) return;
-    const full = attachmentText(attachments) + body;
+    const names = mentionNames(attachments, body);
+    const full = attachmentText(attachments, body, names, agent.provider) + body;
     const images = attachments.filter((a) => a.kind === 'image');
     if (agent.busy) agent.enqueue(full, images);
     else agent.send(full, images);
+    // The part the message is about goes on screen, so the person watches the work land.
+    for (const name of names) runCommand(MENTIONS[name].pane, true);
     setText('');
     // The frames stay selected on the board, so the next message is about them too.
     setAttachments((a) => a.filter((x) => x.kind === 'frames'));
