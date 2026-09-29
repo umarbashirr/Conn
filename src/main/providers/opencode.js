@@ -7,6 +7,7 @@ const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
 const history = require('./stub-history');
 const { AcpCatalog } = require('./acp-catalog');
+const { everyMode } = require('../modes');
 
 const locate = makeLocator(['opencode']);
 
@@ -15,8 +16,19 @@ const CATALOG = [
 ];
 
 // OpenCode allows every edit and command unless its config says ask, and a
-// request it never sends is one Conn's modes cannot answer.
-const ASK = JSON.stringify({ permission: { edit: 'ask', bash: 'ask', webfetch: 'ask' } });
+// request it never sends is one Conn's modes cannot answer. Bypass says allow,
+// which only a new process can take on or off.
+const permission = (rule) => ({
+  OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: rule, bash: rule, webfetch: rule } }),
+});
+
+// Its session modes are build and plan. Everything but Plan works in build.
+const MODES = everyMode('opencode', {
+  plan: { session: 'plan', env: permission('ask') },
+  ask: { session: 'build', env: permission('ask') },
+  auto: { session: 'build', env: permission('ask') },
+  bypass: { session: 'build', env: permission('allow') },
+});
 
 // OpenCode caches models.dev's catalog, prices included, and refreshes it
 // itself. Free is a zero input and output price there; a model the file does
@@ -56,7 +68,7 @@ const spec = {
   id: 'opencode',
   cli: 'opencode',
   argv: ['acp'],
-  env: () => ({ OPENCODE_CONFIG_CONTENT: ASK }),
+  modes: MODES,
   login: 'opencode auth login',
   missing: 'No opencode on your PATH. Install it from opencode.ai, run opencode auth login, then restart Conn.',
   catalog: CATALOG,

@@ -4,6 +4,7 @@ const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
 const history = require('./stub-history');
 const { AcpCatalog } = require('./acp-catalog');
+const { everyMode } = require('../modes');
 
 const locate = makeLocator(['grok']);
 
@@ -14,10 +15,22 @@ const CATALOG = [
   { value: 'grok-4.5', displayName: 'Grok 4.5' },
 ];
 
+/* Grok offers no session modes over ACP, so Conn's cards are the only gate below
+   bypass. Its always-approve is asked for on session/new and holds for that
+   session, so leaving or entering bypass needs a new one. A permission_mode of
+   always-approve in ~/.grok/config.toml wins over anything a client sends. */
+const MODES = everyMode('grok', {
+  plan: {},
+  ask: {},
+  auto: {},
+  bypass: { meta: { yoloMode: true } },
+});
+
 const spec = {
   id: 'grok',
   cli: 'grok',
   argv: ['agent', 'stdio'],
+  modes: MODES,
   login: 'grok login',
   missing: 'No Grok CLI on your PATH. Install it from x.ai/cli, run grok login, then restart Conn.',
   catalog: CATALOG,

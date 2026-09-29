@@ -23,11 +23,13 @@ const check = (name, ok, detail) => {
 };
 
 const MOCK = path.join(ROOT, 'scripts/mock-acp-cli.js');
+const OPENCODE_MODES = opencode.create({ cacheDir: tmp, settings: { get: () => ({}) } }).spec.modes;
 const spec = {
   id: 'opencode',
   cli: 'opencode',
   argv: [MOCK, 'acp'],
-  env: () => ({ MOCK_ACP_CONFIG: '1' }),
+  modes: Object.fromEntries(Object.entries(OPENCODE_MODES)
+    .map(([m, entry]) => [m, { ...entry, env: { ...entry.env, MOCK_ACP_CONFIG: '1' } }])),
   login: 'opencode auth login',
   binary: () => process.execPath,
 };
@@ -65,8 +67,10 @@ async function checkConfigOptions() {
 
 function checkPermissionsAsk() {
   const row = opencode.create({ cacheDir: tmp, settings: { get: () => ({}) } });
-  const config = JSON.parse(row.spec.env().OPENCODE_CONFIG_CONTENT);
-  check('opencode-asks-before-acting', ['edit', 'bash', 'webfetch'].every((k) => config.permission[k] === 'ask'), JSON.stringify(config));
+  for (const mode of ['plan', 'ask', 'auto']) {
+    const config = JSON.parse(row.spec.modes[mode].env.OPENCODE_CONFIG_CONTENT);
+    check(`opencode-asks-before-acting-in-${mode}`, ['edit', 'bash', 'webfetch'].every((k) => config.permission[k] === 'ask'), JSON.stringify(config));
+  }
 }
 
 function checkMcpList() {

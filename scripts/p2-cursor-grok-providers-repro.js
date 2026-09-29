@@ -21,12 +21,14 @@ const fail = (name, detail) => {
 };
 
 const MOCK = path.join(ROOT, 'scripts/mock-acp-cli.js');
+const { MODES } = require(path.join(ROOT, 'src/main/modes.js'));
 
-function mockSpec(overrides = {}) {
+function mockSpec({ env, ...overrides } = {}) {
   return {
     id: 'cursor',
     cli: 'agent',
     argv: [MOCK, 'acp'],
+    modes: Object.fromEntries(MODES.map((m) => [m, { env: env?.() }])),
     login: 'agent login',
     missing: 'No Cursor CLI (agent) on your PATH.',
     catalog: [{ value: 'auto', displayName: 'Auto' }],

@@ -5,6 +5,7 @@ const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
 const history = require('./stub-history');
 const { AcpCatalog } = require('./acp-catalog');
+const { everyMode } = require('../modes');
 
 function acceptCursor(realPath, name) {
   const stem = path.basename(name).replace(/\.(exe|cmd|bat)$/i, '');
@@ -25,10 +26,22 @@ const CATALOG = [
   { value: 'grok-4', displayName: 'Grok 4' },
 ];
 
+/* Cursor's session modes are agent, plan, and ask, and its ask is questions only:
+   it refuses to edit or run anything, so Conn's Ask cannot live there. Every
+   working mode is agent, with Conn's cards as the gate. --force is Cursor's own
+   run-everything switch, and only a new process can take it on or off. */
+const MODES = everyMode('cursor', {
+  plan: { session: 'plan' },
+  ask: { session: 'agent' },
+  auto: { session: 'agent' },
+  bypass: { session: 'agent', argv: ['--force'] },
+});
+
 const spec = {
   id: 'cursor',
   cli: 'agent',
   argv: ['acp'],
+  modes: MODES,
   login: 'agent login',
   missing: 'No Cursor CLI (cursor-agent) on your PATH. Install it from cursor.com/cli, run agent login, then restart Conn. Another tool named agent (e.g. Grok) can steal the name.',
   catalog: CATALOG,

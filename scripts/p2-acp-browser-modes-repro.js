@@ -2,13 +2,16 @@
 'use strict';
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
 const ROOT = process.env.CONN_ROOT || path.join(__dirname, '..');
 const {
-  pickMode, toolOf, ACP_INSTRUCTIONS, AcpSession,
+  followAgent, toolOf, ACP_INSTRUCTIONS, AcpSession,
 } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
-const { decide, decideCodex } = require(path.join(ROOT, 'src/main/modes.js'));
+const { decide, decideCodex, everyMode } = require(path.join(ROOT, 'src/main/modes.js'));
 const { INSTRUCTIONS } = require(path.join(ROOT, 'src/shared/browser-tools.js'));
+const cursorProvider = require(path.join(ROOT, 'src/main/providers/cursor.js'));
+const opencodeProvider = require(path.join(ROOT, 'src/main/providers/opencode.js'));
 
 const failures = [];
 const pass = (name) => console.log(`PASS ${name}`);
@@ -18,16 +21,23 @@ const fail = (name, detail) => {
 };
 const check = (name, ok, detail) => (ok ? pass(name) : fail(name, detail || 'failed'));
 
-const OPENCODE_MODES = [{ id: 'build' }, { id: 'plan' }];
-const CURSOR_MODES = [{ id: 'ask' }, { id: 'plan' }, { id: 'bypass' }];
-
-function checkPickMode() {
-  check('ask-on-cursor', pickMode('ask', CURSOR_MODES) === 'ask');
-  check('bypass-on-cursor', pickMode('bypass', CURSOR_MODES) === 'bypass');
-  check('plan-on-opencode', pickMode('plan', OPENCODE_MODES) === 'plan');
-  check('ask-falls-to-build', pickMode('ask', OPENCODE_MODES) === 'build', pickMode('ask', OPENCODE_MODES));
-  check('auto-falls-to-build', pickMode('auto', OPENCODE_MODES) === 'build', pickMode('auto', OPENCODE_MODES));
-  check('bypass-never-build', pickMode('bypass', OPENCODE_MODES) === null, pickMode('bypass', OPENCODE_MODES));
+function checkModeTables() {
+  const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-modes-'));
+  const table = (provider) => provider.create({ cacheDir, settings: { get: () => ({}) } }).spec.modes;
+  const cursor = table(cursorProvider);
+  const opencode = table(opencodeProvider);
+  check('cursor-ask-can-work', cursor.ask.session === 'agent', cursor.ask.session);
+  check('cursor-plan-is-plan', cursor.plan.session === 'plan', cursor.plan.session);
+  check('cursor-bypass-forces', cursor.bypass.argv?.includes('--force'), JSON.stringify(cursor.bypass));
+  check('cursor-only-bypass-forces', ['plan', 'ask', 'auto'].every((m) => !cursor[m].argv), 'a gated mode forces');
+  check('opencode-plan-is-plan', opencode.plan.session === 'plan', opencode.plan.session);
+  check('opencode-bypass-leaves-plan', opencode.bypass.session === 'build', opencode.bypass.session);
+  check('follow-agent-into-plan', followAgent('bypass', 'plan', cursor) === 'plan');
+  check('follow-agent-out-of-plan', followAgent('plan', 'agent', cursor) === 'ask');
+  check('follow-agent-keeps-working-mode', followAgent('auto', 'agent', cursor) === 'auto');
+  let threw = false;
+  try { everyMode('x', { plan: {}, ask: {}, auto: {} }); } catch { threw = true; }
+  check('table-missing-a-mode-refuses', threw);
 }
 
 function checkToolOf() {
@@ -90,7 +100,7 @@ function checkPrefaceWiring() {
   check('retired-debug-is-ask', retired.mode === 'ask', retired.mode);
 }
 
-checkPickMode();
+checkModeTables();
 checkToolOf();
 checkInstructions();
 checkPrefaceWiring();

@@ -14,7 +14,8 @@ function browserTool(tool) {
 
 // The four modes the composer offers. Plan, Ask, Auto, and Full bypass mean the
 // same thing for Claude, ChatGPT, Cursor, Grok, and OpenCode: decide() below is
-// the gate, and each CLI is only told the closest mode it already has. The
+// the gate, and each CLI is only told the closest mode it already has. The ACP
+// agents keep that in a `modes` table on their spec in providers/. The
 // renderer keeps these ids and the labels in ui/components/composer.jsx.
 //
 // Debug, Accept edits, and Ask confirmation always used to be separate. They
@@ -44,7 +45,19 @@ const CODEX_MODE = {
 };
 
 const isMode = (m) => Object.hasOwn(SDK_MODE, m);
+const MODES = Object.keys(SDK_MODE);
 const DEFAULT_MODE = 'ask';
+
+// An agent's table says what every mode means for that agent and names nothing
+// that is not a mode, or the agent refuses to load.
+function everyMode(agent, table) {
+  const missing = MODES.filter((m) => !Object.hasOwn(table, m));
+  const extra = Object.keys(table).filter((m) => !isMode(m));
+  if (missing.length || extra.length) {
+    throw new Error(`${agent} modes: missing [${missing}], unknown [${extra}]`);
+  }
+  return Object.freeze(table);
+}
 
 // Old picker values, folded into the four that every agent can keep.
 const RETIRED = {
@@ -141,6 +154,6 @@ function decideCodex(mode, tool, input) {
 }
 
 module.exports = {
-  SDK_MODE, CODEX_MODE, DEFAULT_MODE, isMode, normalizeMode, decide, decideCodex, riskOf, READ_ONLY,
+  SDK_MODE, CODEX_MODE, DEFAULT_MODE, MODES, isMode, everyMode, normalizeMode, decide, decideCodex, riskOf, READ_ONLY,
   browserTool,
 };

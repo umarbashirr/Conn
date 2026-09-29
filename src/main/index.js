@@ -743,6 +743,8 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     if (m?.type === 'system' && m.subtype === 'task_notification') releaseTaskEverywhere(m.task_id);
     if (m?.type === 'result') releaseChatEverywhere(chat);
     send('agent:message', { chat, msg: lighten(m) });
+    // The mode moved mid-turn to one this session was not launched for.
+    if (m?.type === 'result' && agent.stale && sessions.get(chat) === agent) stopChat(chat);
   });
   agent.on('ready', (r) => {
     if (r?.model) chatPrefs.setModel(chat, r.model);
@@ -768,8 +770,9 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   } catch (e) {
     // start() threw, so nothing is reading the queue and nothing ever will.
     // Left in the map this corpse is handed back on every later message and the
-    // chat sits there looking busy forever.
+    // chat sits there looking busy forever. The CLI may already be running.
     sessions.delete(chat);
+    agent.stop();
     agent.closed = true;
     throw e;
   }
@@ -1164,8 +1167,12 @@ function registerIpc() {
       pageGrants.delete(chat);
     }
     const live = sessions.get(chat);
-    if (live) return { mode: await live.setMode(mode) };
-    return { mode: chatPrefs.modeOf(chat, chosenMode) };
+    if (!live) return { mode: chatPrefs.modeOf(chat, chosenMode) };
+    const next = await live.setMode(mode);
+    // Some agents take bypass only at launch. The next message resumes this
+    // transcript in a session started for the new mode, same as a new effort.
+    if (live.stale && !(live.working ?? live.busy)) stopChat(chat);
+    return { mode: next };
   });
   // Answered from the driver cache. Asking the SDK would mean starting a
   // session, and the picker is drawn before anyone has said anything.

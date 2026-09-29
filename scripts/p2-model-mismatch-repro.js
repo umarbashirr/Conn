@@ -1,6 +1,7 @@
 'use strict';
 const path = require('path');
 const { shownModel, followsWindowProvider, reuseLive } = require(path.join(__dirname, '..', 'src/shared/run-choice'));
+const { MODES } = require(path.join(__dirname, '..', 'src/main/modes'));
 
 const failures = [];
 const pass = (name) => console.log(`PASS ${name}`);
@@ -69,7 +70,7 @@ async function checkRejectedModelReportsTheOneThatStayed() {
       cli: 'agent',
       argv: [path.join(__dirname, 'mock-acp-cli.js'), 'acp'],
       binary: () => process.execPath,
-      env: () => ({ MOCK_ACP_REJECT_MODEL: '1' }),
+      modes: Object.fromEntries(MODES.map((m) => [m, { env: { MOCK_ACP_REJECT_MODEL: '1' } }])),
     },
     cwd: tmp,
     model: 'grok-4.7',

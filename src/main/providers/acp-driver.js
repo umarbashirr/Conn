@@ -7,6 +7,7 @@ const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
 const { modelsFrom } = require('./acp-models');
 const shellEnv = require('../shell-env');
+const { DEFAULT_MODE } = require('../modes');
 
 const PROBE_TIMEOUT_MS = 20000;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -51,7 +52,7 @@ async function probeModels(bin, spec) {
     bin,
     argv: spec.argv || ['acp'],
     cwd,
-    env: spec.env ? spec.env() : undefined,
+    env: spec.modes?.[DEFAULT_MODE].env,
   });
   try {
     await rpc.start();

@@ -29,20 +29,21 @@ const KIND_TOOL = {
   other: 'Tool',
 };
 
-/* Exact ACP mode ids we will set for each Conn mode. `build` is deliberately
-   absent: OpenCode's build is ordinary work, and mapping bypass onto it would
-   drop the mode's meaning. Ask and Auto may fall through to `build` in
-   pickMode below, because those CLIs have no closer name and Conn still gates
-   the call. */
-const MODE_CANDIDATES = {
-  plan: ['plan'],
-  ask: ['ask', 'default', 'normal'],
-  auto: ['auto', 'acceptEdits', 'agent', 'code'],
-  bypass: ['bypass', 'danger', 'full'],
-};
+/* What a mode needs from the process and from session/new, as opposed to the
+   session mode, which can be switched at any time. A session started under
+   other settings than its mode now needs is stale, and only a new one fixes it. */
+const launchOf = ({ argv = [], env = {}, meta = null }) => JSON.stringify([argv, env, meta]);
 
-// Modes that mean "do the work, Conn decides". Bypass and plan never inherit build.
-const BUILD_FALLBACK = new Set(['ask', 'auto']);
+/* The agent moved its own mode, as Cursor does when a plan is approved. Only
+   entering or leaving plan says anything about Conn's mode, because one
+   working mode on the agent's side stands for three on Conn's. Leaving plan
+   lands on Ask, the same as approving a plan does for claude. */
+function followAgent(mode, agentMode, table) {
+  const plan = table.plan.session;
+  if (!plan) return mode;
+  if (agentMode === plan) return 'plan';
+  return mode === 'plan' ? 'ask' : mode;
+}
 
 /* Same words Claude and Codex get, plus the disambiguation Codex needed when
    another browser skill was competing. ACP agents (Cursor, Grok, OpenCode)
@@ -71,18 +72,6 @@ function mcpEnv(env) {
   return Object.entries(env || {})
     .filter(([, v]) => v != null)
     .map(([name, value]) => ({ name, value: String(value) }));
-}
-
-function pickMode(ourMode, available) {
-  if (!available?.length) return null;
-  const ids = new Set(available.map((m) => m.id || m.value).filter(Boolean));
-  const hit = (MODE_CANDIDATES[ourMode] || []).find((id) => ids.has(id));
-  if (hit) return hit;
-  // OpenCode often only advertises plan/build. Ask and Auto still need a CLI
-  // that allows edits so our permission callback can run. Bypass must not
-  // inherit build or it silently stops meaning what the composer shows.
-  if (BUILD_FALLBACK.has(ourMode) && ids.has('build')) return 'build';
-  return null;
 }
 
 /* Prefer a concrete MCP / browser tool name over ACP's coarse kind bucket.
@@ -138,6 +127,13 @@ class AcpSession extends EventEmitter {
     this.config = [];
     this.startedAt = 0;
     this.prompting = null;
+    this.launched = null;
+    this.loading = false;
+  }
+
+  // Whether this session was started under settings its mode no longer has.
+  get stale() {
+    return this.launched !== null && launchOf(this.spec.modes[this.mode]) !== this.launched;
   }
 
   async start() {
@@ -148,11 +144,12 @@ class AcpSession extends EventEmitter {
     }
     this.emit('stderr', `using ${this.spec.cli} binary at ${bin}\n`);
 
+    const launch = this.spec.modes[this.mode];
     this.rpc = new AcpRpc({
       bin,
-      argv: this.spec.argv || ['acp'],
+      argv: [...(launch.argv || []), ...(this.spec.argv || ['acp'])],
       cwd: this.cwd,
-      env: this.spec.env ? this.spec.env() : undefined,
+      env: launch.env,
     });
     this.rpc.on('stderr', (d) => this.emit('stderr', d));
     this.rpc.on('notification', (m, p) => this.#note(m, p));
@@ -176,10 +173,12 @@ class AcpSession extends EventEmitter {
     }
 
     const mcpServers = this.#servers();
-    const params = { cwd: this.cwd, mcpServers };
+    const params = { cwd: this.cwd, mcpServers, ...(launch.meta ? { _meta: launch.meta } : {}) };
     let res;
+    // Loading a session replays it as updates, and the panel already has it.
+    this.loading = !!(this.resume && init?.agentCapabilities?.loadSession);
     try {
-      res = this.resume && init?.agentCapabilities?.loadSession
+      res = this.loading
         ? await this.rpc.request('session/load', { ...params, sessionId: this.resume })
         : await this.rpc.request('session/new', params);
     } catch (e) {
@@ -188,7 +187,10 @@ class AcpSession extends EventEmitter {
         throw new Error(`${this.spec.cli} is installed but not logged in. Run \`${this.spec.login}\`, then open a new chat.`);
       }
       throw e;
+    } finally {
+      this.loading = false;
     }
+    this.launched = launchOf(launch);
 
     this.sessionId = res?.sessionId || this.resume || null;
     this.config = res?.configOptions || [];
@@ -202,10 +204,7 @@ class AcpSession extends EventEmitter {
         if (advertised) this.model = advertised;
       }
     }
-    const acpMode = pickMode(this.mode, this.modes);
-    if (acpMode) {
-      try { await this.#set('mode', acpMode); } catch {}
-    }
+    await this.#selectMode();
 
     this.emit('ready', {
       sessionId: this.sessionId,
@@ -281,15 +280,20 @@ class AcpSession extends EventEmitter {
     return this.model;
   }
 
+  // The session mode moves now. Anything the process was launched with moves
+  // when main sees `stale` and starts a new session on the same transcript.
   async setMode(mode) {
     if (!isMode(mode)) return this.mode;
     this.mode = mode;
-    const acpMode = pickMode(mode, this.modes);
-    if (acpMode && this.sessionId) {
-      try { await this.#set('mode', acpMode); } catch {}
-    }
+    if (this.sessionId) await this.#selectMode();
     this.emit('mode', { mode });
     return this.mode;
+  }
+
+  async #selectMode() {
+    const want = this.spec.modes[this.mode].session;
+    if (!want || !this.modes.some((m) => (m.id || m.value) === want)) return;
+    try { await this.#set('mode', want); } catch {}
   }
 
   #set(category, value) {
@@ -357,7 +361,7 @@ class AcpSession extends EventEmitter {
   }
 
   #note(method, params) {
-    if (method !== 'session/update') return;
+    if (method !== 'session/update' || this.loading) return;
     const update = params?.update || params;
     const kind = update?.sessionUpdate;
     if (kind === 'agent_message_chunk') {
@@ -397,9 +401,9 @@ class AcpSession extends EventEmitter {
       });
       return;
     }
-    if (kind === 'current_mode_update' && update.modeId) {
-      const ours = Object.keys(MODE_CANDIDATES).find((m) => (MODE_CANDIDATES[m] || []).includes(update.modeId));
-      if (ours && ours !== this.mode) {
+    if (kind === 'current_mode_update' && update.currentModeId) {
+      const ours = followAgent(this.mode, update.currentModeId, this.spec.modes);
+      if (ours !== this.mode) {
         this.mode = ours;
         this.emit('mode', { mode: ours });
       }
@@ -471,5 +475,5 @@ class AcpSession extends EventEmitter {
 }
 
 module.exports = {
-  AcpSession, CLIENT, mcpEnv, pickMode, toolOf, MODE_CANDIDATES, ACP_INSTRUCTIONS,
+  AcpSession, CLIENT, mcpEnv, toolOf, followAgent, ACP_INSTRUCTIONS,
 };
