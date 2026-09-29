@@ -170,6 +170,11 @@
   56%, 100% { opacity: 0; }
 }
 
+@keyframes conn-braille {
+  0% { content: "⠋"; } 10% { content: "⠙"; } 20% { content: "⠹"; } 30% { content: "⠸"; } 40% { content: "⠼"; }
+  50% { content: "⠴"; } 60% { content: "⠦"; } 70% { content: "⠧"; } 80% { content: "⠇"; } 90% { content: "⠏"; }
+}
+
 @layer components {
   /* One row arriving. Short enough that twenty in a row still feel like a list
      filling in rather than a queue playing back. */
@@ -189,6 +194,10 @@
   }
 
   .conn-fold[data-open="true"] { grid-template-rows: 1fr; }
+
+  /* A subagent at work. Like the caret, it stays under reduced motion: it is
+     the thing saying the agent is alive. */
+  .conn-braille::before { content: "⠋"; animation: conn-braille 800ms steps(1) infinite; }
   .conn-fold > * { min-height: 0; overflow: hidden; }
 
   /* Where the next token lands. Prose that has stopped growing for a second

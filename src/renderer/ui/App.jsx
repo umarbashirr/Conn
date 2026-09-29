@@ -1,13 +1,15 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 
-import { Conversation, ConversationContent, ConversationScrollButton } from '@/components/ai-elements/conversation';
+import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats, isEditTool } from '@/components/diff-view';
 import { ToolRow, ToolStrip, Pre, toolLabel, toolSummary } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
+import { SubagentSheet } from '@/components/subagent-sheet';
+import { ChatFloor } from '@/components/working-panel';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
@@ -23,12 +25,13 @@ import {
 
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
+import { isLive, subagentsIn } from '@/lib/subagents';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
-import { publish, showAgent } from './shell/agents-store.js';
+import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
 import { canvasState, onSelection, select } from './shell/canvas-store.js';
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
@@ -239,6 +242,10 @@ export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
   useEffect(() => publish(agent));
+  const sheet = useSyncExternalStore(subscribeAgents, getSheet, getSheet);
+  const subagents = useMemo(() => subagentsIn(agent.items), [agent.items]);
+  const working = useMemo(() => subagents.filter(isLive), [subagents]);
+  const sheetItem = sheet ? subagents.find((a) => a.id === sheet.id) || null : null;
   const catalog = useCatalog();
   const { settings, set, reset } = useSettings();
   const updates = useUpdates();
@@ -525,15 +532,27 @@ export default function App() {
           )}
           {thinkingSince > 0 && <ThinkingLine since={thinkingSince} />}
         </ConversationContent>
-        {!empty && <ConversationScrollButton />}
+        {!empty && (
+          <ChatFloor
+            agents={working}
+            onOpen={(a) => openSheet(a.id)}
+            onStopAll={() => working.filter((a) => a.taskId).forEach(agent.stopAgent)} />
+        )}
+        {sheetItem && (
+          <SubagentSheet
+            key={sheetItem.id}
+            item={sheetItem}
+            agent={agent}
+            Items={Items}
+            full={sheet.full}
+            onToggleFull={toggleSheetFull}
+            onClose={closeSheet} />
+        )}
       </Conversation>
 
       <FleetStrip
-        agents={agent.running}
-        onStop={agent.stopAgent}
-        onShow={(a) => (a.kind === 'agent'
-          ? showAgent(a.id)
-          : document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }))} />
+        shells={agent.running.filter((a) => a.kind !== 'agent')}
+        onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
 
       <Composer
         agent={agent}
@@ -650,8 +669,8 @@ export function Items({ items, agent, from = 0 }) {
 function Item({ item, agent }) {
   const onDecide = agent.decide;
 
-  // An agent owns whatever it did, and that lives in the Agents tab. Here it is
-  // one row, so three at once cost three lines of the chat and not three logs.
+  // An agent owns whatever it did, and that opens in a sheet over the chat. Here
+  // it is one row, so three at once cost three lines of the chat and not three logs.
   if (item.kind === 'agent') {
     return (
       <div id={`row-${item.id}`}>
@@ -659,7 +678,7 @@ function Item({ item, agent }) {
           item={item}
           onStop={agent.stopAgent}
           onBackground={agent.backgroundAgent}
-          onShow={(it) => showAgent(it.id)} />
+          onShow={(it) => openSheet(it.id)} />
       </div>
     );
   }
