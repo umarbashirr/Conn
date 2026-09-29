@@ -17,7 +17,7 @@
    window and "180px" is the floor the rail used to have. */
 import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
-import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
+import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -35,6 +35,7 @@ import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
 import AgentsView from './AgentsView';
 import BrowserView from './BrowserView';
+import CanvasView from './CanvasView';
 import ChangesView from './ChangesView';
 import FilesView from './FilesView';
 import Palette from './Palette';
@@ -106,6 +107,7 @@ export const VIEW_KINDS = {
   changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', bind: 'changes', title: 'Uncommitted changes' },
   terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
   agents: { icon: BotIcon, label: 'Agents', command: 'agents', title: "This chat's subagents" },
+  canvas: { icon: PaletteIcon, label: 'Canvas', command: 'canvas', bind: 'canvas', title: 'Design canvas' },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
@@ -116,7 +118,7 @@ const labelOf = (tab) => {
   return VIEW_KINDS[tab.kind].label;
 };
 
-/* Starting one. Files, Changes and Agents may already be open in this folder,
+/* Starting one. Files, Changes, Agents and Canvas may already be open in this folder,
    in which case the store hands back the one that is there, so every kind is
    offered every time rather than the menu guessing which are spent. */
 function AddTab() {
@@ -300,6 +302,7 @@ export default function Shell() {
                 <FilesView />
                 <ChangesView />
                 <AgentsView />
+                <CanvasView />
                 <Terminals />
               </section>
             </ResizablePanel>

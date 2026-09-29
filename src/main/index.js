@@ -17,6 +17,7 @@ const git = require('./git');
 const diff = require('./diff');
 const editors = require('./editors');
 const files = require('./files');
+const canvas = require('./canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
 const projects = require('./projects');
@@ -1693,6 +1694,29 @@ function registerIpc() {
     const abs = files.within(focusedCwd(), rel);
     return abs ? { path: abs } : { error: 'that path is outside the project folder' };
   });
+
+  // --- design canvas ---
+  // An export lands wherever the person picks. The name is only a suggestion
+  // for the dialog, so it is cut to a bare file name before it gets there.
+  ipcMain.handle('canvas:save', async (_e, { name, text, project } = {}) => {
+    const file = path.basename(String(name || 'design.html'));
+    const ext = path.extname(file).slice(1);
+    const res = await dialog.showSaveDialog(win, {
+      title: 'Export design',
+      defaultPath: path.join(treeCwd(project), file),
+      filters: ext ? [{ name: ext.toUpperCase(), extensions: [ext] }] : [],
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+    try {
+      await fs.promises.writeFile(res.filePath, String(text ?? ''));
+      return { path: res.filePath };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('canvas:patch', (_e, { project, file, geometry } = {}) => canvas.patch(treeCwd(project), file, geometry));
+  ipcMain.handle('canvas:duplicate', (_e, { project, file, at } = {}) => canvas.duplicate(treeCwd(project), file, at));
+  ipcMain.handle('canvas:trash', (_e, { project, files: list } = {}) => canvas.trash(treeCwd(project), list));
 
   // --- uncommitted changes ---
   // The list is cheap enough to ask for on a timer while the pane is showing;

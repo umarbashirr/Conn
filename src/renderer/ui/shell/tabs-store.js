@@ -21,13 +21,13 @@
 'use strict';
 import { layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
 
-export const KINDS = ['browser', 'files', 'changes', 'terminal', 'agents'];
+export const KINDS = ['browser', 'files', 'changes', 'terminal', 'agents', 'canvas'];
 
-// One tree, one diff and one agents list per panel, so opening any of them
-// twice lands you back on the one you have. Previews and terminals are the
-// exception: two dev servers, or a build beside a shell, is the reason this
+// One tree, one diff, one agents list and one canvas per panel, so opening any
+// of them twice lands you back on the one you have. Previews and terminals are
+// the exception: two dev servers, or a build beside a shell, is the reason this
 // strip exists at all.
-const SINGLE = new Set(['files', 'changes', 'agents']);
+const SINGLE = new Set(['files', 'changes', 'agents', 'canvas']);
 
 // dir -> { chat, panels: Map(chat -> { tabs: [{ id, kind, title }], activeId, open, full }) }
 const folders = new Map();

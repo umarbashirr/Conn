@@ -29,6 +29,8 @@ import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { publish, showAgent } from './shell/agents-store.js';
+import { canvasState, onSelection, select } from './shell/canvas-store.js';
+import { designBrief, nextSlot, selectionBrief } from './shell/canvas-schema.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -67,8 +69,12 @@ function attachmentText(list) {
         noteLine(a),
         '  Read it before answering.',
       ].filter(Boolean).join('\n'));
+    } else if (a.kind === 'frames') {
+      lines.push(selectionBrief(a.frames));
     }
   }
+  // Once per message, however it became a design request.
+  if (list.some((a) => a.kind === 'design' || a.kind === 'frames')) lines.push(designBrief(nextSlot(canvasState.board)));
 
   return lines.length ? lines.join('\n\n') + '\n\n' : '';
 }
@@ -295,6 +301,14 @@ export default function App() {
     [setAttachments],
   );
 
+  // The frames selected on the canvas ride along as one chip, so "make this
+  // darker" reaches the agent with the files it means.
+  useEffect(() => onSelection((frames) => setAttachments((list) => {
+    const rest = list.filter((a) => a.kind !== 'frames');
+    if (!frames.length) return rest;
+    return [...rest, { id: 'frames', kind: 'frames', frames: frames.map((f) => ({ file: f.file, name: f.name })) }];
+  })), [setAttachments]);
+
   // Bridge to the vanilla half: the picker pushes here, the preview's error
   // card sends straight through.
   useEffect(() => {
@@ -329,6 +343,15 @@ export default function App() {
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
       dictate: dictation.toggle,
+      // The next message is a design brief: it carries the canvas's rules to
+      // the agent, and the canvas opens to show what comes back.
+      design: () => {
+        setAttachments((a) => (a.some((x) => x.kind === 'design') ? a : [...a, { id: 'design', kind: 'design' }]));
+        runCommand('canvas', true);
+        runCommand('focusComposer');
+      },
+      // Removing the chip lets go of the frames on the board as well.
+      deselectFrames: () => select([]),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle]);
@@ -425,8 +448,9 @@ export default function App() {
     if (agent.busy) agent.enqueue(full, images);
     else agent.send(full, images);
     setText('');
-    setAttachments([]);
-  }, [text, attachments, agent]);
+    // The frames stay selected on the board, so the next message is about them too.
+    setAttachments((a) => a.filter((x) => x.kind === 'frames'));
+  }, [text, attachments, agent, setAttachments]);
 
   const empty = agent.items.length === 0;
   // A gap the transcript is not already explaining, once it has lasted long

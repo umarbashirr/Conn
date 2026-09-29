@@ -84,6 +84,15 @@ contextBridge.exposeInMainWorld('conn', {
     onChanged: on('files:changed'),
   },
 
+  // The agent writes what a frame contains. The board only moves, sizes,
+  // copies and trashes whole frames, and saves the exports the person asks for.
+  canvas: {
+    save: (name, text, project) => ipcRenderer.invoke('canvas:save', { name, text, project }),
+    patch: (file, geometry, project) => ipcRenderer.invoke('canvas:patch', { file, geometry, project }),
+    duplicate: (file, at, project) => ipcRenderer.invoke('canvas:duplicate', { file, at, project }),
+    trash: (files, project) => ipcRenderer.invoke('canvas:trash', { files, project }),
+  },
+
   // The editors this machine has, and opening the project folder in one.
   editors: {
     list: (fresh) => ipcRenderer.invoke('editors:list', { fresh: !!fresh }),

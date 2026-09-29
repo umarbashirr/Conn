@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GitBranchIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaperclipIcon, PencilIcon,
+  FolderIcon, GitBranchIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
   PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
 } from 'lucide-react';
 
@@ -645,6 +645,39 @@ function Attachment({ item, onOpen, onRemove }) {
     );
   }
 
+  if (item.kind === 'design') {
+    return (
+      <Badge variant="secondary" className="gap-1 font-normal" title="The agent designs this on the canvas, and you can export it as code or to Figma">
+        <PaletteIcon className="size-3 opacity-70" />
+        Design on canvas
+        {remove}
+      </Badge>
+    );
+  }
+
+  // Mirrors the selection on the board, so letting go of the chip lets go of
+  // the frames too rather than leaving the two out of step.
+  if (item.kind === 'frames') {
+    const names = item.frames.map((f) => f.name);
+    return (
+      <Badge variant="secondary" className="gap-1 font-normal">
+        <PaletteIcon className="size-3 opacity-70" />
+        <span className="max-w-[24ch] truncate" title={`The agent changes only ${names.join(', ')}`}>
+          {names.length === 1 ? names[0] : `${names.length} frames`}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => window.connChat?.deselectFrames()}
+          title="Deselect"
+          className="size-4 text-muted-foreground">
+          <XIcon className="size-3" />
+        </Button>
+      </Badge>
+    );
+  }
+
   if (item.kind === 'file') {
     return (
       <Badge variant="secondary" className="gap-1 font-normal">
@@ -1045,6 +1078,12 @@ export function Composer({
                   <DropdownMenuItem onSelect={() => window.conn.browser.action('screenshot', { fullPage: true })}>
                     <CameraIcon className="size-4 text-muted-foreground" />
                     Screenshot the page
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={agent.folderless} onSelect={() => window.connChat?.design()}>
+                    <PaletteIcon className="size-4 text-muted-foreground" />
+                    Design a UI
+                    <span className="ml-auto text-muted-foreground text-xs">on the canvas</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
