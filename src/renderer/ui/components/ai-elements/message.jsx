@@ -10,6 +10,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { ChatLink } from "@/components/chat-link";
 import { cn } from "@/lib/utils";
 import { usePlugins } from "@/lib/streamdown-plugins";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
@@ -256,6 +257,7 @@ export const MessageBranchPage = ({
 
 export const MessageResponse = memo(({
   className,
+  components,
   ...props
 }) => {
   const plugins = usePlugins(props.children);
@@ -263,6 +265,8 @@ export const MessageResponse = memo(({
     <Streamdown
       className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
       plugins={plugins}
+      linkSafety={{ enabled: false }}
+      components={{ a: ChatLink, ...components }}
       {...props} />
   );
 }, (prevProps, nextProps) =>

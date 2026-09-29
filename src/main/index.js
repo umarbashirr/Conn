@@ -962,6 +962,12 @@ async function createWindow() {
   if (icon) win.setIcon(icon);
   attachTray();
 
+  // A link that slips past its click handler must not turn the app window into
+  // a web page or spawn a bare window. Links open through links:openExternal
+  // or the Browser pane.
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (e) => e.preventDefault());
+
   // The renderer is a Vite build: the chat pane is React, the shell is not.
   await win.loadFile(path.join(ROOT, 'build', 'renderer', 'index.html'));
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
@@ -1689,6 +1695,13 @@ function registerIpc() {
     if (!abs) return { error: 'that path is outside the project folder' };
     const err = await shell.openPath(abs);
     return err ? { error: err } : { ok: true };
+  });
+  // Anything else the renderer names, file: above all, stays inside the app.
+  ipcMain.handle('links:openExternal', async (_e, { url } = {}) => {
+    const protocol = URL.canParse(url) ? new URL(url).protocol : '';
+    if (!['http:', 'https:', 'mailto:'].includes(protocol)) return { error: 'only web and mail links open outside Conn' };
+    await shell.openExternal(url);
+    return { ok: true };
   });
   ipcMain.handle('files:absolute', (_e, { path: rel } = {}) => {
     const abs = files.within(focusedCwd(), rel);

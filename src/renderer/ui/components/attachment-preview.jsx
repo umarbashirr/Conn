@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { CheckIcon, CopyIcon, CrosshairIcon, FileIcon, TriangleAlertIcon } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { CrosshairIcon, FileIcon, TriangleAlertIcon } from 'lucide-react';
 
+import { CopyButton } from '@/components/copy-button';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { sizeLabel } from '@/lib/attachments';
@@ -12,30 +12,13 @@ import { sizeLabel } from '@/lib/attachments';
 // move out of the way while a dialog is up.
 import { parkPreview } from '../../app.js';
 
-function PathRow({ label, path }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const t = setTimeout(() => setCopied(false), 1200);
-    return () => clearTimeout(t);
-  }, [copied]);
-
-  return (
-    <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
-      <span className="shrink-0 text-muted-foreground text-xs">{label}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>{path}</span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        title="Copy the path"
-        onClick={() => { navigator.clipboard?.writeText(path); setCopied(true); }}
-        className="text-muted-foreground">
-        {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-      </Button>
-    </div>
-  );
-}
+const PathRow = ({ label, path }) => (
+  <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5">
+    <span className="shrink-0 text-muted-foreground text-xs">{label}</span>
+    <span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>{path}</span>
+    <CopyButton text={path} label="Copy the path" />
+  </div>
+);
 
 const Field = ({ label, children, mono }) => (
   <div className="flex gap-3 text-xs">

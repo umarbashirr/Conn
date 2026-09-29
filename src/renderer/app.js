@@ -4,7 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layout-store.js';
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
-import { navigate, pickElement, toggleDrawer, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
+import { pickElement, toggleDrawer, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
 import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
   activateTab, activeKind, activeTab, chatOfTab, dropChat, dropProject as dropTabs, everyTab,
@@ -13,6 +13,7 @@ import {
 import { activeKey, activeProject, liveKeys, subscribeRail } from './ui/shell/rail-store.js';
 import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
 import { chordSteals, findBinding, inTerminal, setOverrides } from './ui/lib/keys.js';
+import { openLink, wantsExternal } from './ui/lib/links.js';
 
 export const $ = (sel) => document.querySelector(sel);
 
@@ -303,7 +304,7 @@ function spawnShell(dir, tabId) {
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
-  term.loadAddon(new WebLinksAddon((_e, uri) => navigate(uri)));
+  term.loadAddon(new WebLinksAddon((e, uri) => openLink(uri, wantsExternal(e))));
   term.attachCustomKeyEventHandler((e) => !chordSteals(e));
   term.open(host);
 

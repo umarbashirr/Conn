@@ -84,6 +84,11 @@ contextBridge.exposeInMainWorld('conn', {
     onChanged: on('files:changed'),
   },
 
+  // A link sent out of the app to the system browser or mail app.
+  links: {
+    openExternal: (url) => ipcRenderer.invoke('links:openExternal', { url }),
+  },
+
   // The agent writes what a frame contains. The board only moves, sizes,
   // copies and trashes whole frames, and saves the exports the person asks for.
   canvas: {
