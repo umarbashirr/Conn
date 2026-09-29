@@ -83,7 +83,9 @@ function checkRendererClearsCards() {
     return;
   }
   pass('renderer-interrupt-block');
-  if (/kind === ['"]perm['"]/.test(block[0]) && /decided:\s*['"]deny['"]/.test(block[0])) {
+  const helper = src.match(/function interrupted\(items\) \{[\s\S]*?\n\}/)?.[0] || '';
+  const body = /interrupted\(c\.items\)/.test(block[0]) ? helper : block[0];
+  if (/kind === ['"]perm['"]/.test(body) && /decided:\s*['"]deny['"]/.test(body)) {
     pass('renderer-interrupt-denies-cards');
   } else {
     fail('renderer-interrupt-denies-cards', 'interrupt() does not mark pending perm items decided');

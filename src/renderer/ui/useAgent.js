@@ -14,6 +14,21 @@ const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
 
+// A stopped turn's transcript. Its open permission cards are a deny and the
+// agents that were waiting on them are not waiting any more.
+function interrupted(items) {
+  const waitingIds = new Set(
+    items
+      .filter((it) => it.kind === 'perm' && !it.decided && it.agent?.toolUseId)
+      .map((it) => it.agent.toolUseId),
+  );
+  return [...items.map((it) => {
+    if (it.kind === 'perm' && !it.decided) return { ...it, decided: 'deny' };
+    if (waitingIds.has(it.id)) return { ...it, waiting: false };
+    return it;
+  }), { id: uid('i'), kind: 'note', text: 'interrupted' }];
+}
+
 const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
 
 
@@ -818,21 +833,28 @@ export function useAgent() {
   const interrupt = useCallback(async () => {
     const key = activeRef.current;
     const parked = (chatsRef.current.find((c) => c.key === key)?.queued || []).map((m) => m.text);
-    edit(key, (c) => {
-      const waitingIds = new Set(
-        c.items
-          .filter((it) => it.kind === 'perm' && !it.decided && it.agent?.toolUseId)
-          .map((it) => it.agent.toolUseId),
-      );
-      const items = c.items.map((it) => {
-        if (it.kind === 'perm' && !it.decided) return { ...it, decided: 'deny' };
-        if (waitingIds.has(it.id)) return { ...it, waiting: false };
-        return it;
-      });
-      return { ...c, queued: [], busy: false, usage: withStop(c.usage), items: [...items, { id: uid('i'), kind: 'note', text: 'interrupted' }] };
-    });
+    edit(key, (c) => ({ ...c, queued: [], busy: false, usage: withStop(c.usage), items: interrupted(c.items) }));
     await conn().agent.interrupt(key);
     return parked;
+  }, [edit]);
+
+  // The message at the front, now rather than after this turn. The turn is
+  // stopped and stays busy until its own result arrives, and the idle flush
+  // sends the message from there. Every provider sends that result, and
+  // sending before it would hand codex a turn it is tearing down and let an
+  // ACP prompt's late answer end the new turn.
+  const sendNow = useCallback(async () => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const head = chat?.queued[0];
+    if (!chat?.busy || !head || head.held || head.now) return false;
+    edit(key, (c) => ({
+      ...c,
+      queued: c.queued.map((m) => (m.id === head.id ? { ...m, now: true } : m)),
+      items: interrupted(c.items),
+    }));
+    await conn().agent.interrupt(key);
+    return true;
   }, [edit]);
 
   // Moving to another chat. A chat nobody is waiting on does not need a process
@@ -1192,7 +1214,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, enqueue, unqueue, editQueued,
+    send, enqueue, unqueue, editQueued, sendNow,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

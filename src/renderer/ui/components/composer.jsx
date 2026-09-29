@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CrosshairIcon, FileIcon,
+  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, FileIcon,
   FolderIcon, GitBranchIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
   PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
 } from 'lucide-react';
@@ -711,11 +711,41 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
+// Where the message at the front of the queue stands.
+function queueStateOf(agent) {
+  const head = agent.queued[0];
+  if (!head) return 'empty';
+  if (head.held) return 'held';
+  if (!agent.busy) return 'sending';
+  return head.now ? 'stopping' : 'waiting';
+}
+
+const QUEUE_NOTE = {
+  empty: '',
+  held: 'sends when you save',
+  sending: 'sending…',
+  stopping: 'stopping this turn to send it',
+  waiting: 'sends after this turn',
+};
+
+// Only what is in the box is sent or parked, so the hint speaks for an empty one.
+function placeholderFor(agent, state) {
+  if (!agent.busy) return agent.folderless ? 'Ask anything' : 'Plan, build, or ask about this project';
+  switch (state) {
+    case 'waiting': return 'Working. Enter sends the queued message now';
+    case 'stopping': return 'Stopping. The queued message goes next';
+    case 'empty':
+    case 'held':
+    case 'sending': return 'Working. Enter adds this to the queue';
+    default: throw new Error(`unknown queue state: ${state}`);
+  }
+}
+
 // One parked message. The row is the edit control: the text opens into the
 // same box the composer types in, so a token stays a token. Enter writes it
 // back, Escape puts the row back as it was. While that box is open the
 // message is held, so a turn ending underneath it does not send the old text.
-function QueuedItem({ item, index, onEdit, onDrop }) {
+function QueuedItem({ item, index, onEdit, onDrop, onSendNow }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
   const input = useRef(null);
@@ -797,6 +827,18 @@ function QueuedItem({ item, index, onEdit, onDrop }) {
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {images.length === 1 ? '1 image' : `${images.length} images`}
         </span>
+      )}
+      {onSendNow && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          title="Send now. Stops this turn"
+          aria-label="Send now"
+          onClick={onSendNow}
+          className="size-4 text-muted-foreground">
+          <CornerDownLeftIcon className="size-3" />
+        </Button>
       )}
       <Button
         type="button"
@@ -940,6 +982,8 @@ export function Composer({
     if (parked?.length) setText((t) => [...parked, t].filter(Boolean).join('\n\n'));
   }, [agent, setText]);
 
+  const queueState = queueStateOf(agent);
+
   const onKeyDown = useCallback((e) => {
     if (menu) {
       if (e.key === 'ArrowDown') { e.preventDefault(); return setActive((i) => (i + 1) % rows.length); }
@@ -972,13 +1016,7 @@ export function Composer({
         <div className="mb-2 px-1">
           <div className="mb-1 flex items-center gap-2 text-muted-foreground text-xs">
             <span>{agent.queued.length} queued</span>
-            <span className="opacity-70">
-              {agent.queued[0]?.held
-                ? 'sends when you save'
-                : agent.busy
-                  ? 'sends after this turn'
-                  : 'sending…'}
-            </span>
+            <span className="opacity-70">{QUEUE_NOTE[queueState]}</span>
           </div>
           <div className="flex flex-col gap-1">
             {agent.queued.map((m, i) => (
@@ -987,7 +1025,8 @@ export function Composer({
                 item={m}
                 index={i}
                 onEdit={agent.editQueued}
-                onDrop={() => agent.unqueue(m.id)} />
+                onDrop={() => agent.unqueue(m.id)}
+                onSendNow={i === 0 && queueState === 'waiting' ? agent.sendNow : undefined} />
             ))}
           </div>
         </div>
@@ -1042,9 +1081,7 @@ export function Composer({
               aria-expanded={menu}
               aria-controls={menu ? 'composer-mentions' : undefined}
               aria-activedescendant={menu ? `mention-${cursor}` : undefined}
-              placeholder={agent.busy
-                ? 'Working. Enter adds this to the queue'
-                : agent.folderless ? 'Ask anything' : 'Plan, build, or ask about this project'}
+              placeholder={placeholderFor(agent, queueState)}
               className={cn('min-h-[76px] px-4 pb-2 text-[13.5px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5')} />
           </PromptInputBody>
 

@@ -450,13 +450,17 @@ export default function App() {
 
   // Enter while the agent is working parks the message. It goes out on its
   // own after this turn finishes, and the one behind it waits for that
-  // follow-up to finish too.
+  // follow-up to finish too. Enter on an empty box sends the one at the front
+  // now, stopping the turn for it.
   const submit = useCallback((_message, e) => {
     e?.preventDefault?.();
     const body = text.trim();
     // An attachment with nothing typed is still a message: a screenshot and a
     // note say plenty. An empty box with nothing clipped to it is nothing to send.
-    if (!body && !attachments.length) return;
+    if (!body && !attachments.length) {
+      agent.sendNow();
+      return;
+    }
     const names = mentionNames(attachments, body);
     const full = attachmentText(attachments, body, names, agent.provider) + body;
     const images = attachments.filter((a) => a.kind === 'image');
