@@ -703,9 +703,6 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
 
   const cwd = project && known(project) ? project : cwdOfChat(chat);
   chatProjects.set(chat, cwd);
-  // A chat with no folder has no preview of its own, and the only one it could
-  // reach is the focused project's, so it gets no browser tools at all.
-  const previews = cwd !== CHATS_DIR;
 
   const prefs = chatPrefs.resolve(chat, {
     mode: chosenMode,
@@ -724,14 +721,14 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     settings: row.catalogKind === 'claude' ? row.catalog.sessionSettings(cwd) : undefined,
     mcpOff: row.catalogKind === 'claude' ? row.catalog.offAtRuntime(cwd) : undefined,
     bridgeEnv: bridge.env(),
-    mcp: previews ? previewMcp(cwd) : null,
+    mcp: previewMcp(cwd),
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: previews ? async (tool, args, actor) => {
+    invoke: async (tool, args, actor) => {
       const who = actor?.id && actor.id !== 'main'
         ? { ...actor, chat }
         : { id: `main:${chat}`, label: 'the main thread', chat };
       return driveTool(tool, args, { cwd, actor: who });
-    } : null,
+    },
   });
   agent.provider = runs;
   sessions.set(chat, agent);
