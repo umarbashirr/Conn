@@ -10,6 +10,9 @@
 import { frameBox, guestWanted, onScreen, parseViewport, previewOf } from './browser-store.js';
 
 let still = null;
+// A cover is in flight. Another popup opening in that window must not start a
+// second capture, and a mutation while we wait must not cancel the one we have.
+let pending = false;
 
 export const isPaneCovered = () => !!still;
 
@@ -20,6 +23,7 @@ let token = 0;
 
 export function uncoverPane() {
   token += 1;
+  pending = false;
   if (!still) return;
   const going = still;
   still = null;
@@ -43,6 +47,9 @@ export function uncoverPane() {
 let warm = null;
 
 export function warmPane() {
+  // A click that is not going to open anything still asks. Reusing the shot
+  // from the last moment keeps a busy click from taking a picture every time.
+  if (warm && warm.mine === token && performance.now() - warm.at < 700) return;
   const mine = token;
   const at = performance.now();
   const shot = window.conn.browser.action('still').catch(() => null);
@@ -79,34 +86,149 @@ export async function coverPane(rect) {
     || rect.right < r.left || rect.left > r.right
     || rect.bottom < r.top || rect.top > r.bottom;
   if (clear) return uncoverPane();
-  if (still) return;
+  if (still || pending) return;
 
+  pending = true;
   const since = token;
   const mine = ++token;
-  const url = await lastStill(since);
-  if (mine !== token || still) return;
-
-  const img = document.createElement('img');
-  img.className = 'pane-still';
-  // A page in responsive mode sits in a frame inside the slot, and the picture
-  // has to hang on the frame or the page jumps when the menu opens.
-  const page = previewOf(onScreen());
-  const dims = page.live && !page.error ? parseViewport(page.viewport) : null;
-  if (dims) {
-    const f = frameBox(r, dims, page.hold);
-    Object.assign(img.style, { left: `${f.x}px`, top: `${f.y}px`, width: `${f.width}px`, height: `${f.height}px` });
-  }
-  if (url) {
-    img.src = url;
-    // A picture that is in the document but has not decoded yet paints as
-    // nothing, and the view underneath is already gone by then. Wait for the
-    // pixels, then swap: one frame has the page, the next has the photograph,
-    // and no frame has neither.
-    try { await img.decode(); } catch { /* a picture that will not decode is still better than a hole */ }
+  try {
+    const url = await lastStill(since);
     if (mine !== token || still) return;
-  }
 
-  still = img;
-  slot.appendChild(img);
-  window.conn.browser.setVisible(false);
+    const img = document.createElement('img');
+    img.className = 'pane-still';
+    // A page in responsive mode sits in a frame inside the slot, and the picture
+    // has to hang on the frame or the page jumps when the menu opens.
+    const page = previewOf(onScreen());
+    const dims = page.live && !page.error ? parseViewport(page.viewport) : null;
+    if (dims) {
+      const f = frameBox(r, dims, page.hold);
+      Object.assign(img.style, { left: `${f.x}px`, top: `${f.y}px`, width: `${f.width}px`, height: `${f.height}px` });
+    }
+    if (url) {
+      img.src = url;
+      // A picture that is in the document but has not decoded yet paints as
+      // nothing, and the view underneath is already gone by then. Wait for the
+      // pixels, then swap: one frame has the page, the next has the photograph,
+      // and no frame has neither.
+      try { await img.decode(); } catch { /* a picture that will not decode is still better than a hole */ }
+      if (mine !== token || still) return;
+    }
+
+    still = img;
+    slot.appendChild(img);
+    window.conn.browser.setVisible(false);
+  } finally {
+    if (mine === token) pending = false;
+  }
+}
+
+/* Popovers, dialogs, and menus all portal into this document, and the preview
+   is a native view above every one of them. Anything that lands on the pane
+   freezes it; anything clear of the pane leaves it alone. One watch covers
+   every layer, so a new dialog does not have to remember to ask. */
+const LAYERS = [
+  'popover-content',
+  'dialog-overlay',
+  'dialog-content',
+  'dropdown-menu-content',
+  'dropdown-menu-sub-content',
+  'select-content',
+  'context-menu-content',
+  'menubar-content',
+  'menubar-sub-content',
+  'sheet-overlay',
+  'sheet-content',
+].map((slot) => `[data-slot="${slot}"]`).join(',');
+
+const TRIGGERS = [
+  'popover-trigger',
+  'dialog-trigger',
+  'dropdown-menu-trigger',
+  'select-trigger',
+  'context-menu-trigger',
+  'menubar-trigger',
+  'sheet-trigger',
+].map((slot) => `[data-slot="${slot}"]`).join(',');
+
+function layerOverPane() {
+  const slot = document.querySelector('#paneslot');
+  if (!slot) return null;
+  const pane = slot.getBoundingClientRect();
+  if (!pane.width || !pane.height) return null;
+  for (const el of document.querySelectorAll(LAYERS)) {
+    if (el.getAttribute('data-state') === 'closed') continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) continue;
+    const clear = rect.right < pane.left || rect.left > pane.right
+      || rect.bottom < pane.top || rect.top > pane.bottom;
+    if (!clear) return rect;
+  }
+  return null;
+}
+
+let frame = 0;
+let hold = 0;
+
+// Closing one layer and opening the next (a menu item that opens a dialog)
+// happens on adjacent frames. Uncovering on the empty frame between them
+// flashes the live page, so a miss waits one frame before it lets go.
+export function syncPaneCover() {
+  const hit = layerOverPane();
+  if (hit) {
+    if (hold) { cancelAnimationFrame(hold); hold = 0; }
+    coverPane(hit);
+    return;
+  }
+  if (!still && !pending) return;
+  if (hold) return;
+  hold = requestAnimationFrame(() => {
+    hold = 0;
+    const next = layerOverPane();
+    if (next) coverPane(next);
+    else uncoverPane();
+  });
+}
+
+let watching = false;
+
+export function watchPaneOverlays() {
+  if (watching) return () => {};
+  watching = true;
+  const schedule = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      syncPaneCover();
+    });
+  };
+  const obs = new MutationObserver(schedule);
+  obs.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['data-state', 'style'],
+  });
+  // The still is usually ready by the time the layer paints, instead of the
+  // page staying live under a dialog for the length of a capture.
+  // Triggers warm on the way down, which is how a menu has its picture before
+  // it paints. Dialogs opened from a plain button (Usage, Search) have no
+  // trigger slot, so any button or menu item does the same when the pane is up.
+  const onPointerDown = (e) => {
+    const t = e.target;
+    if (!(t instanceof Element) || t.closest('#paneslot')) return;
+    const slot = document.querySelector('#paneslot');
+    if (!slot || slot.getBoundingClientRect().width < 1) return;
+    if (t.closest(`${TRIGGERS}, button, [role="button"], [role="menuitem"]`)) warmPane();
+  };
+  document.addEventListener('pointerdown', onPointerDown, true);
+  return () => {
+    obs.disconnect();
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    if (frame) cancelAnimationFrame(frame);
+    if (hold) cancelAnimationFrame(hold);
+    frame = 0;
+    hold = 0;
+    watching = false;
+  };
 }

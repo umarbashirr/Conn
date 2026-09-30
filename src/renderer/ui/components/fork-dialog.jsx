@@ -6,14 +6,14 @@ import {
 export function ForkDialog({ fork, onAnswer }) {
   return (
     <Dialog open={!!fork} onOpenChange={(next) => { if (!next) onAnswer('cancel'); }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Continue on {fork?.label} in a new chat</DialogTitle>
           <DialogDescription>
             This chat stays on its own CLI. The new one starts with what you hand it.
           </DialogDescription>
         </DialogHeader>
-        <DialogFooter>
+        <DialogFooter className="sm:flex-col sm:items-stretch">
           <Button variant="ghost" onClick={() => onAnswer('cancel')}>Cancel</Button>
           <Button variant="outline" onClick={() => onAnswer('summary')}>
             Summary · {fork?.sizes.summary} characters

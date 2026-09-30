@@ -22,7 +22,7 @@ import { formatChord, keyOf } from '@/lib/keys';
 import { useSettings } from '../useSettings';
 import { onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
 import { chosenEditor, editors, getEditorsVersion, openEditor, subscribeEditors } from './editors-store';
-import { coverPane, uncoverPane } from './pane-cover';
+import { syncPaneCover } from './pane-cover';
 import { SidebarButton, ToolbarActions } from './Toolbar';
 
 // project.js still owns the folder and tells its listeners when it changes.
@@ -48,19 +48,10 @@ function useWindowState() {
    pane and back on again, so this runs on every change, not only the first. */
 function usePaneCover(open) {
   useEffect(() => {
-    if (!open) {
-      uncoverPane();
-      return undefined;
-    }
     // Radix portals and positions the content after this fires.
-    const id = requestAnimationFrame(() => {
-      const content = document.querySelector('[data-slot="menubar-content"]');
-      coverPane(content?.getBoundingClientRect());
-    });
+    const id = requestAnimationFrame(() => syncPaneCover());
     return () => cancelAnimationFrame(id);
   }, [open]);
-
-  useEffect(() => uncoverPane, []);
 }
 
 /* A path is clipped from the left, which is the end you can throw away. An rtl

@@ -44,7 +44,7 @@ import StatusBar from './StatusBar';
 import Welcome from './Welcome';
 import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
-import { coverPane, uncoverPane } from './pane-cover';
+import { syncPaneCover, watchPaneOverlays } from './pane-cover';
 import {
   activateTab,
   activeKind,
@@ -74,11 +74,10 @@ export function useFocusedDir() {
    while the menu is up is the fix, and both menus in the window want it. */
 export function usePaneCover(open) {
   useEffect(() => {
-    if (!open) { uncoverPane(); return undefined; }
-    const id = requestAnimationFrame(() => {
-      const content = document.querySelector('[data-slot="dropdown-menu-content"]');
-      coverPane(content?.getBoundingClientRect());
-    });
+    // Radix portals and positions the content after this fires. The overlay
+    // watch sees every layer; this is the open and close edge for menus that
+    // already knew to ask.
+    const id = requestAnimationFrame(() => syncPaneCover());
     return () => cancelAnimationFrame(id);
   }, [open]);
 }
@@ -255,6 +254,35 @@ export default function Shell() {
     const id = requestAnimationFrame(relayoutNow);
     return () => cancelAnimationFrame(id);
   }, [railOpen, rightOpen, full]);
+
+  useEffect(() => watchPaneOverlays(), []);
+
+  // Dialogs use left: var(--dialog-x). The window's own center falls on the
+  // preview once that panel is open, so point the variable at the chat instead.
+  useEffect(() => {
+    const place = () => {
+      const pane = document.querySelector('#paneslot')?.getBoundingClientRect();
+      const agent = document.querySelector('#agent')?.getBoundingClientRect();
+      const root = document.documentElement;
+      if (!pane || pane.width < 8 || !agent || agent.width < 280 || agent.right > pane.left + 24) {
+        root.style.removeProperty('--dialog-x');
+        return;
+      }
+      root.style.setProperty('--dialog-x', `${agent.left + agent.width / 2}px`);
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    for (const sel of ['#paneslot', '#agent']) {
+      const el = document.querySelector(sel);
+      if (el) observer.observe(el);
+    }
+    window.addEventListener('resize', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      document.documentElement.style.removeProperty('--dialog-x');
+    };
+  }, []);
 
   return (
     <>
