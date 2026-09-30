@@ -9,6 +9,9 @@ import { MessageResponse } from '@/components/ai-elements/message';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Field, FieldContent, FieldDescription, FieldGroup, FieldLabel,
 } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
@@ -679,6 +682,7 @@ export function ReleaseNotesText({ notes }) {
 // Always the latest release, whether or not it is the one running, so the
 // note says which it is.
 function ReleaseNotes({ app, openPage }) {
+  const [open, setOpen] = useState(false);
   const which = app.latest === app.current
     ? 'The version you are running.'
     : app.behind
@@ -687,18 +691,30 @@ function ReleaseNotes({ app, openPage }) {
   const released = app.publishedAt ? ` Released ${new Date(app.publishedAt).toLocaleDateString()}.` : '';
 
   return (
-    <Section title={`What's new in ${app.latest}`} note={which + released}>
-      <div className="py-3 text-sm">
-        <ReleaseNotesText notes={app.notes} />
-      </div>
-      {app.page && (
-        <div>
-          <Button variant="outline" onClick={openPage}>
-            <ExternalLinkIcon className="size-4" /> Release page
-          </Button>
-        </div>
-      )}
-    </Section>
+    <Row label={`What's new in ${app.latest}`} hint={which + released}>
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        <SparklesIcon className="size-4" /> Release notes
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>What's new in Conn {app.latest}</DialogTitle>
+            <DialogDescription>{which + released}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto text-sm">
+            <ReleaseNotesText notes={app.notes} />
+          </div>
+          <DialogFooter>
+            {app.page && (
+              <Button variant="outline" onClick={openPage}>
+                <ExternalLinkIcon className="size-4" /> Release page
+              </Button>
+            )}
+            <Button onClick={() => setOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Row>
   );
 }
 
@@ -785,14 +801,14 @@ function Updates({ settings, set, updates }) {
           </Row>
         )}
 
+        {app.latest && <ReleaseNotes app={app} openPage={updates.openPage} />}
+
         <Row label="Check automatically" hint="Asks GitHub when the app starts and every six hours after.">
           <Switch
             checked={settings.startup.checkUpdates}
             onCheckedChange={(checkUpdates) => set({ startup: { checkUpdates } })} />
         </Row>
       </Section>
-
-      {app.latest && <ReleaseNotes app={app} openPage={updates.openPage} />}
 
       <Section title="Agent CLIs" note="Each one is yours to update. Conn only reads the version, so it never replaces a binary under you.">
         {Object.entries(PROVIDERS).map(([id, p]) => {
