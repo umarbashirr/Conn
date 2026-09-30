@@ -1442,8 +1442,21 @@ function registerIpc() {
   // process.execPath with this process's argv, which for a tree or .deb install
   // is the same path the update just replaced, so the next process is the new
   // build with no path of its own to work out.
+  //
+  // Not app.relaunch() on Linux: its helper starts the new process with
+  // no_new_privs set, so the setuid chrome-sandbox cannot take root and the new
+  // build aborts at "zygote_host_impl_linux.cc Check failed". The shell waits
+  // for this process to exit, as Electron's helper does, then execs the same
+  // command line.
   ipcMain.handle('updates:relaunch', () => {
-    app.relaunch();
+    if (process.platform === 'linux') {
+      spawn('/bin/sh', [
+        '-c', 'while kill -0 "$0" 2>/dev/null; do sleep 0.1; done; exec "$@"',
+        String(process.pid), process.execPath, ...process.argv.slice(1),
+      ], { detached: true, stdio: 'ignore' }).unref();
+    } else {
+      app.relaunch();
+    }
     app.exit(0);
   });
 
