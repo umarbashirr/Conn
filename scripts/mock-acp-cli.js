@@ -13,6 +13,10 @@ const ASK = process.env.MOCK_ACP_ASK === '1';
 // Answer the way OpenCode does: model and mode as session config options.
 const CONFIG = process.env.MOCK_ACP_CONFIG === '1';
 const REJECT_MODEL = process.env.MOCK_ACP_REJECT_MODEL === '1';
+// A file to append each session start and prompt to, so a test can read what
+// the app handed the agent.
+const LOG = process.env.MOCK_ACP_LOG || '';
+const record = (entry) => LOG && require('fs').appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
 const chosen = { model: 'mock-1', mode: 'build' };
 let seq = 0;
 let promptId = null;
@@ -78,6 +82,7 @@ async function handlePrompt(id, params) {
   const text = (params.prompt || [])
     .map((b) => (b && b.type === 'text' ? b.text : ''))
     .join('\n');
+  record({ method: 'session/prompt', text });
 
   if (ASK) {
     send({
@@ -149,6 +154,7 @@ function onMessage(msg) {
   if (method === 'session/new' || method === 'session/load') {
     if (AUTH) return fail(id, 'not authenticated; run login');
     const servers = params?.mcpServers || [];
+    record({ method, cwd: params?.cwd, mcpServers: servers });
     if (CONFIG) {
       return result(id, {
         sessionId: params?.sessionId || 's1',
