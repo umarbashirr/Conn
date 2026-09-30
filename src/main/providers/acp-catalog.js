@@ -11,6 +11,7 @@ const shellEnv = require('../shell-env');
 const { ANSI } = require('../sniff');
 
 const TTL_MS = 30 * 60 * 1000;
+const BOOTED_AT = Date.now();
 const SESSION_MS = 30000;
 // Commands arrive a few seconds after session/new, and Cursor has been seen to
 // take fifteen. Past this the probe keeps what it has.
@@ -311,7 +312,10 @@ class AcpCatalog extends EventEmitter {
 
   current(dir, { refresh = true } = {}) {
     const snap = this.probesByDir[dir];
-    if (refresh && (!snap?.at || Date.now() - snap.at > TTL_MS)) this.refresh(dir).catch(() => {});
+    // A failure saved by an earlier launch is retried once, since a restart is
+    // what the missing-CLI message tells people to do.
+    const stale = !snap?.at || Date.now() - snap.at > TTL_MS || (snap.error && snap.at < BOOTED_AT);
+    if (refresh && stale) this.refresh(dir).catch(() => {});
     return {
       live: !!snap && !snap.error,
       connectors: true,
@@ -331,10 +335,13 @@ class AcpCatalog extends EventEmitter {
   async refresh(dir) {
     const running = this.inflightByDir.get(dir);
     if (running) return running;
-    const bin = this.spec.binary();
-    const run = (bin
-      ? probe({ id: this.id, spec: this.spec, bin, dir })
-      : Promise.reject(new Error(this.spec.missing)))
+    // The launcher's PATH has no ~/.local/bin, where cursor-agent installs.
+    const run = shellEnv.ready()
+      .then(() => {
+        const bin = this.spec.binary();
+        if (!bin) throw new Error(this.spec.missing);
+        return probe({ id: this.id, spec: this.spec, bin, dir });
+      })
       .catch((e) => ({ at: Date.now(), skills: [], mcp: [], error: e.message }))
       .then((snap) => {
         this.probesByDir[dir] = snap;
