@@ -75,7 +75,20 @@ function mcpEnv(env) {
 }
 
 /* Prefer a concrete MCP / browser tool name over ACP's coarse kind bucket.
-   kind "other" used to become "Tool" and skip browser READS auto-allow. */
+   kind "other" used to become "Tool" and skip browser READS auto-allow.
+   The kind is what the row is called. The file and the title have to ride
+   along on the input, or that row is just the word "Edit": ACP puts the
+   path on `locations` or `path`, not on `file_path`. */
+function callInput(update) {
+  const raw = update?.rawInput && typeof update.rawInput === 'object' ? { ...update.rawInput } : {};
+  const locations = Array.isArray(update?.locations) ? update.locations : [];
+  if (locations.length && !raw.locations) raw.locations = locations;
+  const loc = locations.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
+  if (loc && !raw.file_path && !raw.path && !raw.filePath) raw.path = String(loc);
+  if (typeof update?.title === 'string' && update.title && raw.title == null) raw.title = update.title;
+  return raw;
+}
+
 function toolOf(call) {
   const title = typeof call?.title === 'string' ? call.title : '';
   const raw = call?.rawInput && typeof call.rawInput === 'object' ? call.rawInput : null;
@@ -375,7 +388,7 @@ class AcpSession extends EventEmitter {
       this.#closeStream();
       const id = update.toolCallId;
       const name = toolOf(update);
-      const input = update.rawInput && typeof update.rawInput === 'object' ? update.rawInput : { title: update.title };
+      const input = callInput(update);
       this.#emit({
         type: 'assistant',
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
@@ -384,6 +397,10 @@ class AcpSession extends EventEmitter {
       return;
     }
     if (kind === 'tool_call_update') {
+      const extra = callInput(update);
+      if (update.toolCallId && Object.keys(extra).length) {
+        this.#emit({ type: 'tool_input', tool_use_id: update.toolCallId, input: extra });
+      }
       if (update.status !== 'completed' && update.status !== 'failed') return;
       const output = textOf(update.rawOutput) || textOf(update.content) || update.status;
       this.#emit({
@@ -420,7 +437,7 @@ class AcpSession extends EventEmitter {
   #permission(params, respond) {
     const call = params.toolCall || {};
     const tool = toolOf(call);
-    const input = call.rawInput && typeof call.rawInput === 'object' ? call.rawInput : { title: call.title };
+    const input = callInput(call);
     const verdict = decideCodex(this.mode, tool, input);
     const options = params.options || [];
     const browser = browserTool(tool);

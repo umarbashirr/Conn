@@ -4,7 +4,7 @@ import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
-import { DiffView, editHunks, hunkStats, isEditTool } from '@/components/diff-view';
+import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
 import { ToolRow, ToolStrip, Pre, toolLabel, toolSummary } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
@@ -156,7 +156,12 @@ function ThinkingLine({ since }) {
   const held = Date.now() - since;
 
   return (
-    <div className="conn-in flex items-baseline gap-2 px-2">
+    <div className="conn-in flex h-7 items-center gap-1.5 px-1.5">
+      {/* Same two columns the tool rows spend on the chevron and the icon,
+          so "Thinking" starts where "Edit" does instead of hanging off the
+          left of the list. */}
+      <span className="w-3 shrink-0" />
+      <span className="w-3.5 shrink-0" />
       <Shimmer className="text-[13px]">Thinking</Shimmer>
       {held >= 2500 && (
         <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">{clock(held)}</span>
@@ -526,7 +531,7 @@ export default function App() {
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
-        <ConversationContent className="mx-auto w-full max-w-3xl gap-3">
+        <ConversationContent className="mx-auto w-full max-w-3xl gap-1.5">
           {empty ? (
             <h1 className="py-6 text-center font-medium text-2xl tracking-tight">
               {agent.folderless ? 'What is on your mind?' : 'What should change?'}
@@ -580,13 +585,15 @@ export default function App() {
 // A turn is mostly tool calls, and one line each turns twenty greps into a
 // screenful of scrolling past your own work. So a run of them folds: whatever
 // is running stays a row you can read, and everything it already did becomes
-// the one line above it saying how much of what. An edit breaks the run and
-// keeps its own row, because a diff is something to read rather than a step on
-// the way somewhere.
+// the one line above it saying how much of what. An edit that carries a diff
+// breaks the run and keeps its own row, because that diff is something to
+// read. An edit that only names a file is a step, and a stack of those is
+// the same kind of noise as a stack of greps.
 function runs(items) {
   const out = [];
   for (const item of items) {
-    const foldable = item.kind === 'tool' && !isEditTool(toolLabel(item.name));
+    const label = item.kind === 'tool' ? toolLabel(item.name) : '';
+    const foldable = item.kind === 'tool' && !editHunks(label, item.input || {});
     const last = out[out.length - 1];
     if (foldable && last?.run) last.run.push(item);
     else out.push(foldable ? { id: item.id, run: [item] } : { id: item.id, item });
@@ -689,7 +696,7 @@ function Item({ item, agent }) {
 
   if (item.kind === 'user') {
     return (
-      <Message from="user">
+      <Message from="user" className="mt-1.5">
         <MessageContent className="whitespace-pre-wrap">
           {item.images?.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -711,7 +718,7 @@ function Item({ item, agent }) {
 
   if (item.kind === 'assistant') {
     return (
-      <Message from="assistant">
+      <Message from="assistant" className="mt-1.5">
         <MessageContent>
           {/* The caret rides the last paragraph while text is still coming.
               Prose that pauses for a second between chunks looks finished
@@ -819,9 +826,16 @@ function Item({ item, agent }) {
           </div>
         );
       }
+      const pretty = label.replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
+      const verb = item.decided === 'deny' ? 'Denied' : item.decided === 'always' ? 'Always allow' : 'Allowed';
       return (
-        <div className="px-2 text-muted-foreground text-xs">
-          {label}: {item.decided === 'deny' ? 'denied' : `allowed (${item.decided})`}
+        <div className="flex h-7 items-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
+          <span className="w-3 shrink-0" />
+          <span className="w-3.5 shrink-0" />
+          <span>
+            {verb}{' '}
+            <span className="font-mono text-xs text-foreground/75">{pretty}</span>
+          </span>
         </div>
       );
     }

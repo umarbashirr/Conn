@@ -388,6 +388,18 @@ export function useAgent() {
         return;
       }
 
+      if (msg.type === 'tool_input' && msg.tool_use_id && msg.input && typeof msg.input === 'object') {
+        // A path that shows up a beat after the row does. Merge it in so the
+        // line can name the file instead of staying a bare "Edit".
+        edit(chat, (c) => ({
+          ...c,
+          items: c.items.map((it) => (it.id === msg.tool_use_id
+            ? { ...it, input: { ...(it.input || {}), ...msg.input } }
+            : it)),
+        }));
+        return;
+      }
+
       if (msg.type === 'assistant') {
         // How full the window is, which is the size of the request this reply
         // came back from. A subagent has a window of its own, so only the main

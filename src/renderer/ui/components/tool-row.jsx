@@ -41,10 +41,11 @@ const ICONS = {
 // One short line of context, so a collapsed row still says what it did.
 const SUMMARY = {
   Bash: (i) => i.command,
-  Read: (i) => tail(i.file_path),
-  Write: (i) => tail(i.file_path),
-  Edit: (i) => tail(i.file_path),
-  MultiEdit: (i) => tail(i.file_path),
+  Read: (i) => tail(fileOf(i)),
+  Write: (i) => tail(fileOf(i)),
+  Edit: (i) => tail(fileOf(i)),
+  MultiEdit: (i) => tail(fileOf(i)),
+  NotebookEdit: (i) => tail(fileOf(i)),
   Glob: (i) => i.pattern,
   Grep: (i) => i.pattern,
   WebFetch: (i) => i.url,
@@ -57,7 +58,21 @@ const SUMMARY = {
   browser_press: (i) => i.key,
 };
 
-const tail = (p) => String(p || '').split('/').slice(-2).join('/');
+const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');
+
+// ACP calls often name the file as `path` or a location, not `file_path`.
+function fileOf(i = {}) {
+  const locs = Array.isArray(i.locations) ? i.locations : [];
+  const loc = locs.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
+  return i.file_path || i.path || i.filePath || i.notebook_path || i.target_file || loc || '';
+}
+
+const clip = (s) => {
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  if (t.includes('/') && !t.includes(' ')) return tail(t);
+  return t.slice(0, 120);
+};
 
 // The name to show. An MCP tool arrives as mcp__server__thing, which says more
 // about the plumbing than about what ran.
@@ -65,10 +80,19 @@ export const toolLabel = (name) =>
   String(name || '').replace(/^mcp__preview__/, '').replace(/^mcp__[^_]+__/, '');
 
 export function toolSummary(name, input) {
+  const i = input || {};
   const fn = SUMMARY[name];
-  const raw = fn ? fn(input || {}) : Object.values(input || {})[0];
-  if (raw == null || typeof raw === 'object') return '';
-  return String(raw).replace(/\s+/g, ' ').slice(0, 120);
+  const raw = fn ? fn(i) : null;
+  const fromFn = raw == null || typeof raw === 'object' ? '' : clip(raw);
+  if (fromFn) return fromFn;
+  const titled = typeof i.title === 'string' ? i.title.trim() : '';
+  const bare = titled.replace(new RegExp(`^${String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i'), '');
+  if (bare && bare.toLowerCase() !== String(name || '').trim().toLowerCase()) return clip(bare);
+  if (!fn) {
+    const first = Object.values(i).find((v) => typeof v === 'string' && v.trim() && v.trim() !== titled);
+    if (first) return clip(first);
+  }
+  return '';
 }
 
 export function ToolRow({ name, input, state, at, right, defaultOpen = false, children }) {
@@ -97,7 +121,7 @@ export function ToolRow({ name, input, state, at, right, defaultOpen = false, ch
         variant="ghost"
         size="sm"
         onClick={() => { touched.current = true; setOpen((v) => !v); }}
-        className="group h-auto w-full justify-start gap-2 px-2 py-1 font-normal">
+        className="group h-7 w-full justify-start gap-1.5 px-1.5 font-normal">
         <ChevronRightIcon
           className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
         {failed
@@ -133,6 +157,10 @@ const BUCKET = {
   Grep: 'search',
   WebSearch: 'search',
   WebFetch: 'fetch',
+  Edit: 'edit',
+  Write: 'edit',
+  MultiEdit: 'edit',
+  NotebookEdit: 'edit',
 };
 
 const PLURAL = {
@@ -152,15 +180,35 @@ function summarise(items) {
     const key = BUCKET[toolLabel(it.name)] || 'step';
     counts.set(key, (counts.get(key) || 0) + 1);
   }
-  const say = (k) => `${counts.get(k)} ${counts.get(k) === 1 ? k : PLURAL[k]}`;
+  const say = (k, one = k) => `${counts.get(k)} ${counts.get(k) === 1 ? one : PLURAL[k]}`;
 
+  // Edits lead, because "edited" and "explored" are different kinds of work
+  // and burying the edits inside "explored" makes a writing turn look like
+  // a reading one.
+  const parts = [];
   const looked = LOOKED.filter((k) => counts.has(k));
-  const parts = looked.map(say);
-  if (counts.has('command')) parts.push(looked.length ? `ran ${say('command')}` : say('command'));
+  if (counts.has('edit')) {
+    const n = counts.get('edit');
+    const files = [...new Set(items
+      .filter((it) => BUCKET[toolLabel(it.name)] === 'edit')
+      .map((it) => toolSummary(toolLabel(it.name), it.input))
+      .filter(Boolean))];
+    // Twelve edits of one file should name that file, not pretend they
+    // were twelve different ones.
+    parts.push(files.length === 1
+      ? `Edited ${files[0]}${n > 1 ? ` × ${n}` : ''}`
+      : `Edited ${n} ${n === 1 ? 'file' : 'files'}`);
+  }
+  if (looked.length) {
+    const bits = looked.map((k) => say(k, k === 'search' ? 'search' : k === 'fetch' ? 'fetch' : 'file'));
+    parts.push(`${counts.has('edit') ? 'explored' : 'Explored'} ${bits.join(', ')}`);
+  }
+  if (counts.has('command')) {
+    const bit = say('command');
+    parts.push(parts.length ? `ran ${bit}` : `Ran ${bit}`);
+  }
   if (counts.has('step')) parts.push(say('step'));
-
-  const verb = looked.length ? 'Explored ' : counts.has('command') ? 'Ran ' : '';
-  return verb + parts.join(', ');
+  return parts.join(', ');
 }
 
 // Nineteen commands in a row were nineteen lines of transcript, and reading
@@ -182,12 +230,15 @@ export function ToolStrip({ items, children }) {
         size="sm"
         onClick={() => setOpen((v) => !v)}
         title={open ? 'Fold these back into one line' : 'Show each call'}
-        className="h-auto w-full justify-start gap-2 px-2 py-1 font-normal">
+        className="h-7 w-full justify-start gap-1.5 px-1.5 font-normal">
         <ChevronRightIcon
           className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
         {/* Holds the icon column, so the summary starts where every tool
-            name beside it does. */}
-        <ListIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            name beside it does. A run that is only edits gets the pen, so
+            it does not wear the same mark as a run of reads. */}
+        {items.every((it) => BUCKET[toolLabel(it.name)] === 'edit')
+          ? <FilePenIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+          : <ListIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}
         <span className="truncate text-[13px] text-muted-foreground">
           {open ? `${items.length} before this` : summarise(items)}
         </span>
