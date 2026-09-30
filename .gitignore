@@ -11,3 +11,8 @@ index-*.css
 
 # Local Claude Code settings, per machine.
 .claude/settings.local.json
+
+# Windows installer output from an older build script, and the designs the
+# Canvas pane saves into whatever folder Conn has open.
+dist-win/
+.conn/
