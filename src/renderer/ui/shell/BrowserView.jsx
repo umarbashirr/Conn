@@ -220,12 +220,12 @@ function PickButton({ tab }) {
   const s = useBrowser(tab);
 
   return (
-    <Tip label={s.picking ? 'Cancel pick (Esc)' : 'Point at an element (Ctrl+Shift+E)'}>
+    <Tip label={s.picking ? 'Stop pointing (Esc)' : 'Point at an element (Ctrl+Shift+E)'}>
       <Button
         variant="ghost"
         size="icon"
         data-armed={s.picking ? '' : undefined}
-        className={`${ICON_BUTTON} data-[armed]:bg-muted-foreground data-[armed]:text-background`}
+        className={`${ICON_BUTTON} data-[armed]:bg-foreground data-[armed]:text-background data-[armed]:hover:bg-foreground data-[armed]:hover:text-background`}
         aria-pressed={s.picking ? 'true' : 'false'}
         onClick={() => pickElement(tab)}>
         <PointerSparkIcon />

@@ -366,6 +366,10 @@ class BrowserPane extends EventEmitter {
     return this.#js('window.__conn.pick()');
   }
 
+  async cancelPick() {
+    return this.#js('window.__conn.cancelPick && window.__conn.cancelPick()');
+  }
+
   async evaluate(code) {
     const value = await this.wc.executeJavaScript(wrapEvaluate(code), true);
     return value === undefined ? null : value;

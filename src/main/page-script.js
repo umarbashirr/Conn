@@ -1,7 +1,7 @@
 // Injected into every page in the preview pane. Installs window.__conn, the
 // helper the agent tools call through executeJavaScript.
 (() => {
-  if (window.__conn && window.__conn.version === 1) return 'already-installed';
+  if (window.__conn && window.__conn.version === 2) return 'already-installed';
 
   const INTERACTIVE = 'a,button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=switch],[role=combobox],[role=textbox],[contenteditable=""],[contenteditable=true],[onclick],[tabindex]:not([tabindex="-1"])';
   let counter = 0;
@@ -213,7 +213,7 @@
   }
 
   window.__conn = {
-    version: 1,
+    version: 2,
 
     snapshot(opts = {}) {
       const out = [];
@@ -340,36 +340,88 @@
     // have to move the whole pane out of its own way to be seen over it, and
     // the thing being described would go with it.
     pick() {
-      if (this._picking) this._picking();
+      if (this._resolvePick) this._resolvePick(null);
       return new Promise((resolve) => {
         const box = document.createElement('div');
-        box.style.cssText = RESET + 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #b58cf6;background:rgba(181,140,246,.14);border-radius:2px;transition:all .04s linear';
         const tip = document.createElement('div');
-        tip.style.cssText = RESET + 'position:fixed;pointer-events:none;z-index:2147483647;background:#171b26;color:#d7dce6;font:11px ui-monospace,monospace;padding:3px 7px;border-radius:4px;border:1px solid #232936;white-space:nowrap';
+        box.dataset.connOverlay = '';
+        tip.dataset.connOverlay = '';
+        // The page's own rules must not reach these nodes, which is what
+        // all:initial is for. The box is then moved by setting left, top,
+        // width and height on their own. Writing the whole cssText again
+        // makes Chromium serialize `border-inline: initial` after the border
+        // shorthand, and the left and right edges vanish.
+        box.style.cssText = RESET
+          + 'position:fixed;display:block;box-sizing:border-box;visibility:hidden;pointer-events:none;z-index:2147483647;'
+          + 'border:2px solid #b58cf6;background:rgba(181,140,246,.12);'
+          + 'transition:left .04s linear,top .04s linear,width .04s linear,height .04s linear';
+        for (const side of ['top', 'right', 'bottom', 'left']) {
+          box.style.setProperty(`border-${side}`, '2px solid #b58cf6', 'important');
+        }
+        box.style.setProperty('box-sizing', 'border-box', 'important');
+        tip.style.cssText = RESET
+          + 'position:fixed;display:block;visibility:hidden;pointer-events:none;z-index:2147483647;'
+          + 'background:#171b26;color:#e7e4f2;font:600 11px/1 ui-monospace,monospace;'
+          + 'padding:4px 7px;border-radius:5px;white-space:nowrap;'
+          + 'box-shadow:0 4px 14px rgba(23,27,38,.28), inset 0 0 0 1px rgba(181,140,246,.7)';
         document.body.append(box, tip);
 
         let current = null;
         let bar = null;
+        let locked = false;
+        let settled = false;
+
+        const ours = (el) => !!(el && el.closest && el.closest('[data-conn-overlay]'));
+
+        const place = (el) => {
+          const r = el.getBoundingClientRect();
+          const left = Math.round(r.left);
+          const top = Math.round(r.top);
+          const width = Math.max(0, Math.round(r.width));
+          const height = Math.max(0, Math.round(r.height));
+          box.style.visibility = 'visible';
+          box.style.left = left + 'px';
+          box.style.top = top + 'px';
+          box.style.width = width + 'px';
+          box.style.height = height + 'px';
+          box.style.borderRadius = getComputedStyle(el).borderRadius || '0px';
+          if (locked) return r;
+          tip.style.visibility = 'visible';
+          tip.textContent = `${el.tagName.toLowerCase()}  ${width}\u00d7${height}`;
+          const tw = tip.offsetWidth;
+          const th = tip.offsetHeight || 20;
+          const above = top - th - 4;
+          const tipTop = above >= 4 ? above : Math.min(window.innerHeight - th - 4, top + height + 4);
+          tip.style.left = `${Math.max(4, Math.min(left, window.innerWidth - tw - 4))}px`;
+          tip.style.top = `${Math.round(tipTop)}px`;
+          return r;
+        };
+
+        const follow = () => { if (current && current.isConnected) place(current); };
+
         const move = (e) => {
           const el = document.elementFromPoint(e.clientX, e.clientY);
-          if (!el || el === current) return;
+          if (!el || ours(el) || el === current) return;
           current = el;
-          const r = el.getBoundingClientRect();
-          box.style.cssText += `;left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;
-          tip.textContent = `${el.tagName.toLowerCase()}  ${Math.round(r.width)}x${Math.round(r.height)}`;
-          tip.style.left = r.left + 'px';
-          tip.style.top = (r.top > 24 ? r.top - 22 : r.bottom + 4) + 'px';
+          place(el);
         };
-        const done = (value) => { cleanup(); resolve(value); };
+        const finish = (value) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        };
 
         // The chosen element keeps its outline while the bar is up, so what you
         // are writing about stays in front of you.
         const ask = (hit, r) => {
+          locked = true;
           document.removeEventListener('mousemove', move, true);
           document.removeEventListener('click', click, true);
           tip.remove();
 
           bar = document.createElement('div');
+          bar.dataset.connOverlay = '';
           bar.style.cssText = RESET + 'position:fixed;z-index:2147483647;display:flex;align-items:center;gap:8px;'
             + 'background:#171b26;border:1px solid #2b3346;border-radius:999px;padding:6px 12px 6px 10px;'
             + 'box-shadow:0 6px 20px rgba(0,0,0,.45);font:13px system-ui,-apple-system,sans-serif';
@@ -405,8 +457,8 @@
           // typed in here is meant for it.
           field.addEventListener('keydown', (e) => {
             e.stopPropagation();
-            if (e.key === 'Enter') { e.preventDefault(); done({ ...hit, note: field.value.trim() }); }
-            if (e.key === 'Escape') { e.preventDefault(); done(null); }
+            if (e.key === 'Enter') { e.preventDefault(); finish({ ...hit, note: field.value.trim() }); }
+            if (e.key === 'Escape') { e.preventDefault(); finish(null); }
           }, true);
           field.focus();
         };
@@ -414,7 +466,7 @@
         const click = (e) => {
           e.preventDefault(); e.stopPropagation();
           const el = document.elementFromPoint(e.clientX, e.clientY);
-          if (!el) return done(null);
+          if (!el || ours(el)) return;
           const r = el.getBoundingClientRect();
           ask({
             ref: ref(el),
@@ -426,19 +478,28 @@
             text: (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 120),
           }, r);
         };
-        const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); done(null); } };
+        const key = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(null); } };
         const cleanup = () => {
-          this._picking = null;
+          if (this._resolvePick === finish) this._resolvePick = null;
           box.remove(); tip.remove(); bar?.remove();
           document.removeEventListener('mousemove', move, true);
           document.removeEventListener('click', click, true);
           document.removeEventListener('keydown', key, true);
+          document.removeEventListener('scroll', follow, true);
+          window.removeEventListener('resize', follow);
         };
-        this._picking = cleanup;
+        this._resolvePick = finish;
         document.addEventListener('mousemove', move, true);
         document.addEventListener('click', click, true);
         document.addEventListener('keydown', key, true);
+        document.addEventListener('scroll', follow, true);
+        window.addEventListener('resize', follow);
       });
+    },
+
+    cancelPick() {
+      if (this._resolvePick) this._resolvePick(null);
+      return { ok: true };
     },
 
     highlight(target) {

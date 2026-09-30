@@ -395,17 +395,40 @@ export async function pickElement(tab = current) {
     return;
   }
 
+  // The toolbar button is a toggle. A second press, and the shortcut again,
+  // put the pointer down. Escape does the same from the page.
+  if (b.picking) {
+    if (b.pickClosing) return;
+    b.pickClosing = true;
+    b.pickToken = null;
+    try {
+      await window.conn.browser.action('cancelPick', undefined, tab);
+    } catch { /* the page already let go */ }
+    b.picking = false;
+    b.pickClosing = false;
+    changed();
+    return;
+  }
+
   reveal(tab);
+  const token = {};
+  b.pickToken = token;
   b.picking = true;
   changed();
 
   let hit = null;
   try {
     hit = await window.conn.browser.action('pick', undefined, tab);
-  } finally {
-    b.picking = false;
-    changed();
+  } catch {
+    hit = null;
   }
+  // A second press nulls the token before this returns, and that press is
+  // what clears the armed button. Clearing it here too would turn a new
+  // pick off while it is still running.
+  if (b.pickToken !== token) return;
+  b.picking = false;
+  b.pickToken = null;
+  changed();
   if (!hit) return;
 
   // Grab the element itself so the agent can look at it, not just read about it.

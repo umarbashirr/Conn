@@ -1808,6 +1808,7 @@ function registerIpc() {
       case 'setViewport': return arg ? pane.setViewport(arg.width, arg.height) : pane.clearViewport();
       case 'openExternal': return shell.openExternal(pane.state().url);
       case 'pick': return pane.pick();
+      case 'cancelPick': return pane.cancelPick();
       // Where the pane actually sits. capturePage() photographs the window's
       // own web contents and leaves the pane out of the picture entirely, so
       // this is the only way to tell a parked pane from a visible one.
