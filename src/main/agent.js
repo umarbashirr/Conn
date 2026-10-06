@@ -74,7 +74,7 @@ class AgentSession extends EventEmitter {
     const { z } = await import('zod');
 
     const CORE = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
-      'browser_type', 'browser_screenshot', 'browser_console', 'browser_show']);
+      'browser_type', 'browser_screenshot', 'browser_console', 'browser_show', 'browser_tabs', 'browser_tab_new']);
 
     // A session with nothing to invoke has no preview to drive, so it is not
     // offered the browser tools or told about them.

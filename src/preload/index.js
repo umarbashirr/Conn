@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld('conn', {
     // An agent asked for a preview in a folder with no tab open for one, so
     // main made the page and minted the id. The shell draws the tab.
     onOpenTab: on('preview:tab'),
+    // An agent closed one of its tabs, or main dropped the page behind one.
+    // The shell takes the strip row down.
+    onTabClosed: on('preview:closed'),
     // Which agent is driving that preview, and taking it back off them.
     driver: (tab) => ipcRenderer.invoke('preview:driver', { tab }),
     seize: (tab) => ipcRenderer.invoke('preview:seize', { tab }),

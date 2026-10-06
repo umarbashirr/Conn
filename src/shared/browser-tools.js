@@ -12,7 +12,7 @@ function browserTools(z) {
   return [
     {
       name: 'browser_navigate', bridgeTool: 'navigate', title: 'Open a URL',
-      description: 'Load a URL in the preview pane and show it to the human. Bare ports work: "3000" becomes http://localhost:3000.',
+      description: 'Load a URL in the tab you are driving and show it to the human. Bare ports work: "3000" becomes http://localhost:3000.',
       schema: { url: z.string() },
     },
     {
@@ -110,6 +110,26 @@ function browserTools(z) {
       description: 'Flash a box around an element so the person watching can see which one you mean.',
       schema: { target: z.string() },
     },
+    {
+      name: 'browser_tabs', bridgeTool: 'tabs', title: 'List this chat\'s tabs',
+      description: 'The browser tabs of this chat: id, url, title, which one you are driving and which one the human is looking at.',
+      schema: {},
+    },
+    {
+      name: 'browser_tab_new', bridgeTool: 'tabNew', title: 'Open a new tab',
+      description: 'Open a new browser tab in this chat and drive it from now on. Give a url to load it straight away. Use this for anything unrelated to the page you already have open, such as documentation.',
+      schema: { url: z.string().optional() },
+    },
+    {
+      name: 'browser_tab_select', bridgeTool: 'tabSelect', title: 'Switch tabs',
+      description: 'Make one of this chat\'s tabs the one your other browser tools act on. Ids come from browser_tabs.',
+      schema: { tab: z.string() },
+    },
+    {
+      name: 'browser_tab_close', bridgeTool: 'tabClose', title: 'Close a tab',
+      description: 'Close one of this chat\'s tabs. Omit tab to close the one you are driving. A tab another agent is driving is refused.',
+      schema: { tab: z.string().optional() },
+    },
   ];
 }
 
@@ -120,6 +140,9 @@ const INSTRUCTIONS = [
   'Call browser_snapshot to perceive the page: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept.',
   'Refs are dropped on navigation, so snapshot again after loading a page.',
   'After any action that should have changed something, check browser_console and browser_network before concluding it worked.',
+  'The pane has tabs. browser_tabs lists this chat\'s tabs, which one you are driving and which one the human is looking at.',
+  'The tab you start on may hold the person\'s own app, so open another with browser_tab_new for anything unrelated, such as documentation or research, rather than navigating away from it.',
+  'browser_tab_select changes which tab your other browser tools act on. A subagent\'s first browser_navigate opens a tab of its own.',
 ].join(' ');
 
 // Enough of zod's surface to build the table above without loading zod, which

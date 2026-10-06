@@ -759,12 +759,13 @@ export { toast } from './ui/shell/toast.jsx';
 // by the toolbar, which listens for the same thing.
 /* An agent navigating puts its page up in the panel of the chat it works for,
    on the tab main drove. When that chat is on screen the column opens on the
-   page; when it is not, the page is waiting there for you. The guard is for a
-   tab this window never filed, in a folder that has since been closed or a
-   navigate that raced a switch: a column yanked open on another folder's tab
-   is the wrong page under the right heading. */
-window.conn.agent.onActivity(({ tool, project, tab }) => {
-  if (tool !== 'navigate') return;
+   page; when it is not, the page is waiting there for you. Main says whether
+   this call is one to show (`reveal`): a subagent's page loads stay where they
+   are. The guard is for a tab this window never filed, in a folder that has
+   since been closed or a navigate that raced a switch: a column yanked open on
+   another folder's tab is the wrong page under the right heading. */
+window.conn.agent.onActivity(({ reveal, project, tab }) => {
+  if (!reveal) return;
   if (tab && revealTab(tab)) return;
   if (project && project !== state.focused) return;
   openPreview();
@@ -856,7 +857,11 @@ export function runCommand(name, arg) {
 // A preview an agent asked for is that agent's chat's, and the activity feed
 // puts it up there. Opening the column here as well would open it on whichever
 // chat happens to be in front.
-window.conn.onCommand(({ name, open, chat }) => {
+window.conn.onCommand(({ name, open, chat, tab }) => {
+  // browser_show names the tab its caller drives, so the column opens on that
+  // one rather than on whichever its strip had in front. That is also how a
+  // subagent's quiet tab gets shown on purpose.
+  if (tab && open !== false) revealTab(tab);
   if (chat && chat !== activeKey()) return undefined;
   return runCommand(name, open);
 });

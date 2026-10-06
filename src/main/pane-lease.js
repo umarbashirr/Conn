@@ -8,9 +8,11 @@
 // turn. Looking is always allowed, because two agents reading the same page is
 // how one of them notices what the other broke.
 
-// Tools that only observe. These never wait and never take the lease.
+// Tools that only observe. These never wait and never take the lease. Listing
+// the tabs and changing which one you drive change no page either.
 const READS = new Set([
   'snapshot', 'text', 'html', 'screenshot', 'console', 'network', 'state', 'highlight', 'preview',
+  'tabs', 'tabSelect',
 ]);
 
 // Nobody holds the pane forever. An agent that took it and then went off to
@@ -66,7 +68,7 @@ class PaneLease {
 
     if (!waited) {
       return `The preview pane is being driven by another agent (${held.label}). `
-        + 'It kept the pane for longer than this call could wait. Try again, or say so and let the human decide who gets it.';
+        + 'It kept the pane for longer than this call could wait. Open a tab of your own with browser_tab_new, try again, or say so and let the human decide who gets it.';
     }
     return this.#take(who);
   }

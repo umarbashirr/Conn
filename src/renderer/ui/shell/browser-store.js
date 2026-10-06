@@ -18,7 +18,7 @@
    reading another one is in its console when you click over to it. */
 'use strict';
 import { act, layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
-import { activateTab, activeTab, chatOfTab, everyTab, openTab, previewTabs, setTabTitle, subscribeTabs } from './tabs-store.js';
+import { activateTab, activeTab, chatOfTab, everyTab, openTab, previewTabs, removeTab, setTabTitle, subscribeTabs } from './tabs-store.js';
 import { toast } from './toast.jsx';
 
 const blank = () => ({
@@ -637,13 +637,22 @@ window.conn.browser.onConsole((c) => {
    rather than one of its own and the two ends stay one thing. The tab goes in
    the panel of the chat main made it for; a terminal agent has no chat and gets
    the one its folder is showing. */
-window.conn.browser.onOpenTab(({ project, tab, chat }) => {
+window.conn.browser.onOpenTab(({ project, tab, chat, activate = true }) => {
   if (!project || !tab) return;
   ownerOf.set(tab, project);
-  if (chatOfTab(tab) !== null) activateTab(project, tab);
-  // The column is only brought up for the folder on screen. An agent working
-  // somewhere you are not looking at gets its tab made and waiting.
-  else openTab(project, 'browser', tab, { reveal: project === focusedDir, ...(chat ? { chat } : {}) });
+  if (chatOfTab(tab) !== null) { if (activate) activateTab(project, tab); }
+  // The column is only brought up for the folder on screen, and only for a tab
+  // meant to be looked at. An agent working somewhere you are not, or a
+  // subagent opening a tab for itself, gets its tab made and waiting.
+  else openTab(project, 'browser', tab, { reveal: activate && project === focusedDir, activate, ...(chat ? { chat } : {}) });
+  syncPreview();
+});
+
+/* An agent closed one of its tabs, in a chat that may not be on screen. The row
+   goes wherever it is filed; reap() then tells main, which has nothing left to
+   drop for it. */
+window.conn.browser.onTabClosed(({ tab }) => {
+  removeTab(tab);
   syncPreview();
 });
 

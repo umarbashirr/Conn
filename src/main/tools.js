@@ -29,9 +29,26 @@ const TOOLS = {
   state: { args: '{}', help: 'Current url, title, loading state.' },
   devtools: { args: '{}', help: 'Toggle Chrome DevTools on the preview pane.' },
   preview: { args: '{ open? }', help: 'Show or hide the preview pane for the human. Omit open to toggle. Use it to say "look at this".' },
+  tabs: { args: '{}', help: 'This chat\'s tabs: id, url, title, which one you drive and which one the human is looking at.' },
+  tabNew: { args: '{ url? }', help: 'Open a tab in this chat and drive it from now on. Loads url when given.' },
+  tabSelect: { args: '{ tab }', help: 'Drive one of this chat\'s tabs from now on. Ids come from tabs.' },
+  tabClose: { args: '{ tab? }', help: 'Close one of this chat\'s tabs. Omit tab for the one you drive.' },
 };
 
+// Tools that act on the chat's set of tabs rather than on a page. They never
+// need a pane, so runTool must not go looking for one.
+const TAB_TOOLS = new Set(['tabs', 'tabNew', 'tabSelect', 'tabClose']);
+
 async function runTool(name, a, ctx) {
+  if (TAB_TOOLS.has(name)) {
+    if (!ctx.tabs) throw new Error('no window');
+    switch (name) {
+      case 'tabs': return ctx.tabs.list();
+      case 'tabNew': return ctx.tabs.open(a.url);
+      case 'tabSelect': return ctx.tabs.select(a.tab);
+      case 'tabClose': return ctx.tabs.close(a.tab);
+    }
+  }
   const pane = ctx.getPane();
   if (!pane) throw new Error('no preview pane is open');
   switch (name) {
@@ -68,4 +85,4 @@ async function runTool(name, a, ctx) {
   }
 }
 
-module.exports = { TOOLS, runTool };
+module.exports = { TOOLS, TAB_TOOLS, runTool };

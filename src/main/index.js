@@ -5,7 +5,8 @@ const { spawn } = require('child_process');
 const { BrowserPane, normalizeUrl } = require('./browser');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
-const { runTool } = require('./tools');
+const { runTool, TAB_TOOLS } = require('./tools');
+const { createTabRouter } = require('./tab-router');
 const { AgentSession, SHOT_NOTE } = require('./agent');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
@@ -37,7 +38,7 @@ const { createUsageHistory } = require('./usage-history');
 const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
-const { PaneLease } = require('./pane-lease');
+const { PaneLease, READS } = require('./pane-lease');
 const { mcpServerPath, binDir } = require('../../cli/packaged-path');
 const bridgeState = require('../../cli/state');
 
@@ -226,6 +227,7 @@ function forgetChat(chat) {
   stopChat(chat);
   chatProjects.delete(chat);
   chatPrefs.forget(chat);
+  router.forgetChat(chat);
 }
 
 function stopAllChats() {
@@ -259,10 +261,11 @@ function send(channel, payload) {
 // `project` is whose preview this is about. Opening it brings that folder
 // forward: an agent in one project putting its dev server on screen while the
 // window is looking at another would otherwise show the wrong page under the
-// right heading.
-function showPreview(show, project, chat = null) {
+// right heading. `tab` is the one the caller drives, so the column opens on it
+// rather than on whichever its strip had in front.
+function showPreview(show, project, chat = null, tab = null) {
   if (project && open.has(project) && project !== focused) focusProject(project);
-  send('app:command', { name: 'preview', open: show, chat });
+  send('app:command', { name: 'preview', open: show, chat, tab });
   if (show === true && win && !win.isFocused()) win.show();
   return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
 }
@@ -290,22 +293,28 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   return made;
 }
 
-/* The preview an agent working in a folder should drive. Each chat has its own
-   panel, so an agent in a chat drives a preview from that chat's panel and
-   never the page another chat in the same folder has open. The one in the box
-   if it is one of those, otherwise the first, otherwise a new one. In that last
-   case the shell is told to draw a tab for it, because a page nobody can click
-   to is a page nobody can take back off the agent. With no chat named, any
-   preview in the folder will do. */
+/* The preview a chat should drive when its agent has not picked one. Each chat
+   has its own panel, so an agent in a chat drives a preview from that chat's
+   panel and never the page another chat in the same folder has open. The one in
+   the box if it is one of those, otherwise the first, otherwise a new one. With
+   no chat named, any preview in the folder will do. */
 function previewOf(dir, chat = null) {
   const key = dir && open.has(dir) ? dir : focused;
   const fits = (rec) => rec?.project === key && (!chat || rec.chat === chat);
   if (shownTab && fits(panes.get(shownTab))) return { tab: shownTab, pane: paneOf(shownTab) };
   for (const [tab, rec] of panes) if (fits(rec)) return { tab, pane: rec.pane };
+  return newTab(dir, chat);
+}
 
+/* A fresh preview for a chat. The shell is told to draw a tab for it, because a
+   page nobody can click to is a page nobody can take back off the agent.
+   `activate` is whether that tab comes to the front of its strip: a page the
+   main thread opens does, a subagent's waits behind the one the person has. */
+function newTab(dir, chat, { activate = true } = {}) {
+  const key = dir && open.has(dir) ? dir : focused;
   const tab = `mn${++paneSeq}`;
   const pane = paneOf(tab, { project: key, chat });
-  send('preview:tab', { project: key, tab, chat });
+  send('preview:tab', { project: key, tab, chat, activate });
   return { tab, pane };
 }
 
@@ -332,17 +341,33 @@ function owner(project, tab) {
 }
 
 function dropPane(tab) {
-  panes.get(tab)?.pane.dispose();
+  const rec = panes.get(tab);
+  rec?.pane.dispose();
   panes.delete(tab);
   leases.get(tab)?.stop();
   leases.delete(tab);
   if (shownTab === tab) shownTab = null;
+  router.forgetTab(tab);
+  // Said once, when there was a page to drop. The strip closing a tab calls in
+  // here too and would otherwise hear its own close echoed back.
+  if (rec) send('preview:closed', { tab });
 }
 
 // A hold belongs to a chat or a task rather than to a page, and one chat can
 // have driven more than one preview, so letting go is asked of all of them.
 const releaseChatEverywhere = (chat) => { for (const l of leases.values()) l.releaseChat(chat); };
 const releaseTaskEverywhere = (id) => { for (const l of leases.values()) l.release(id); };
+
+const tabsOfChat = (chat) => [...panes].filter(([, rec]) => rec.chat === chat).map(([tab]) => tab);
+
+// Which tab each actor drives. The rule is tab-router.js's; what it needs from
+// here is the set of panes and the two ways of picking a tab for a chat.
+const router = createTabRouter({
+  has: (tab) => panes.has(tab),
+  ofChat: tabsOfChat,
+  defaultTab: (cwd, chat) => previewOf(cwd, chat).tab,
+  newTab: (cwd, chat, opts) => newTab(cwd, chat, opts).tab,
+});
 
 // The agent SDK and the MCP server both spawn `node`. A packaged app cannot
 // assume the user has one, so leave a shim at the end of PATH that runs this
@@ -742,7 +767,10 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     // A subagent that finishes has stopped touching the page, whether or not
     // the turn around it has, so hand the pane on at that point rather than
     // making the next agent wait out the idle timer.
-    if (m?.type === 'system' && m.subtype === 'task_notification') releaseTaskEverywhere(m.task_id);
+    if (m?.type === 'system' && m.subtype === 'task_notification') {
+      releaseTaskEverywhere(m.task_id);
+      router.forgetActor({ chat, id: m.task_id });
+    }
     if (m?.type === 'result') releaseChatEverywhere(chat);
     send('agent:message', { chat, msg: lighten(m) });
     // The mode moved mid-turn to one this session was not launched for.
@@ -794,22 +822,56 @@ function actorOf(chat, raw) {
   return { id: `main:${chat}`, label: 'the main thread', chat };
 }
 
+// What the tab tools can do, bound to one call. Each answer carries what
+// browser_state says of a page, url and title, so the agent need not ask twice.
+function tabOps(cwd, actor) {
+  const row = (tab) => {
+    const st = panes.get(tab).pane.state();
+    return {
+      id: tab, url: st.url, title: st.title, onScreen: tab === shownTab,
+      driver: router.current(actor) === tab ? 'you' : router.driverOf(tab)?.label ?? null,
+    };
+  };
+  const page = (tab) => { const { url, title } = row(tab); return { tab, url, title }; };
+  return {
+    list: () => ({ current: router.current(actor), tabs: tabsOfChat(actor.chat).map(row) }),
+    open: async (url) => {
+      const tab = router.open(actor, cwd);
+      // The load is an ordinary navigate on the tab just pinned: leased,
+      // announced and brought forward the same way.
+      if (url) await driveTool('navigate', { url }, { cwd, actor });
+      return page(tab);
+    },
+    select: (tab) => page(router.select(actor, tab)),
+    close: (tab) => {
+      const gone = router.closable(actor, tab);
+      dropPane(gone);
+      return { closed: gone, current: router.current(actor) };
+    },
+  };
+}
+
 // Permission is already settled by the caller; this never asks.
 async function driveTool(tool, args, { cwd, actor }) {
-  const { tab } = previewOf(cwd, actor.chat);
+  if (TAB_TOOLS.has(tool)) {
+    send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab: router.current(actor), reveal: false });
+    return runTool(tool, args, { tabs: tabOps(cwd, actor) });
+  }
+  const pageChange = !READS.has(tool);
+  const tab = router.tabFor(actor, tool, cwd, { pageChange });
   const l = leaseFor(tab);
   const busy = await l.acquire(tool, actor);
   if (busy) throw new Error(busy);
   try {
-    if (tool === 'navigate') showPreview(true, cwd, actor.chat);
-    send('agent:activity', {
-      tool, args, t: Date.now(), actor, project: cwd || focused, tab,
-    });
+    // A subagent's page loads stay where they are; the main thread's come forward.
+    const reveal = tool === 'navigate' && !actor.background;
+    if (reveal) showPreview(true, cwd, actor.chat, tab);
+    send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab, reveal });
     // The pane is the one leased above, resolved once. Resolving again after
     // the wait could land on a tab this call never leased.
     return await runTool(tool, args, {
       getPane: () => panes.get(tab)?.pane || null,
-      showPreview: (show) => showPreview(show, cwd, actor.chat),
+      showPreview: (show) => showPreview(show, cwd, actor.chat, tab),
     });
   } finally {
     l.done(tool, actor);

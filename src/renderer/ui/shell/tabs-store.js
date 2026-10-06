@@ -132,8 +132,12 @@ export const activeKind = (dir) => activeTab(dir)?.kind || null;
    Files wants the column, so it comes up. An agent putting a page on screen in
    a folder nobody is looking at has not asked for anything of the sort, and
    opening the column would show the focused folder's tab instead, which is a
-   column appearing for no reason with the wrong thing in it. */
-export function openTab(dir, kind, id = null, { reveal = true, chat = chatIn(dir) } = {}) {
+   column appearing for no reason with the wrong thing in it.
+
+   `activate` is whether the tab becomes the one its strip is on. A subagent
+   opening a tab for itself is filed behind the one the person has, unless the
+   panel had nothing on at all. */
+export function openTab(dir, kind, id = null, { reveal = true, chat = chatIn(dir), activate = true } = {}) {
   if (!KINDS.includes(kind)) return null;
   const panel = panelFor(dir, chat);
 
@@ -148,7 +152,7 @@ export function openTab(dir, kind, id = null, { reveal = true, chat = chatIn(dir
   const tab = held || { id: id || mintId(kind), kind, title: '' };
   if (!held) panel.tabs.push(tab);
 
-  panel.activeId = tab.id;
+  if (activate || !panel.activeId) panel.activeId = tab.id;
   if (reveal) setOpen(panel, true);
   changed();
   return tab;
@@ -184,7 +188,21 @@ export function revealTab(id) {
    main to drop the pane behind it. */
 export function closeTab(dir, id) {
   const panel = panelOf(dir);
-  if (!panel) return null;
+  return panel ? spliceTab(panel, id) : null;
+}
+
+/* Close by id wherever the tab is filed, for a tab an agent closed in a chat
+   that may not be on screen. */
+export function removeTab(id) {
+  for (const folder of folders.values()) {
+    for (const panel of folder.panels.values()) {
+      if (panel.tabs.some((t) => t.id === id)) return spliceTab(panel, id);
+    }
+  }
+  return null;
+}
+
+function spliceTab(panel, id) {
   const at = panel.tabs.findIndex((t) => t.id === id);
   if (at < 0) return null;
 

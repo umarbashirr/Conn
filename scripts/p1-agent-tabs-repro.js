@@ -130,8 +130,9 @@ async function showChat(page, key) {
   }, key);
 }
 
-// The tabs drawn in the column of the chat on screen.
+// The tabs drawn in the column of the chat on screen, and the one it is on.
 const stripTabs = (page) => page.evaluate(() => [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim()));
+const activeStripTab = (page) => page.evaluate(() => document.querySelector('section#right [role="tab"][data-state="active"]')?.textContent.trim() ?? null);
 
 // A raw bridge call, the way a terminal's conn CLI makes it: the chat's token
 // and folder, and whatever extra headers the caller adds.
@@ -204,6 +205,9 @@ async function main() {
     check('agent-b-on-its-page', stateB?.url === at('research'), `chat B's agent reads ${stateB?.url}`);
     const bStrip = await stripTabs(page);
     check('chat-b-column-has-only-its-tab', bStrip.filter((t) => /app|research/.test(t)).join() === 'research', `chat B strip: ${JSON.stringify(bStrip)}`);
+    const shot = String(await A.call('browser_screenshot').catch((e) => e.message));
+    const [, w, h] = /(\d+)x(\d+)/.exec(shot) || [];
+    check('parked-tab-screenshot', Number(w) > 0 && Number(h) > 0, `screenshot of the off-screen tab: ${shot}`);
 
     // ---- Permission: a bridge call is judged by its own chat's mode, not the on-screen chat's.
     await page.evaluate((k) => window.conn.agent.mode(k, 'plan'), a.key);
@@ -240,12 +244,27 @@ async function main() {
       check('other-chat-untouched', stillB?.url === at('research'), `chat B now ${stillB?.url}`);
       const foreign = await B.call('browser_tab_select', { tab: appTab }).then(() => null, (e) => e.message);
       check('cannot-select-another-chats-tab', !!foreign, 'chat B selected chat A\'s tab');
+      const refusedClose = await B.call('browser_tab_close').then(() => 'closed', (e) => e.message);
+      check('close-refused-while-another-drives', /being driven by another agent/.test(refusedClose), `chat B closing the tab the terminal also drives: ${refusedClose}`);
+      await A.call('browser_show', { open: true });
+      await showChat(page, a.key);
+      const shown = await until(() => activeStripTab(page).then((t) => (t === 'app' ? t : null)), 5000);
+      check('show-brings-driven-tab-forward', shown === 'app', `chat A's strip is on ${JSON.stringify(await activeStripTab(page))}, driving app`);
       await A.call('browser_tab_close', { tab: opened?.tab });
       const after = await A.call('browser_tabs');
       check('close-removes-tab', (after?.tabs || []).length === 1, JSON.stringify(after));
-      await showChat(page, a.key);
-      const aStrip = await until(async () => { const s = await stripTabs(page); return s.includes('app') ? s : null; }, 5000);
+      const aStrip = await until(async () => { const s = await stripTabs(page); return s.includes('app') && !s.includes('docs') ? s : null; }, 5000);
       check('chat-a-strip-matches', JSON.stringify((aStrip || []).filter((t) => /app|docs|research/.test(t))) === JSON.stringify(['app']), `chat A strip: ${JSON.stringify(aStrip)}`);
+
+      // ---- The human closes the agent's tab from the strip: the agent's next page lands somewhere live.
+      await page.evaluate(() => document.querySelector('section#right [role="tab"] [role="button"][aria-label="Close app"]')
+        ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })));
+      const emptied = await until(async () => ((await A.call('browser_tabs'))?.tabs || []).length === 0, 5000);
+      const again = await A.call('browser_navigate', { url: at('again') }).then(() => null, (e) => e.message);
+      const relisted = await A.call('browser_tabs');
+      const againStrip = await until(async () => { const s = await stripTabs(page); return s.includes('again') ? s : null; }, 5000);
+      check('human-close-unpins', emptied && !again && relisted?.tabs?.length === 1 && relisted.tabs[0].url === at('again') && !!againStrip,
+        JSON.stringify({ emptied, again, relisted, strip: againStrip }));
     }
 
     page.ws.close();
