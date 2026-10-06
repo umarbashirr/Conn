@@ -174,7 +174,6 @@ async function main() {
     const b = await startChat(page, fx, 'draw a signup form');
     check('two-chats-started', a.key && b.key && a.key !== b.key && a.started && b.started, JSON.stringify({ a: a.key, b: b.key }));
 
-    // ---- Canvas: one board per chat.
     const boardA = boardIn(a.prompt?.text);
     const boardB = boardIn(b.prompt?.text);
     check('brief-names-a-board', !!boardA && !!boardB, `prompt=${JSON.stringify(a.prompt?.text?.slice(0, 400))}`);
@@ -192,12 +191,26 @@ async function main() {
       check('board-a-shows-only-a', JSON.stringify(onA) === JSON.stringify(['pricing-card.json']), `chat A board: ${JSON.stringify(onA)}`);
     }
 
-    // ---- The pairing is written down once the agent has a session.
+    const transform = () => page.evaluate(() => document.querySelector('#canvas-view [data-canvas-world]')?.style.transform || null);
+    const fitted = await transform();
+    const middle = await page.evaluate(() => {
+      const r = document.querySelector('#canvas-view [data-canvas-board]').getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    });
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...middle, deltaX: 0, deltaY: -240, modifiers: 2 });
+    await sleep(300);
+    const zoomed = await transform();
+    await showChat(page, b.key);
+    await sleep(400);
+    const beside = await transform();
+    await showChat(page, a.key);
+    await sleep(400);
+    check('board-remembers-its-viewport', zoomed !== fitted && beside !== zoomed && (await transform()) === zoomed, `fitted ${fitted}, zoomed ${zoomed}, other chat ${beside}, back ${await transform()}`);
+
     const sessionA = await until(() => page.evaluate((k) => window.__rail?.chats?.find((c) => c.key === k)?.session || null, a.key));
     const written = boardA && sessionA && await until(() => (idsOnDisk(fx)[sessionA] === path.basename(boardA) ? idsOnDisk(fx) : null), 5000);
     check('mapping-written', !!written, `session ${sessionA}, board ${boardA}, canvas-ids.json: ${JSON.stringify(idsOnDisk(fx))}`);
 
-    // ---- A chat with no folder runs in ~/.conn/chats and draws there.
     const chatsDir = await page.evaluate(async () => (await window.conn.project.info()).chats);
     const loose = await startChat(page, fx, 'draw a landing page', chatsDir);
     const boardL = boardIn(loose.prompt?.text);
@@ -211,7 +224,6 @@ async function main() {
       `board ${boardL}, session cwd ${loose.started?.cwd}, frames ${JSON.stringify(looseFrame)}`,
     );
 
-    // ---- Designs from before every chat had a board can be moved into one.
     const fresh = await startChat(page, fx, 'draw a dashboard', fx.older);
     const boardO = boardIn(fresh.prompt?.text);
     const legacyFile = path.join(fx.older, CANVAS_DIR, 'old-design.json');
@@ -240,7 +252,6 @@ async function main() {
     );
 
     // Opening a Claude chat switches the window to Claude, which has no login here, so what follows runs last.
-    // ---- A chat reopened from the rail finds the board its transcript named.
     const restored = await page.evaluate(async (want, dir) => {
       const data = await window.conn.agent.history();
       const row = data.projects.find((p) => p.dir === dir)?.sessions.find((r) => r.id === want);
@@ -257,7 +268,6 @@ async function main() {
     }, 5000);
     check('board-survives-restart', restored === RESTORED.board && JSON.stringify(back) === JSON.stringify(['restored.json']), `rail row says ${restored}, board draws ${JSON.stringify(back)}`);
 
-    // ---- Deleting a chat takes its board with it.
     const restoredBoard = path.join(fx.project, boardDir(RESTORED.board));
     await page.evaluate(async (id, dir) => {
       await window.connChat.remove({ id, project: dir, key: window.__rail.active });
