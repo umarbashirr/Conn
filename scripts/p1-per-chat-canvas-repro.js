@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { boardDir } = require('../src/shared/canvas');
+const { boardDir, CANVAS_DIR } = require('../src/shared/canvas');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 9347;
@@ -31,12 +31,13 @@ function fixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-per-chat-'));
   const home = path.join(base, 'home');
   const project = path.join(base, 'alpha');
-  for (const d of [home, project]) fs.mkdirSync(d, { recursive: true });
+  const older = path.join(base, 'beta');
+  for (const d of [home, project, older]) fs.mkdirSync(d, { recursive: true });
   const log = path.join(base, 'acp.log');
   const agent = path.join(base, 'agent');
   fs.writeFileSync(agent, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(ROOT, 'scripts/mock-acp-cli.js'))} "$@"\n`, { mode: 0o755 });
   fs.mkdirSync(path.join(home, '.conn'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([project]));
+  fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([project, older]));
   const transcripts = path.join(home, '.claude', 'projects', project.replace(/[/.]/g, '-'));
   fs.mkdirSync(transcripts, { recursive: true });
   const at = new Date().toISOString();
@@ -50,7 +51,9 @@ function fixture() {
     agent: { provider: 'cursor', mode: 'bypass' },
     cursor: { binary: agent },
   }));
-  return { base, home, project, log };
+  fs.mkdirSync(path.join(older, CANVAS_DIR), { recursive: true });
+  fs.writeFileSync(path.join(older, CANVAS_DIR, 'old-design.json'), JSON.stringify({ type: 'frame', name: 'Old design', x: 0, y: 0, width: 200, height: 100, fill: '#ffffff' }));
+  return { base, home, project, older, log };
 }
 
 async function renderer() {
@@ -208,6 +211,35 @@ async function main() {
       `board ${boardL}, session cwd ${loose.started?.cwd}, frames ${JSON.stringify(looseFrame)}`,
     );
 
+    // ---- Designs from before every chat had a board can be moved into one.
+    const fresh = await startChat(page, fx, 'draw a dashboard', fx.older);
+    const boardO = boardIn(fresh.prompt?.text);
+    const legacyFile = path.join(fx.older, CANVAS_DIR, 'old-design.json');
+    const offer = await until(() => page.evaluate(() => document.querySelector('#canvas-view [data-canvas-legacy]')?.textContent || null), 5000);
+    await page.evaluate(() => [...document.querySelectorAll('#canvas-view [data-canvas-legacy] button')].find((b) => /Move them here/.test(b.textContent))?.click());
+    const adopted = await until(async () => {
+      const f = await framesOnBoard(page);
+      return f.length ? f : null;
+    }, 5000);
+    const again = boardO && await page.evaluate((dir, id) => window.conn.canvas.adopt(dir, id), fx.older, path.basename(boardO));
+    check(
+      'adopt-moves-legacy',
+      /1 earlier design/.test(offer || '') && JSON.stringify(adopted) === JSON.stringify(['old-design.json'])
+        && !fs.existsSync(legacyFile) && fs.existsSync(path.join(fx.older, boardO || '', 'old-design.json'))
+        && again?.moved?.length === 0,
+      `offer ${JSON.stringify(offer)}, board draws ${JSON.stringify(adopted)}, legacy file left: ${fs.existsSync(legacyFile)}, second adopt ${JSON.stringify(again)}`,
+    );
+
+    fs.writeFileSync(legacyFile, '{"type":"frame","name":"Newer"}');
+    const kept = await page.evaluate((dir, id) => window.conn.canvas.adopt(dir, id), fx.older, path.basename(boardO || ''));
+    check(
+      'adopt-keeps-a-taken-name',
+      JSON.stringify(kept) === JSON.stringify({ moved: [], skipped: ['old-design.json'] })
+        && fs.existsSync(legacyFile) && JSON.parse(fs.readFileSync(path.join(fx.older, boardO || '', 'old-design.json'), 'utf8')).name === 'Old design',
+      `second name: ${JSON.stringify(kept)}`,
+    );
+
+    // Opening a Claude chat switches the window to Claude, which has no login here, so what follows runs last.
     // ---- A chat reopened from the rail finds the board its transcript named.
     const restored = await page.evaluate(async (want, dir) => {
       const data = await window.conn.agent.history();

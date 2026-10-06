@@ -43,9 +43,11 @@ async function framesIn(dir) {
   return stamped.filter(Boolean).sort((a, b) => a.file.localeCompare(b.file, undefined, { numeric: true, sensitivity: 'base' }));
 }
 
+// `legacy` counts the frames from before each chat had its own board, which sit
+// directly in the folder the boards are made in.
 async function list(root) {
   try {
-    return { frames: await framesIn(root) };
+    return { frames: await framesIn(root), legacy: (await framesIn(path.dirname(root))).length };
   } catch (e) {
     return { error: e.message };
   }
@@ -144,6 +146,33 @@ async function trash(root, list) {
   }
 }
 
+// Moves the frames left from before each chat had its own board into this one.
+// A name the board already has is left where it is, so running it twice moves
+// nothing the second time.
+async function adopt(legacyRoot, root) {
+  try {
+    await fsp.mkdir(root, { recursive: true });
+    const moved = [];
+    const skipped = [];
+    for (const { file } of await framesIn(legacyRoot)) {
+      const to = path.join(root, file);
+      if (await fsp.access(to).then(() => true, () => false)) {
+        skipped.push(file);
+        continue;
+      }
+      try {
+        await fsp.rename(path.join(legacyRoot, file), to);
+        moved.push(file);
+      } catch (e) {
+        if (e.code !== 'ENOENT') throw e;
+      }
+    }
+    return { moved, skipped };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 // A deleted chat takes its board to the trash with its transcript. A board the
 // trash will not take stays where it is; the chat is gone either way.
 async function trashBoard(root) {
@@ -151,4 +180,4 @@ async function trashBoard(root) {
   await shell.trashItem(root).catch(() => {});
 }
 
-module.exports = { list, read, patch, duplicate, trash, trashBoard };
+module.exports = { list, read, patch, duplicate, trash, adopt, trashBoard };

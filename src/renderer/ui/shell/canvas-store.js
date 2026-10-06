@@ -23,14 +23,17 @@ import { toHtml, toReact, toSvg } from './canvas-export.js';
 const POLL_MS = 500;
 const GEOMETRY = ['x', 'y', 'width', 'height'];
 
-/* dir, canvas: the folder the chat runs in and its board id. records: one per
-   file, keeping the last frame that parsed so a broken edit leaves the frame on
-   the board with its error beside it. board: what the board draws, records with
-   a frame and pending geometry applied, rebuilt on every change. viewport: null
-   until the board first fits the frames it found. selection: files. */
+/* dir, canvas: the folder the chat runs in and its board id. legacy: how many
+   frames from before chats had boards sit loose in .conn/canvas/. records: one
+   per file, keeping the last frame that parsed so a broken edit leaves the
+   frame on the board with its error beside it. board: what the board draws,
+   records with a frame and pending geometry applied, rebuilt on every change.
+   viewport: null until the board first fits the frames it found. selection:
+   files. */
 export const canvasState = {
   dir: '',
   canvas: '',
+  legacy: 0,
   records: [],
   board: [],
   viewport: null,
@@ -108,6 +111,10 @@ async function read() {
     if (!here() || listing.error) return;
 
     let dirty = false;
+    if (s.legacy !== listing.legacy) {
+      s.legacy = listing.legacy;
+      dirty = true;
+    }
     const old = new Map(s.records.map((r) => [r.file, r]));
     const records = await Promise.all(listing.frames.map((e) => {
       const r = old.get(e.file);
@@ -143,6 +150,7 @@ export function setBoard(project, id) {
   Object.assign(s, {
     dir,
     canvas,
+    legacy: 0,
     records: [],
     viewport: viewports.get(boardKey(dir, canvas)) ?? null,
   });
@@ -225,6 +233,14 @@ export async function deleteSelection() {
   const res = await window.conn.canvas.trash(canvasState.dir, canvasState.canvas, files);
   if (res?.error) toast('Could not delete the frame', res.error, [{ label: 'OK', primary: true }]);
   else toast('Moved to the trash', files.length === 1 ? files[0] : `${files.length} frames`);
+  read();
+}
+
+// Frames from before every chat had a board are moved into this one, and the
+// board is read again so they appear.
+export async function adoptLegacy() {
+  const res = await window.conn.canvas.adopt(canvasState.dir, canvasState.canvas);
+  if (res?.error) toast('Could not move the designs', res.error, [{ label: 'OK', primary: true }]);
   read();
 }
 

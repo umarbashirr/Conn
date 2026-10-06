@@ -19,7 +19,7 @@ const editors = require('./editors');
 const files = require('./files');
 const canvas = require('./canvas');
 const canvasIds = require('./canvas-ids');
-const { CANVAS_ID, boardDir } = require('../shared/canvas');
+const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
 const projects = require('./projects');
@@ -433,6 +433,7 @@ function boardRoot(project, canvasId) {
   if (!known(path.resolve(project))) return null;
   return path.join(path.resolve(project), boardDir(canvasId));
 }
+const legacyRoot = (project) => path.join(path.resolve(project), CANVAS_DIR);
 
 const openDirs = () => [...open.keys()];
 
@@ -1767,13 +1768,14 @@ function registerIpc() {
   // same refusal when they do not add up to a board this window may reach.
   const onBoard = (fn) => (_e, { project, canvas: id, ...rest } = {}) => {
     const root = boardRoot(project, id);
-    return root ? fn(root, rest) : { error: 'that board is not one this window can reach' };
+    return root ? fn(root, rest, project) : { error: 'that board is not one this window can reach' };
   };
   ipcMain.handle('canvas:frames', onBoard((root) => canvas.list(root)));
   ipcMain.handle('canvas:frame', onBoard((root, { file }) => canvas.read(root, file)));
   ipcMain.handle('canvas:patch', onBoard((root, { file, geometry }) => canvas.patch(root, file, geometry)));
   ipcMain.handle('canvas:duplicate', onBoard((root, { file, at }) => canvas.duplicate(root, file, at)));
   ipcMain.handle('canvas:trash', onBoard((root, { files: list }) => canvas.trash(root, list)));
+  ipcMain.handle('canvas:adopt', onBoard((root, _args, project) => canvas.adopt(legacyRoot(project), root)));
   // Written on every session start, so it only touches the file when the pair
   // is new or changed.
   ipcMain.handle('canvas:bind', (_e, { session, canvas: id } = {}) => {

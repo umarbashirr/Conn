@@ -98,6 +98,7 @@ contextBridge.exposeInMainWorld('conn', {
     patch: (project, canvas, file, geometry) => ipcRenderer.invoke('canvas:patch', { project, canvas, file, geometry }),
     duplicate: (project, canvas, file, at) => ipcRenderer.invoke('canvas:duplicate', { project, canvas, file, at }),
     trash: (project, canvas, files) => ipcRenderer.invoke('canvas:trash', { project, canvas, files }),
+    adopt: (project, canvas) => ipcRenderer.invoke('canvas:adopt', { project, canvas }),
     bind: (session, canvas) => ipcRenderer.invoke('canvas:bind', { session, canvas }),
     save: (name, text, project) => ipcRenderer.invoke('canvas:save', { name, text, project }),
   },

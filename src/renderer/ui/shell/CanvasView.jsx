@@ -32,12 +32,13 @@ import {
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
-import { boardDir } from '../../../shared/canvas';
+import { boardDir, CANVAS_DIR } from '../../../shared/canvas';
 import { unreachable } from './canvas-schema.js';
 import { pathFill, styleOf } from './canvas-style.js';
 import { fit, frameAt, handleAt, HANDLES, LABEL, overlaps, rectFrom, resize, toBoard, zoomAt } from './canvas-geometry.js';
 import {
   activate,
+  adoptLegacy,
   canvasState,
   deactivate,
   deleteSelection,
@@ -413,7 +414,7 @@ function Errors({ records }) {
   );
 }
 
-function Nothing({ canvas }) {
+function Nothing({ canvas, legacy }) {
   return (
     <Empty className="flex-1">
       <EmptyHeader>
@@ -424,6 +425,12 @@ function Nothing({ canvas }) {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
+        {legacy > 0 && (
+          <div data-canvas-legacy="" className="flex flex-col items-center gap-2 text-muted-foreground text-xs">
+            <span>{`${legacy === 1 ? '1 earlier design is' : `${legacy} earlier designs are`} in ${CANVAS_DIR}/ from before each chat had its own board.`}</span>
+            <Button variant="outline" size="sm" onClick={adoptLegacy}>Move them here</Button>
+          </div>
+        )}
         <Button size="sm" onClick={() => window.connChat?.design?.()}>
           <PaletteIcon />
           Design a UI
@@ -507,7 +514,7 @@ export default function CanvasView() {
       </div>
 
       <Errors records={s.records} />
-      {hasBoard ? <Board boardRef={boardRef} zoomBy={zoomBy} fitTo={fitTo} /> : <Nothing canvas={s.canvas} />}
+      {hasBoard ? <Board boardRef={boardRef} zoomBy={zoomBy} fitTo={fitTo} /> : <Nothing canvas={s.canvas} legacy={s.legacy} />}
     </div>
   );
 }
