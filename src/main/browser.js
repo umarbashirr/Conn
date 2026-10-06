@@ -43,6 +43,7 @@ class BrowserPane extends EventEmitter {
     this.reqs = new Map();          // requestId -> the bits needed to log a failure
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
+    this.visible = false;           // born parked; the window says when it is in the box
     this.favicon = '';
     this.shotDir = ensurePrivateDir('conn-shots');
     this.#pruneShots();
@@ -179,7 +180,10 @@ class BrowserPane extends EventEmitter {
     if (this.viewport) this.#emulate().catch(() => {});
   }
 
-  setVisible(v) { this.view.setVisible(v); }
+  setVisible(v) {
+    this.visible = v;
+    this.view.setVisible(v);
+  }
 
   // The project this pane belonged to has closed. A WebContentsView left in the
   // window keeps a renderer process alive and holds the debugger open, and
@@ -392,29 +396,65 @@ class BrowserPane extends EventEmitter {
     return { ok: true };
   }
 
+  /* A parked view draws no frames, so there is nothing to copy a screenshot
+     from, and a tab parked behind another is exactly what an agent working off
+     screen asks about. For the length of one capture the view is shown one
+     pixel large in the window's corner, laid out at its own size, so the
+     renderer draws it and nobody sees it. Shown under the pane in the box
+     instead, it drew one frame and then stopped as occluded; off the window it
+     never drew at all. */
+  async #awake(fn) {
+    if (this.visible || !this.debuggerAttached) return fn(false);
+    const parked = this.view.getBounds();
+    const { width, height } = this.viewport || parked;
+    this.view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    this.view.setVisible(true);
+    try {
+      await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 0, mobile: false });
+      return await fn(true);
+    } finally {
+      this.view.setVisible(false);
+      this.view.setBounds(parked);
+      if (this.viewport) await this.#emulate().catch(() => {});
+      else await this.wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(() => {});
+    }
+  }
+
+  // The visible page, or `clip` of it. A woken view is read through the
+  // debugger, which asks the renderer for a frame rather than copying one the
+  // compositor may not have yet.
+  async #grab(clip, woken) {
+    if (!woken) return this.wc.capturePage(clip);
+    const res = await this.wc.debugger.sendCommand('Page.captureScreenshot', {
+      format: 'png', ...(clip ? { clip: { ...clip, scale: 1 } } : {}),
+    });
+    return nativeImage.createFromBuffer(Buffer.from(res.data, 'base64'));
+  }
+
   async screenshot({ fullPage = false, target, name } = {}) {
     // The pointer the last action left on the page is for the human watching
     // the pane, not for whoever reads this file.
     await this.#js('window.__conn.cursorHide()').catch(() => {});
-    let image;
-    if (target) {
-      const p = await this.#js(`window.__conn.point(${JSON.stringify(target)})`);
-      const r = p.rect;
-      image = await this.wc.capturePage({
-        x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)),
-        width: Math.round(r.w), height: Math.round(r.h),
-      });
-    } else if (fullPage && this.debuggerAttached) {
-      const metrics = await this.wc.debugger.sendCommand('Page.getLayoutMetrics');
-      const cs = metrics.cssContentSize || metrics.contentSize;
-      const res = await this.wc.debugger.sendCommand('Page.captureScreenshot', {
-        format: 'png', captureBeyondViewport: true,
-        clip: { x: 0, y: 0, width: cs.width, height: Math.min(cs.height, 20000), scale: 1 },
-      });
-      image = nativeImage.createFromBuffer(Buffer.from(res.data, 'base64'));
-    } else {
-      image = await this.wc.capturePage();
-    }
+    const image = await this.#awake(async (woken) => {
+      if (target) {
+        const p = await this.#js(`window.__conn.point(${JSON.stringify(target)})`);
+        const r = p.rect;
+        return this.#grab({
+          x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)),
+          width: Math.round(r.w), height: Math.round(r.h),
+        }, woken);
+      }
+      if (fullPage && this.debuggerAttached) {
+        const metrics = await this.wc.debugger.sendCommand('Page.getLayoutMetrics');
+        const cs = metrics.cssContentSize || metrics.contentSize;
+        const res = await this.wc.debugger.sendCommand('Page.captureScreenshot', {
+          format: 'png', captureBeyondViewport: true,
+          clip: { x: 0, y: 0, width: cs.width, height: Math.min(cs.height, 20000), scale: 1 },
+        });
+        return nativeImage.createFromBuffer(Buffer.from(res.data, 'base64'));
+      }
+      return this.#grab(undefined, woken);
+    });
     const file = screenshotFilePath(this.shotDir, name);
     fs.writeFileSync(file, image.toPNG(), { mode: 0o600 });
     this.#pruneShots();
