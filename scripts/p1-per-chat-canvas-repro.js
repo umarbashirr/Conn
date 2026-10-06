@@ -207,9 +207,12 @@ async function main() {
     await sleep(400);
     check('board-remembers-its-viewport', zoomed !== fitted && beside !== zoomed && (await transform()) === zoomed, `fitted ${fitted}, zoomed ${zoomed}, other chat ${beside}, back ${await transform()}`);
 
-    const sessionA = await until(() => page.evaluate((k) => window.__rail?.chats?.find((c) => c.key === k)?.session || null, a.key));
-    const written = boardA && sessionA && await until(() => (idsOnDisk(fx)[sessionA] === path.basename(boardA) ? idsOnDisk(fx) : null), 5000);
-    check('mapping-written', !!written, `session ${sessionA}, board ${boardA}, canvas-ids.json: ${JSON.stringify(idsOnDisk(fx))}`);
+    const sessionOf = (board) => Object.entries(idsOnDisk(fx)).filter(([, id]) => id === path.basename(board || '')).map(([s]) => s);
+    const written = boardA && boardB && await until(() => {
+      const [sa, sb] = [sessionOf(boardA), sessionOf(boardB)];
+      return sa.length === 1 && sb.length === 1 && sa[0] !== sb[0] ? { sa, sb } : null;
+    }, 5000);
+    check('mapping-written', !!written, `boards ${boardA} and ${boardB}, canvas-ids.json: ${JSON.stringify(idsOnDisk(fx))}`);
 
     const chatsDir = await page.evaluate(async () => (await window.conn.project.info()).chats);
     const loose = await startChat(page, fx, 'draw a landing page', chatsDir);
