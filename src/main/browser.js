@@ -413,8 +413,12 @@ class BrowserPane extends EventEmitter {
       await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 0, mobile: false });
       return await fn(true);
     } finally {
-      this.view.setVisible(false);
-      this.view.setBounds(parked);
+      // The window may have put this tab in the box mid-capture, and has
+      // already shown it where it belongs.
+      if (!this.visible) {
+        this.view.setVisible(false);
+        this.view.setBounds(parked);
+      }
       if (this.viewport) await this.#emulate().catch(() => {});
       else await this.wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(() => {});
     }

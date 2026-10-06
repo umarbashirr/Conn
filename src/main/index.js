@@ -348,8 +348,8 @@ function dropPane(tab) {
   leases.delete(tab);
   if (shownTab === tab) shownTab = null;
   router.forgetTab(tab);
-  // Said once, when there was a page to drop. The strip closing a tab calls in
-  // here too and would otherwise hear its own close echoed back.
+  // A tab with no page behind it was never more than a row the strip already
+  // took down.
   if (rec) send('preview:closed', { tab });
 }
 
