@@ -122,31 +122,15 @@ const INSTRUCTIONS = [
   'After any action that should have changed something, check browser_console and browser_network before concluding it worked.',
 ].join(' ');
 
-/** browser_* MCP name -> bare TOOLS key, for policy without loading zod. */
-const BRIDGE_TOOL = new Map([
-  ['browser_navigate', 'navigate'],
-  ['browser_snapshot', 'snapshot'],
-  ['browser_text', 'text'],
-  ['browser_click', 'click'],
-  ['browser_fill', 'fill'],
-  ['browser_type', 'type'],
-  ['browser_press', 'press'],
-  ['browser_select', 'select'],
-  ['browser_hover', 'hover'],
-  ['browser_scroll', 'scroll'],
-  ['browser_screenshot', 'screenshot'],
-  ['browser_console', 'console'],
-  ['browser_network', 'network'],
-  ['browser_evaluate', 'evaluate'],
-  ['browser_wait', 'waitFor'],
-  ['browser_viewport', 'setViewport'],
-  ['browser_back', 'back'],
-  ['browser_forward', 'forward'],
-  ['browser_reload', 'reload'],
-  ['browser_state', 'state'],
-  ['browser_show', 'preview'],
-  ['browser_highlight', 'highlight'],
-]);
+// Enough of zod's surface to build the table above without loading zod, which
+// the policy code in main has no other use for.
+const zStub = (() => {
+  const any = { optional: () => any };
+  return { string: () => any, number: () => any, boolean: () => any, enum: () => any };
+})();
+
+/** browser_* MCP name -> bare TOOLS key, for policy without loading zod. Derived from the table, so a tool added there is known here. */
+const BRIDGE_TOOL = new Map(browserTools(zStub).map((t) => [t.name, t.bridgeTool]));
 
 /* What each agent calls these tools. Claude gets them from the in-process SDK
    server named `preview`, which it namespaces; codex and the ACP agents get
