@@ -133,6 +133,17 @@ async function showChat(page, key) {
 // The tabs drawn in the column of the chat on screen.
 const stripTabs = (page) => page.evaluate(() => [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim()));
 
+// A raw bridge call, the way a terminal's conn CLI makes it: the chat's token
+// and folder, and whatever extra headers the caller adds.
+async function post(env, tool, args, headers = {}) {
+  const res = await fetch(`${env.CONN_BRIDGE_URL}/tool/${tool}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-conn-token': env.CONN_TOKEN, 'x-conn-cwd': env.CONN_CWD, ...headers },
+    body: JSON.stringify(args),
+  });
+  return { status: res.status, body: await res.json().catch(() => ({})) };
+}
+
 async function mcpClient(conn) {
   const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
   const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
@@ -181,6 +192,8 @@ async function main() {
     const A = await mcpClient(connA);
     const B = await mcpClient(connB);
     clients.push(A, B);
+    check('mcp-env-names-the-chat', A.env.CONN_CHAT === a.key && B.env.CONN_CHAT === b.key && a.key !== b.key,
+      JSON.stringify({ a: [A.env.CONN_CHAT, a.key], b: [B.env.CONN_CHAT, b.key] }));
 
     await showChat(page, b.key);
     await A.call('browser_navigate', { url: at('app') });
@@ -191,6 +204,21 @@ async function main() {
     check('agent-b-on-its-page', stateB?.url === at('research'), `chat B's agent reads ${stateB?.url}`);
     const bStrip = await stripTabs(page);
     check('chat-b-column-has-only-its-tab', bStrip.filter((t) => /app|research/.test(t)).join() === 'research', `chat B strip: ${JSON.stringify(bStrip)}`);
+
+    // ---- Permission: a bridge call is judged by its own chat's mode, not the on-screen chat's.
+    await page.evaluate((k) => window.conn.agent.mode(k, 'plan'), a.key);
+    const planned = await A.call('browser_navigate', { url: at('plan') }).then(() => 'allowed', (e) => e.message);
+    const bypassed = await B.call('browser_navigate', { url: at('research') }).then(() => 'allowed', (e) => e.message);
+    check('bridge-judged-by-its-own-mode', /plan mode only looks at the page/.test(planned) && bypassed === 'allowed', `A in plan: ${planned}; B in bypass: ${bypassed}`);
+    await page.evaluate((k) => window.conn.agent.mode(k, 'bypass'), a.key);
+
+    // ---- Terminal: a caller with no chat of its own drives the chat on screen, as before.
+    const terminal = await post(B.env, 'navigate', { url: at('terminal') });
+    const landed = await B.call('browser_state');
+    check('terminal-caller-keeps-the-fallback', terminal.status === 200 && landed?.url === at('terminal'), `${terminal.status} ${JSON.stringify(terminal.body)}; on-screen chat reads ${landed?.url}`);
+    await B.call('browser_navigate', { url: at('research') });
+    const unknown = await post(B.env, 'navigate', { url: at('nope') }, { 'x-conn-chat': 'c-never-seen' });
+    check('unknown-chat-refused', unknown.status === 500 && /c-never-seen/.test(unknown.body?.error || ''), JSON.stringify(unknown));
 
     // ---- Tabs: an agent can open, list, switch and close its own.
     const tools = (await A.client.listTools()).tools.map((t) => t.name);

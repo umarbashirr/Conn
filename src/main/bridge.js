@@ -25,6 +25,15 @@ const callerCwd = (req, url) => {
   return sent ? path.resolve(sent) : null;
 };
 
+// Which chat is asking, when the caller is an MCP server the app started for
+// one. A terminal sends nothing. The key travels URI-encoded because chat keys
+// can be built from folder names.
+const callerChat = (req) => {
+  const sent = req.headers['x-conn-chat'];
+  if (typeof sent !== 'string' || !sent) return null;
+  try { return decodeURIComponent(sent); } catch { return null; }
+};
+
 class Bridge {
   constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow }) {
     this.run = run || (() => { throw new Error('no window'); });
@@ -190,7 +199,7 @@ class Bridge {
     }
 
     try {
-      send(200, { ok: true, result: await this.run(name, args, from) });
+      send(200, { ok: true, result: await this.run(name, args, from, callerChat(req)) });
     } catch (err) {
       send(500, { ok: false, error: err?.message || String(err) });
     }

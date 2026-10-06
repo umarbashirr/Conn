@@ -344,11 +344,6 @@ function dropPane(tab) {
 const releaseChatEverywhere = (chat) => { for (const l of leases.values()) l.releaseChat(chat); };
 const releaseTaskEverywhere = (id) => { for (const l of leases.values()) l.release(id); };
 
-const toolContext = (dir, chat) => ({
-  getPane: () => previewOf(dir, chat).pane,
-  showPreview: (show) => showPreview(show, dir, chat),
-});
-
 // The agent SDK and the MCP server both spawn `node`. A packaged app cannot
 // assume the user has one, so leave a shim at the end of PATH that runs this
 // binary as node.
@@ -733,15 +728,12 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     cwd,
     settings: row.catalogKind === 'claude' ? row.catalog.sessionSettings(cwd) : undefined,
     mcpOff: row.catalogKind === 'claude' ? row.catalog.offAtRuntime(cwd) : undefined,
-    bridgeEnv: bridge.env(),
+    // The chat rides into the conn MCP server's environment, so its calls come
+    // back naming this chat instead of being guessed from the folder.
+    bridgeEnv: { ...bridge.env(), CONN_CHAT: chat },
     mcp: previewMcp(cwd),
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: async (tool, args, actor) => {
-      const who = actor?.id && actor.id !== 'main'
-        ? { ...actor, chat }
-        : { id: `main:${chat}`, label: 'the main thread', chat };
-      return driveTool(tool, args, { cwd, actor: who });
-    },
+    invoke: (tool, args, actor) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor) }),
   });
   agent.provider = runs;
   sessions.set(chat, agent);
@@ -791,21 +783,34 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
 
 const BRIDGE_ACTOR = Object.freeze({ id: 'bridge', label: 'a terminal agent' });
 
+/* Every actor is built here. A chat's main thread is one actor whether it runs
+   Claude in-process or reached the bridge from a Codex or ACP chat that named
+   itself. A Claude subagent is a background actor: its page loads stay off
+   screen. A terminal caller has no chat of its own, so it borrows the one it
+   was matched to and keeps its own name. */
+function actorOf(chat, raw) {
+  if (raw?.id === 'bridge') return { ...BRIDGE_ACTOR, chat };
+  if (raw?.id && raw.id !== 'main') return { ...raw, chat, background: true };
+  return { id: `main:${chat}`, label: 'the main thread', chat };
+}
+
 // Permission is already settled by the caller; this never asks.
 async function driveTool(tool, args, { cwd, actor }) {
-  // A terminal agent has no chat of its own, so it drives the preview of the
-  // chat on screen, which is the one the person running it is looking at.
-  const chat = actor?.chat || activeChat.chat;
-  const { tab } = previewOf(cwd, chat);
+  const { tab } = previewOf(cwd, actor.chat);
   const l = leaseFor(tab);
   const busy = await l.acquire(tool, actor);
   if (busy) throw new Error(busy);
   try {
-    if (tool === 'navigate') showPreview(true, cwd, chat);
+    if (tool === 'navigate') showPreview(true, cwd, actor.chat);
     send('agent:activity', {
       tool, args, t: Date.now(), actor, project: cwd || focused, tab,
     });
-    return await runTool(tool, args, toolContext(cwd, chat));
+    // The pane is the one leased above, resolved once. Resolving again after
+    // the wait could land on a tab this call never leased.
+    return await runTool(tool, args, {
+      getPane: () => panes.get(tab)?.pane || null,
+      showPreview: (show) => showPreview(show, cwd, actor.chat),
+    });
   } finally {
     l.done(tool, actor);
   }
@@ -879,8 +884,14 @@ function askBridge(chat, tool, args, reason) {
   });
 }
 
-async function runBridgeTool(tool, args, from) {
-  const chat = chatForTool(from);
+/* `named` is the chat whose MCP server is calling, when the app started that
+   server. That chat's mode judges the call and that chat's tabs take it. A name
+   this window has never seen is a stale or hand-started server and is refused
+   rather than guessed at. No name is a terminal, which drives the chat on
+   screen as it always has. */
+async function runBridgeTool(tool, args, from, named = null) {
+  if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
+  const chat = named || chatForTool(from);
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
@@ -888,7 +899,7 @@ async function runBridgeTool(tool, args, from) {
     const ok = await askBridge(chat, tool, args, verdict.reason);
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
-  return driveTool(tool, args, { cwd: from, actor: { ...BRIDGE_ACTOR, chat } });
+  return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR) });
 }
 
 // Ask the running session what it ended up with, fold it into the cached
@@ -1898,7 +1909,7 @@ app.whenReady().then(async () => {
   projects.setOpenProjects(openDirs());
   const bridgeDev = !app.isPackaged;
   bridge = new Bridge({
-    run: (tool, args, from) => runBridgeTool(tool, args, from),
+    run: (tool, args, from, chat) => runBridgeTool(tool, args, from, chat),
     debug: bridgeDev,
     cwds: openDirs(),
     focusWindow: (cwd) => {
