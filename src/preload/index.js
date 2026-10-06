@@ -92,9 +92,10 @@ contextBridge.exposeInMainWorld('conn', {
     openExternal: (url) => ipcRenderer.invoke('links:openExternal', { url }),
   },
 
-  // The agent writes what a frame contains. The board only moves, sizes,
-  // copies and trashes whole frames, and saves the exports the person asks for.
-  // A board is named by the folder its chat runs in and the chat's board id.
+  // The agent writes what a frame contains. The board reads frames, moves,
+  // sizes, copies and trashes whole ones, takes in the frames from before each
+  // chat had a board, and saves the exports the person asks for. A board is
+  // named by the folder its chat runs in and the chat's board id.
   canvas: {
     frames: (project, canvas) => ipcRenderer.invoke('canvas:frames', { project, canvas }),
     frame: (project, canvas, file) => ipcRenderer.invoke('canvas:frame', { project, canvas, file }),

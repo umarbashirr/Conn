@@ -640,11 +640,11 @@ window.conn.browser.onConsole((c) => {
 window.conn.browser.onOpenTab(({ project, tab, chat, activate = true }) => {
   if (!project || !tab) return;
   ownerOf.set(tab, project);
-  if (chatOfTab(tab) !== null) { if (activate) activateTab(project, tab); }
   // The column is only brought up for the folder on screen, and only for a tab
   // meant to be looked at. An agent working somewhere you are not, or a
   // subagent opening a tab for itself, gets its tab made and waiting.
-  else openTab(project, 'browser', tab, { reveal: activate && project === focusedDir, activate, ...(chat ? { chat } : {}) });
+  if (chatOfTab(tab) === null) openTab(project, 'browser', tab, { reveal: activate && project === focusedDir, activate, ...(chat ? { chat } : {}) });
+  else if (activate) activateTab(project, tab);
   syncPreview();
 });
 

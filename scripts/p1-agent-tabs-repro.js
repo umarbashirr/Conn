@@ -187,7 +187,6 @@ async function main() {
     const b = await startChat(page, fx, 'research pricing pages');
     check('two-chats-started', a.key && b.key && a.key !== b.key && a.started && b.started, JSON.stringify({ a: a.key, b: b.key }));
 
-    // ---- Browser: each agent drives its own chat's tabs.
     const connA = a.started?.mcpServers?.find((s) => s.name === 'conn');
     const connB = b.started?.mcpServers?.find((s) => s.name === 'conn');
     const A = await mcpClient(connA);
@@ -209,14 +208,12 @@ async function main() {
     const [, w, h] = /(\d+)x(\d+)/.exec(shot) || [];
     check('parked-tab-screenshot', Number(w) > 0 && Number(h) > 0, `screenshot of the off-screen tab: ${shot}`);
 
-    // ---- Permission: a bridge call is judged by its own chat's mode, not the on-screen chat's.
     await page.evaluate((k) => window.conn.agent.mode(k, 'plan'), a.key);
     const planned = await A.call('browser_navigate', { url: at('plan') }).then(() => 'allowed', (e) => e.message);
     const bypassed = await B.call('browser_navigate', { url: at('research') }).then(() => 'allowed', (e) => e.message);
     check('bridge-judged-by-its-own-mode', /plan mode only looks at the page/.test(planned) && bypassed === 'allowed', `A in plan: ${planned}; B in bypass: ${bypassed}`);
     await page.evaluate((k) => window.conn.agent.mode(k, 'bypass'), a.key);
 
-    // ---- Terminal: a caller with no chat of its own drives the chat on screen, as before.
     const terminal = await post(B.env, 'navigate', { url: at('terminal') });
     const landed = await B.call('browser_state');
     check('terminal-caller-keeps-the-fallback', terminal.status === 200 && landed?.url === at('terminal'), `${terminal.status} ${JSON.stringify(terminal.body)}; on-screen chat reads ${landed?.url}`);
@@ -224,7 +221,6 @@ async function main() {
     const unknown = await post(B.env, 'navigate', { url: at('nope') }, { 'x-conn-chat': 'c-never-seen' });
     check('unknown-chat-refused', unknown.status === 500 && /c-never-seen/.test(unknown.body?.error || ''), JSON.stringify(unknown));
 
-    // ---- Tabs: an agent can open, list, switch and close its own.
     const tools = (await A.client.listTools()).tools.map((t) => t.name);
     const TAB_TOOLS = ['browser_tabs', 'browser_tab_new', 'browser_tab_select', 'browser_tab_close'];
     check('tab-tools-listed', TAB_TOOLS.every((n) => tools.includes(n)), `tools=${tools.join(',')}`);
@@ -256,7 +252,6 @@ async function main() {
       const aStrip = await until(async () => { const s = await stripTabs(page); return s.includes('app') && !s.includes('docs') ? s : null; }, 5000);
       check('chat-a-strip-matches', JSON.stringify((aStrip || []).filter((t) => /app|docs|research/.test(t))) === JSON.stringify(['app']), `chat A strip: ${JSON.stringify(aStrip)}`);
 
-      // ---- The human closes the agent's tab from the strip: the agent's next page lands somewhere live.
       await page.evaluate(() => document.querySelector('section#right [role="tab"] [role="button"][aria-label="Close app"]')
         ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })));
       const emptied = await until(async () => ((await A.call('browser_tabs'))?.tabs || []).length === 0, 5000);
