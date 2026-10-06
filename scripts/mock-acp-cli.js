@@ -19,6 +19,10 @@ const LOG = process.env.MOCK_ACP_LOG || '';
 const record = (entry) => LOG && require('fs').appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
 const chosen = { model: 'mock-1', mode: 'build' };
 let seq = 0;
+// A session id the app can file things under: unique to this process, and long
+// enough to pass for a real agent's.
+let minted = 0;
+const mint = () => `mock-${process.pid}-${++minted}`;
 let promptId = null;
 let cancelled = false;
 
@@ -78,7 +82,7 @@ function toolDone(sessionId, id, output, failed) {
 async function handlePrompt(id, params) {
   promptId = id;
   cancelled = false;
-  const sessionId = params.sessionId || 's1';
+  const { sessionId } = params;
   const text = (params.prompt || [])
     .map((b) => (b && b.type === 'text' ? b.text : ''))
     .join('\n');
@@ -157,7 +161,7 @@ function onMessage(msg) {
     record({ method, cwd: params?.cwd, mcpServers: servers });
     if (CONFIG) {
       return result(id, {
-        sessionId: params?.sessionId || 's1',
+        sessionId: params?.sessionId || mint(),
         configOptions: [
           { id: 'model', category: 'model', type: 'select', currentValue: chosen.model, options: [
             { value: 'mock-1', name: 'Zen/Mock One' },
@@ -171,7 +175,7 @@ function onMessage(msg) {
       });
     }
     return result(id, {
-      sessionId: params?.sessionId || 's1',
+      sessionId: params?.sessionId || mint(),
       mcpServers: servers.map((s) => s.name),
       models: {
         currentModelId: params?._meta?.model || 'mock-1',

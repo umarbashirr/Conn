@@ -1,4 +1,5 @@
 import { chatTitle } from '../../shared/chat-title';
+import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -92,6 +93,11 @@ function replay(messages, parent) {
 // same whoever ran it.
 const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   key: uid('c'),
+  // The Canvas board this chat draws on, for life. It is minted here because
+  // the first $canvas brief has to name the folder before any session exists;
+  // main writes it down against the session id once there is one, and the rail
+  // hands it back when the chat is reopened.
+  canvas: newCanvasId(),
   // Which CLI this chat runs on. Fixed once it sends: a thread belongs to the
   // binary that made it and no switch can carry it across. See changeModel.
   provider,
@@ -510,6 +516,8 @@ export function useAgent() {
         };
       });
       if (pendingTitle) conn().agent.rename(sessionId, pendingTitle);
+      const board = chatsRef.current.find((c) => c.key === chat)?.canvas;
+      if (sessionId && board) conn().canvas.bind(sessionId, board);
       if (m) setModel((cur) => shownModel(cur, m, chat === activeRef.current));
       window.connRail?.refresh();
     }));
@@ -999,6 +1007,9 @@ export function useAgent() {
     const chat = {
       ...blankChat(s.project || focusedProject.current, s.provider || providerRef.current, startMode.current),
       session: s.id,
+      // A chat from before boards has none on record and keeps the fresh one
+      // blankChat minted.
+      ...(s.canvas && { canvas: s.canvas }),
       title: s.title.slice(0, 80),
     };
     chatsRef.current = [...chatsRef.current, chat];
@@ -1084,6 +1095,8 @@ export function useAgent() {
   const forkTo = useCallback(async (chat, value, want, text) => {
     const next = {
       ...blankChat(chat.project, want, chat.mode),
+      // The carried transcript names this chat's board folder, so the fork keeps drawing there.
+      canvas: chat.canvas,
       title: chat.title,
       usage: { ...blankUsage(), model: value },
     };
@@ -1219,6 +1232,7 @@ export function useAgent() {
     // The folder the chat on screen runs in, which is not always the focused
     // one: you can read a chat in another project without moving the window.
     project: active.project || null,
+    canvas: active.canvas,
     folderless: !!active.project && active.project === chatsDir.current,
     title: active.title,
     mode: active.mode,

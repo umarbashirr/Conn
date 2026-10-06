@@ -1,6 +1,6 @@
 'use strict';
 /* The design canvas, end to end in the real app. A project with two frames in
-   .conn/canvas/ opens; "Design a UI" puts a $canvas badge in the chat box and
+   the chat's board folder opens; "Design a UI" puts a $canvas badge in the chat box and
    the Canvas tab on screen; the board draws both frames from their JSON; it
    pans and zooms; a drag and a resize land in the files; an agent-style edit
    redraws without moving the viewport or dropping the selection; broken files
@@ -15,6 +15,8 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+
+const { boardDir } = require('../src/shared/canvas');
 
 const ROOT = path.join(__dirname, '..');
 const PORT = 9335;
@@ -92,15 +94,20 @@ function fixture() {
   const home = path.join(base, 'home');
   const proj = path.join(base, 'shop');
   const out = path.join(base, 'exports');
-  const canvas = path.join(proj, '.conn', 'canvas');
-  for (const d of [home, canvas, out]) fs.mkdirSync(d, { recursive: true });
-  const write = (file, doc) => fs.writeFileSync(path.join(canvas, file), typeof doc === 'string' ? doc : JSON.stringify(doc, null, 2));
-  write('landing.json', LANDING('Coffee'));
-  write('pricing.json', PRICING);
+  for (const d of [home, proj, out]) fs.mkdirSync(d, { recursive: true });
   fs.mkdirSync(path.join(home, '.conn'), { recursive: true });
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
-  const readFrame = (file) => JSON.parse(fs.readFileSync(path.join(canvas, file), 'utf8'));
-  return { base, home, proj, canvas, out, write, readFrame };
+  const fx = { base, home, proj, out, canvas: null };
+  fx.write = (file, doc) => fs.writeFileSync(path.join(fx.canvas, file), typeof doc === 'string' ? doc : JSON.stringify(doc, null, 2));
+  fx.readFrame = (file) => JSON.parse(fs.readFileSync(path.join(fx.canvas, file), 'utf8'));
+  // The app mints the board's id, so the frames go in once the empty board has said where it is.
+  fx.useBoard = (id) => {
+    fx.canvas = path.join(proj, boardDir(id));
+    fs.mkdirSync(fx.canvas, { recursive: true });
+    fx.write('landing.json', LANDING('Coffee'));
+    fx.write('pricing.json', PRICING);
+  };
+  return fx;
 }
 
 async function target(port, pick) {
@@ -290,6 +297,9 @@ async function main() {
       return t.includes('Canvas') && t;
     });
     check('canvas-tab-opens', Array.isArray(tabs), `tabs=${tabs}`);
+    const board = await until(page, () => /\.conn\/canvas\/([a-z0-9]{6,32})\//.exec(document.querySelector('#canvas-view')?.textContent || '')?.[1] || null);
+    check('empty-board-names-its-folder', !!board, `board=${board}`);
+    fx.useBoard(board);
     const badge = await until(page, () => document.querySelector('#agent-root [contenteditable="true"] .tok-conn')?.dataset.raw || null, null, 2000);
     check('design-inserts-canvas-mention', badge === '$canvas', `badge=${badge}`);
     await page.evaluate(() => window.connChat.design());
@@ -409,8 +419,9 @@ async function main() {
       }
       return '';
     })();
-    check('prompt-names-selected-frame', sent.includes('[conn canvas selection]') && sent.includes('.conn/canvas/landing.json  (Landing)') && !sent.includes('pricing.json'), sent.slice(0, 400));
+    check('prompt-names-selected-frame', sent.includes('[conn canvas selection]') && sent.includes(`${boardDir(board)}/landing.json  (Landing)`) && !sent.includes('pricing.json'), sent.slice(0, 400));
     check('prompt-carries-schema-brief', sent.split('[conn canvas] $canvas').length === 2 && sent.includes('"type":"frame"') && sent.includes('vector {viewBox'), sent.slice(0, 200));
+    check('prompt-brief-names-the-boards-folder', sent.includes(`${boardDir(board)}/<kebab-name>.json`), sent.slice(0, 600));
     check('prompt-places-new-frames-clear', /placed at x 1990, y 0/.test(sent), (sent.match(/placed at[^,]*,[^,]*/) || [''])[0]);
     check('prompt-ends-with-request', sent.trim().endsWith('make this darker'), sent.slice(-80));
     check('selection-survives-send', await page.evaluate(() => document.querySelector('#agent-root').textContent.includes('Landing')));

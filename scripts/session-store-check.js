@@ -48,7 +48,21 @@ function titles() {
   check('titles-forgotten-is-gone-from-disk', !(ID in onDisk(t.FILE)), JSON.stringify(onDisk(t.FILE)));
 }
 
+function boards() {
+  let ids;
+  try { ids = fresh('main/canvas-ids.js'); } catch (e) { check('canvas-ids-loads', false, e.message); return; }
+  check('canvas-ids-file-is-in-the-conn-folder', ids.FILE === path.join(home, '.conn', 'canvas-ids.json'), ids.FILE);
+  check('canvas-ids-unknown-is-null', ids.get(ID) === null, String(ids.get(ID)));
+  check('canvas-ids-set-returns-it', ids.set(ID, 'k7x2m9qa') === 'k7x2m9qa', 'wrong return');
+  check('canvas-ids-refuses-a-malformed-board', throws(() => ids.set(OTHER, '../escape')) !== null && ids.get(OTHER) === null, 'accepted');
+  check('canvas-ids-refuses-an-id-that-is-not-a-session', throws(() => ids.set('s1', 'k7x2m9qa')) !== null, 'accepted');
+  check('canvas-ids-survive-a-restart', fresh('main/canvas-ids.js').get(ID) === 'k7x2m9qa', 'not persisted');
+  check('canvas-ids-all-lists-every-pairing', JSON.stringify(ids.all()) === JSON.stringify({ [ID]: 'k7x2m9qa' }), JSON.stringify(ids.all()));
+  check('canvas-ids-forget', ids.forget(ID) === true && ids.get(ID) === null && !(ID in onDisk(ids.FILE)), 'still there');
+}
+
 titles();
+boards();
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
 process.exit(failures.length ? 1 : 0);

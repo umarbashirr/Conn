@@ -18,6 +18,8 @@ const diff = require('./diff');
 const editors = require('./editors');
 const files = require('./files');
 const canvas = require('./canvas');
+const canvasIds = require('./canvas-ids');
+const { CANVAS_ID, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
 const projects = require('./projects');
@@ -143,7 +145,8 @@ async function sessionsIn(dir) {
   }
   return out.sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => {
     const title = chatTitles.get(s.id);
-    return title ? { ...s, title } : s;
+    const board = canvasIds.get(s.id);
+    return { ...s, ...(title && { title }), ...(board && { canvas: board }) };
   });
 }
 
@@ -421,6 +424,15 @@ fs.mkdirSync(CHATS_DIR, { recursive: true });
 
 // Whether a folder a chat names is one it may run in.
 const known = (dir) => open.has(dir) || dir === CHATS_DIR;
+
+// The one place a chat's folder and board id become the folder frames live in.
+// null for a folder no chat may run in or an id the renderer made up, so a
+// window cannot reach a board by naming a path.
+function boardRoot(project, canvasId) {
+  if (typeof project !== 'string' || !project || typeof canvasId !== 'string' || !CANVAS_ID.test(canvasId)) return null;
+  if (!known(path.resolve(project))) return null;
+  return path.join(path.resolve(project), boardDir(canvasId));
+}
 
 const openDirs = () => [...open.keys()];
 
@@ -1649,12 +1661,19 @@ function registerIpc() {
   ipcMain.handle('agent:deleteSession', async (_e, { id, project } = {}) => {
     for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
     try {
-      const gone = await ownerOf(id).deleteSession(project && known(project) ? project : focusedCwd(), id);
+      const dir = project && known(project) ? project : focusedCwd();
+      const gone = await ownerOf(id).deleteSession(dir, id);
       owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
       completed.forget(id);
       pinned.forget(id);
       chatTitles.forget(id);
+      // So does the board. A chat forked onto another model carries the board
+      // of the one it came from, and that one is still there to draw on.
+      const board = canvasIds.get(id);
+      canvasIds.forget(id);
+      const root = board && !Object.values(canvasIds.all()).includes(board) ? boardRoot(dir, board) : null;
+      if (root) await canvas.trashBoard(root);
       return { ok: gone };
     } catch (e) {
       return { error: e.message };
@@ -1733,7 +1752,7 @@ function registerIpc() {
     const ext = path.extname(file).slice(1);
     const res = await dialog.showSaveDialog(win, {
       title: 'Export design',
-      defaultPath: path.join(treeCwd(project), file),
+      defaultPath: path.join(known(project) ? project : focusedCwd(), file),
       filters: ext ? [{ name: ext.toUpperCase(), extensions: [ext] }] : [],
     });
     if (res.canceled || !res.filePath) return { canceled: true };
@@ -1744,9 +1763,27 @@ function registerIpc() {
       return { error: e.message };
     }
   });
-  ipcMain.handle('canvas:patch', (_e, { project, file, geometry } = {}) => canvas.patch(treeCwd(project), file, geometry));
-  ipcMain.handle('canvas:duplicate', (_e, { project, file, at } = {}) => canvas.duplicate(treeCwd(project), file, at));
-  ipcMain.handle('canvas:trash', (_e, { project, files: list } = {}) => canvas.trash(treeCwd(project), list));
+  // Every board call names the chat's folder and its board id, and gets the
+  // same refusal when they do not add up to a board this window may reach.
+  const onBoard = (fn) => (_e, { project, canvas: id, ...rest } = {}) => {
+    const root = boardRoot(project, id);
+    return root ? fn(root, rest) : { error: 'that board is not one this window can reach' };
+  };
+  ipcMain.handle('canvas:frames', onBoard((root) => canvas.list(root)));
+  ipcMain.handle('canvas:frame', onBoard((root, { file }) => canvas.read(root, file)));
+  ipcMain.handle('canvas:patch', onBoard((root, { file, geometry }) => canvas.patch(root, file, geometry)));
+  ipcMain.handle('canvas:duplicate', onBoard((root, { file, at }) => canvas.duplicate(root, file, at)));
+  ipcMain.handle('canvas:trash', onBoard((root, { files: list }) => canvas.trash(root, list)));
+  // Written on every session start, so it only touches the file when the pair
+  // is new or changed.
+  ipcMain.handle('canvas:bind', (_e, { session, canvas: id } = {}) => {
+    try {
+      if (canvasIds.get(session) !== id) canvasIds.set(session, id);
+      return { ok: true };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
 
   // --- uncommitted changes ---
   // The list is cheap enough to ask for on a timer while the pane is showing;

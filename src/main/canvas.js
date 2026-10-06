@@ -3,17 +3,59 @@
 // person owns where it sits and how big it is. So a drag rewrites x, y, width
 // and height in whatever is on disk right now and nothing else, and a file the
 // agent has left half written is refused rather than overwritten.
+//
+// Everything here takes a board root, the folder one chat draws on, and never a
+// project. Working out which folder that is, and whether this window may touch
+// it, is main's job before any of this runs.
 const fsp = require('fs').promises;
 const path = require('path');
 const { shell } = require('electron');
-const { within } = require('./files');
-const { CANVAS_DIR } = require('../shared/canvas');
+const files = require('./files');
 
 const GEOMETRY = ['x', 'y', 'width', 'height'];
 
 function frameAt(root, file) {
   if (typeof file !== 'string' || path.basename(file) !== file || !file.endsWith('.json')) return null;
-  return within(root, path.join(CANVAS_DIR, file));
+  return files.within(root, file);
+}
+
+// The frame files directly in a folder, each with the time it last changed, so
+// the board re-reads only what moved. A folder that is not there yet holds no
+// frames: a chat's board does not exist until the agent first draws on it.
+async function framesIn(dir) {
+  let found;
+  try {
+    found = await fsp.readdir(dir, { withFileTypes: true });
+  } catch (e) {
+    if (e.code === 'ENOENT') return [];
+    throw e;
+  }
+  const stamped = await Promise.all(found
+    .filter((d) => d.name.endsWith('.json') && !d.name.startsWith('.'))
+    .map(async (d) => {
+      try {
+        const st = await fsp.stat(path.join(dir, d.name));
+        return st.isFile() ? { file: d.name, mtime: st.mtimeMs } : null;
+      } catch {
+        return null;
+      }
+    }));
+  return stamped.filter(Boolean).sort((a, b) => a.file.localeCompare(b.file, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+async function list(root) {
+  try {
+    return { frames: await framesIn(root) };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+async function read(root, file) {
+  if (!frameAt(root, file)) return { error: 'that frame is outside the canvas folder' };
+  const res = await files.read(root, file);
+  if (res.error) return { error: res.error };
+  return res.kind === 'text' ? { text: res.text } : { error: 'not a text file' };
 }
 
 async function readFrame(abs) {
@@ -102,4 +144,11 @@ async function trash(root, list) {
   }
 }
 
-module.exports = { patch, duplicate, trash };
+// A deleted chat takes its board to the trash with its transcript. A board the
+// trash will not take stays where it is; the chat is gone either way.
+async function trashBoard(root) {
+  if (!(await fsp.access(root).then(() => true, () => false))) return;
+  await shell.trashItem(root).catch(() => {});
+}
+
+module.exports = { list, read, patch, duplicate, trash, trashBoard };

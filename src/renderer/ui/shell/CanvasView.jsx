@@ -32,12 +32,12 @@ import {
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
+import { boardDir } from '../../../shared/canvas';
 import { unreachable } from './canvas-schema.js';
 import { pathFill, styleOf } from './canvas-style.js';
 import { fit, frameAt, handleAt, HANDLES, LABEL, overlaps, rectFrom, resize, toBoard, zoomAt } from './canvas-geometry.js';
 import {
   activate,
-  CANVAS_DIR,
   canvasState,
   deactivate,
   deleteSelection,
@@ -413,14 +413,14 @@ function Errors({ records }) {
   );
 }
 
-function Nothing() {
+function Nothing({ canvas }) {
   return (
     <Empty className="flex-1">
       <EmptyHeader>
         <EmptyMedia variant="icon"><PaletteIcon /></EmptyMedia>
         <EmptyTitle>Nothing on the canvas yet</EmptyTitle>
         <EmptyDescription>
-          {`Describe a screen and the agent draws it here as a frame. Each frame is a file in ${CANVAS_DIR}/, redrawn as the agent edits it.`}
+          {`Describe a screen and the agent draws it here as a frame. Each frame is a file in ${boardDir(canvas)}/, redrawn as the agent edits it.`}
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -507,7 +507,7 @@ export default function CanvasView() {
       </div>
 
       <Errors records={s.records} />
-      {hasBoard ? <Board boardRef={boardRef} zoomBy={zoomBy} fitTo={fitTo} /> : <Nothing />}
+      {hasBoard ? <Board boardRef={boardRef} zoomBy={zoomBy} fitTo={fitTo} /> : <Nothing canvas={s.canvas} />}
     </div>
   );
 }

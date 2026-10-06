@@ -1,10 +1,13 @@
 /* The design canvas: an unlimited board of frames the agent draws.
 
-   Each frame is a JSON file in .conn/canvas/ (see canvas-schema.js), written
-   with the same file tools the agent edits code with, so every agent Conn runs
-   can draw here. This store reads that folder while the tab is on screen and
-   re-reads only the files whose mtime moved, so the viewport and selection
-   survive every edit.
+   Each frame is a JSON file in the chat's own board folder under .conn/canvas/
+   (see canvas-schema.js), written with the same file tools the agent edits
+   code with, so every agent Conn runs can draw here. This store reads that
+   folder while the tab is on screen and re-reads only the files whose mtime
+   moved, so the viewport and selection survive every edit.
+
+   A board is the folder a chat runs in plus its board id. App points this
+   store at the chat on screen, and showing another chat swaps the board whole.
 
    The agent writes what a frame contains and the person decides where it sits.
    A drag lives in `pending` until main has written it and the file on disk
@@ -13,24 +16,21 @@
    Same shape as the other stores here: a mutable object, a version counter for
    useSyncExternalStore, and changed() to bump it. */
 'use strict';
-import { CANVAS_DIR } from '../../../shared/canvas';
 import { toast } from './toast.jsx';
-import { project } from '../../project.js';
 import { nextSlot, parseFrame } from './canvas-schema.js';
 import { toHtml, toReact, toSvg } from './canvas-export.js';
-
-export { CANVAS_DIR };
 
 const POLL_MS = 500;
 const GEOMETRY = ['x', 'y', 'width', 'height'];
 
-/* dir: the project these frames are in. records: one per file, keeping the
-   last frame that parsed so a broken edit leaves the frame on the board with
-   its error beside it. board: what the board draws, records with a frame and
-   pending geometry applied, rebuilt on every change. viewport: null until the
-   board first fits the frames it found. selection: files. */
+/* dir, canvas: the folder the chat runs in and its board id. records: one per
+   file, keeping the last frame that parsed so a broken edit leaves the frame on
+   the board with its error beside it. board: what the board draws, records with
+   a frame and pending geometry applied, rebuilt on every change. viewport: null
+   until the board first fits the frames it found. selection: files. */
 export const canvasState = {
   dir: '',
+  canvas: '',
   records: [],
   board: [],
   viewport: null,
@@ -39,6 +39,10 @@ export const canvasState = {
 
 const pending = new Map();
 let selectAfterRead = [];
+// Where each board was left, so coming back to a chat finds the canvas panned
+// and zoomed the way it was.
+const viewports = new Map();
+const boardKey = (dir, canvas) => `${dir}\0${canvas}`;
 
 const listeners = new Set();
 const selectionListeners = new Set();
@@ -73,7 +77,6 @@ function changed() {
 
 const pick = (g) => Object.fromEntries(GEOMETRY.map((k) => [k, g[k]]));
 const same = (a, b) => GEOMETRY.every((k) => a[k] === b[k]);
-const focusedDir = () => project.focused || project.dir;
 
 function setSelection(files) {
   const s = canvasState;
@@ -85,12 +88,10 @@ function setSelection(files) {
   return true;
 }
 
-async function readRecord(dir, entry, old) {
-  const file = await window.conn.files.read(entry.path, dir);
-  const parsed = file.error || file.kind !== 'text'
-    ? { error: `${entry.name}: ${file.error || 'not a text file'}` }
-    : parseFrame(file.text, entry.name);
-  return { file: entry.name, mtime: entry.mtime, frame: parsed.frame ?? old?.frame ?? null, error: parsed.error ?? null };
+async function readRecord(dir, canvas, entry, old) {
+  const res = await window.conn.canvas.frame(dir, canvas, entry.file);
+  const parsed = res.error ? { error: `${entry.file}: ${res.error}` } : parseFrame(res.text, entry.file);
+  return { file: entry.file, mtime: entry.mtime, frame: parsed.frame ?? old?.frame ?? null, error: parsed.error ?? null };
 }
 
 let reading = false;
@@ -100,24 +101,19 @@ async function read() {
   reading = true;
   try {
     const s = canvasState;
-    const dir = focusedDir();
-    const listing = dir ? await window.conn.files.list(CANVAS_DIR, dir) : { entries: [] };
-    if (dir !== focusedDir()) return;
+    const { dir, canvas } = s;
+    if (!dir || !canvas) return;
+    const here = () => s.dir === dir && s.canvas === canvas;
+    const listing = await window.conn.canvas.frames(dir, canvas);
+    if (!here() || listing.error) return;
 
     let dirty = false;
-    if (dir !== s.dir) {
-      Object.assign(s, { dir, records: [], viewport: null });
-      pending.clear();
-      setSelection([]);
-      dirty = true;
-    }
-    const entries = (listing.entries || []).filter((e) => !e.dir && e.name.endsWith('.json') && !e.name.startsWith('.'));
     const old = new Map(s.records.map((r) => [r.file, r]));
-    const records = await Promise.all(entries.map((e) => {
-      const r = old.get(e.name);
-      return r && r.mtime === e.mtime ? r : readRecord(dir, e, r);
+    const records = await Promise.all(listing.frames.map((e) => {
+      const r = old.get(e.file);
+      return r && r.mtime === e.mtime ? r : readRecord(dir, canvas, e, r);
     }));
-    if (dir !== focusedDir()) return;
+    if (!here()) return;
 
     if (records.length !== s.records.length || records.some((r, i) => r !== s.records[i])) dirty = true;
     s.records = records;
@@ -137,6 +133,26 @@ async function read() {
   }
 }
 
+// Another chat's board goes on screen. The one that was there is dropped whole,
+// so a frame of one chat can never be dragged, deleted or briefed into another.
+export function setBoard(project, id) {
+  const s = canvasState;
+  const dir = project || '';
+  const canvas = id || '';
+  if (dir === s.dir && canvas === s.canvas) return;
+  Object.assign(s, {
+    dir,
+    canvas,
+    records: [],
+    viewport: viewports.get(boardKey(dir, canvas)) ?? null,
+  });
+  pending.clear();
+  selectAfterRead = [];
+  setSelection([]);
+  changed();
+  read();
+}
+
 let timer = null;
 
 export function activate() {
@@ -154,6 +170,7 @@ export function deactivate() {
 
 export function setViewport(v) {
   canvasState.viewport = v;
+  viewports.set(boardKey(canvasState.dir, canvasState.canvas), v);
   changed();
 }
 
@@ -170,11 +187,11 @@ export function preview(changes) {
 const roundAll = (g) => Object.fromEntries(GEOMETRY.map((k) => [k, Math.round(g[k])]));
 
 export async function persist(files) {
-  const dir = canvasState.dir;
+  const { dir, canvas } = canvasState;
   await Promise.all(files.map(async (file) => {
     const g = pending.get(file);
     if (!g) return;
-    const res = await window.conn.canvas.patch(file, g, dir);
+    const res = await window.conn.canvas.patch(dir, canvas, file, g);
     if (!res?.error) return;
     pending.delete(file);
     changed();
@@ -190,7 +207,7 @@ export async function duplicateSelection() {
   const made = [];
   for (const f of frames) {
     const at = nextSlot(taken);
-    const res = await window.conn.canvas.duplicate(f.file, at, canvasState.dir);
+    const res = await window.conn.canvas.duplicate(canvasState.dir, canvasState.canvas, f.file, at);
     if (res?.error) {
       toast('Could not duplicate the frame', res.error, [{ label: 'OK', primary: true }]);
       break;
@@ -205,7 +222,7 @@ export async function duplicateSelection() {
 export async function deleteSelection() {
   const files = [...canvasState.selection];
   if (!files.length) return;
-  const res = await window.conn.canvas.trash(files, canvasState.dir);
+  const res = await window.conn.canvas.trash(canvasState.dir, canvasState.canvas, files);
   if (res?.error) toast('Could not delete the frame', res.error, [{ label: 'OK', primary: true }]);
   else toast('Moved to the trash', files.length === 1 ? files[0] : `${files.length} frames`);
   read();

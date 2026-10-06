@@ -23,7 +23,7 @@ function browserBlock({ provider }) {
 // `pane` is the app command that brings the part on screen when a message names it.
 export const MENTIONS = {
   browser: { label: 'Browser', pane: 'preview', note: "Conn's Browser pane, driven by its browser_* tools", block: browserBlock },
-  canvas: { label: 'Canvas', pane: 'canvas', note: "Conn's Canvas board, drawn from .conn/canvas/*.json", block: ({ slot }) => designBrief(slot) },
+  canvas: { label: 'Canvas', pane: 'canvas', note: "Conn's Canvas board, this chat's .conn/canvas/<board>/*.json", block: ({ slot, canvas }) => designBrief(slot, canvas) },
 };
 
 export const mentionRows = (query) => Object.entries(MENTIONS)

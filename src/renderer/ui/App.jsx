@@ -32,7 +32,7 @@ import { useCatalog } from './useCatalog';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
-import { canvasState, onSelection, select } from './shell/canvas-store.js';
+import { canvasState, onSelection, select, setBoard } from './shell/canvas-store.js';
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
 import { mentionsIn } from './lib/tokens.js';
@@ -54,7 +54,7 @@ function mentionNames(list, body) {
   return names;
 }
 
-function attachmentText(list, body, names, provider) {
+function attachmentText(list, body, names, { provider, canvas }) {
   const lines = [];
 
   for (const a of list) {
@@ -82,10 +82,10 @@ function attachmentText(list, body, names, provider) {
         '  Read it before answering.',
       ].filter(Boolean).join('\n'));
     } else if (a.kind === 'frames') {
-      lines.push(selectionBrief(a.frames));
+      lines.push(selectionBrief(a.frames, canvas));
     }
   }
-  lines.push(...mentionBlocks(names, body, { provider, slot: nextSlot(canvasState.board) }));
+  lines.push(...mentionBlocks(names, body, { provider, canvas, slot: nextSlot(canvasState.board) }));
 
   return lines.length ? lines.join('\n\n') + '\n\n' : '';
 }
@@ -247,6 +247,8 @@ export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
   useEffect(() => publish(agent));
+  // The Canvas shows the chat on screen's board, in the folder that chat runs in.
+  useEffect(() => { setBoard(agent.project, agent.canvas); }, [agent.project, agent.canvas]);
   const sheet = useSyncExternalStore(subscribeAgents, getSheet, getSheet);
   const subagents = useMemo(() => subagentsIn(agent.items), [agent.items]);
   const working = useMemo(() => subagents.filter(isLive), [subagents]);
@@ -467,7 +469,7 @@ export default function App() {
       return;
     }
     const names = mentionNames(attachments, body);
-    const full = attachmentText(attachments, body, names, agent.provider) + body;
+    const full = attachmentText(attachments, body, names, agent) + body;
     const images = attachments.filter((a) => a.kind === 'image');
     if (agent.busy) agent.enqueue(full, images);
     else agent.send(full, images);

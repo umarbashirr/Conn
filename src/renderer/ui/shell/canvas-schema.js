@@ -4,15 +4,16 @@
    translation rather than a guess: frames with auto layout, rects, ellipses,
    lines, text and vectors, each with fills, strokes, radii, shadows and clip.
 
-   Each top-level frame is its own file in .conn/canvas/. The agent edits one
-   screen without rewriting the others, a broken edit breaks one frame instead
-   of the board, and a frame the person drags is a write to that file alone.
+   Each top-level frame is its own file in the chat's board folder under
+   .conn/canvas/. The agent edits one screen without rewriting the others, a
+   broken edit breaks one frame instead of the board, and a frame the person
+   drags is a write to that file alone.
 
    Everything the agent writes is parsed here before it reaches the board, and
    a file that does not parse becomes a readable error on the board instead of
    a crash. */
 import { z } from 'zod';
-import { CANVAS_DIR } from '../../../shared/canvas';
+import { boardDir, CANVAS_DIR } from '../../../shared/canvas';
 
 // Bundlers drop zod's default locale as a side effect, leaving every issue as
 // "Invalid input". The messages are what the person and the agent read.
@@ -140,13 +141,16 @@ export function nextSlot(frames) {
 
 // What $canvas means, told to the agent on the message that says it. Short
 // enough to ride along every time, complete enough that the schema is never
-// guessed, and plain that no canvas of the agent's own is meant.
-export function designBrief(slot) {
+// guessed, and plain that no canvas of the agent's own is meant. The folder is
+// named from the chat's board id, so two chats in one project never share one.
+export function designBrief(slot, canvas) {
+  const board = boardDir(canvas);
   return [
     '[conn canvas] $canvas',
     '  "Canvas" here means the Canvas board in Conn, the app this chat runs in, shown beside this chat. It is not Cursor Canvas, a Claude artifact, Figma, or any design tool of your own. You draw on it by writing files, not with a tool.',
-    `  Each frame is one JSON file in ${CANVAS_DIR}/ in this project, drawn live as you edit it.`,
-    `  A new frame is a new file, ${CANVAS_DIR}/<kebab-name>.json, placed at x ${slot.x}, y ${slot.y}, which is clear of every frame on the board. Change a frame by editing its file. Never move or touch frames you were not asked about.`,
+    `  Each frame is one JSON file in ${board}/ under your working directory, drawn live as you edit it.`,
+    `  That folder is this chat's own board. Other folders under ${CANVAS_DIR}/ belong to other chats and files directly in ${CANVAS_DIR}/ are older designs, so leave both alone.`,
+    `  A new frame is a new file, ${board}/<kebab-name>.json, placed at x ${slot.x}, y ${slot.y}, which is clear of every frame on the board. Change a frame by editing its file. Never move or touch frames you were not asked about.`,
     '  Frame file: {"type":"frame","name":"Pricing","x":0,"y":0,"width":1280,"height":900,"fill":"#ffffff","layout":{"direction":"column","gap":24,"padding":[48,64]},"children":[...]}',
     '  Every node takes name, width, height and opacity. x and y only apply inside a parent with no layout. Node types:',
     '    frame {fill, stroke, radius, shadows, clip, layout, children}. group {children}, positioned by x and y.',
@@ -160,10 +164,11 @@ export function designBrief(slot) {
   ].join('\n');
 }
 
-export function selectionBrief(frames) {
+export function selectionBrief(frames, canvas) {
+  const board = boardDir(canvas);
   return [
     '[conn canvas selection]',
-    `  Change only these frames. Leave every other file in ${CANVAS_DIR}/ alone.`,
-    ...frames.map((f) => `  ${CANVAS_DIR}/${f.file}  (${f.name})`),
+    `  Change only these frames. Leave every other file in ${board}/ alone.`,
+    ...frames.map((f) => `  ${board}/${f.file}  (${f.name})`),
   ].join('\n');
 }

@@ -12,6 +12,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { boardDir } = require('../src/shared/canvas');
+
 const ROOT = path.join(__dirname, '..');
 const PORT = 9347;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -21,6 +23,9 @@ const check = (name, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `: ${detail}`}`);
   if (!ok) failures.push(name);
 };
+
+// A Claude transcript the rail lists, the way a chat left behind by an earlier run looks on disk.
+const RESTORED = { id: '5e5e5e5e-0000-4000-8000-000000000001', board: 'restoreboard', title: 'restore me' };
 
 function fixture() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-per-chat-'));
@@ -32,6 +37,15 @@ function fixture() {
   fs.writeFileSync(agent, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(ROOT, 'scripts/mock-acp-cli.js'))} "$@"\n`, { mode: 0o755 });
   fs.mkdirSync(path.join(home, '.conn'), { recursive: true });
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([project]));
+  const transcripts = path.join(home, '.claude', 'projects', project.replace(/[/.]/g, '-'));
+  fs.mkdirSync(transcripts, { recursive: true });
+  const at = new Date().toISOString();
+  fs.writeFileSync(path.join(transcripts, `${RESTORED.id}.jsonl`), [
+    { type: 'user', sessionId: RESTORED.id, cwd: project, timestamp: at, uuid: `${RESTORED.id}-u`, message: { role: 'user', content: RESTORED.title } },
+    { type: 'assistant', sessionId: RESTORED.id, cwd: project, timestamp: at, uuid: `${RESTORED.id}-a`, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } },
+  ].map((l) => JSON.stringify(l)).join('\n') + '\n');
+  fs.writeFileSync(path.join(home, '.conn', 'canvas-ids.json'), JSON.stringify({ [RESTORED.id]: RESTORED.board }));
+  drawFrame(project, boardDir(RESTORED.board), 'restored.json', 'Restored');
   fs.writeFileSync(path.join(home, '.conn', 'settings.json'), JSON.stringify({
     agent: { provider: 'cursor', mode: 'bypass' },
     cursor: { binary: agent },
@@ -98,14 +112,14 @@ async function type(page, text) {
 // A new chat in the folder, with $canvas in the message, sent. The model list
 // starts sessions of its own that never get a prompt, so the chat's session is
 // the last one started before its prompt arrived.
-async function startChat(page, fx, words) {
+async function startChat(page, fx, words, dir = fx.project) {
   const before = entries(fx.log).filter((e) => e.method === 'session/prompt').length;
-  await page.evaluate(async (dir) => {
-    window.connChat.newChat(dir);
+  await page.evaluate(async (d) => {
+    window.connChat.newChat(d);
     await new Promise((r) => setTimeout(r, 600));
     window.connChat.design();
     await new Promise((r) => setTimeout(r, 400));
-  }, fx.project);
+  }, dir);
   await type(page, words);
   const prompt = await until(() => entries(fx.log).filter((e) => e.method === 'session/prompt')[before]);
   const log = entries(fx.log);
@@ -118,11 +132,15 @@ async function startChat(page, fx, words) {
 // The folder the brief told the agent to write frames into, relative to its cwd.
 const boardIn = (text) => /A new frame is a new file, (\S+)\/<kebab-name>\.json/.exec(text || '')?.[1] || null;
 
-function drawFrame(fx, board, file, name) {
-  const dir = path.join(fx.project, board);
+function drawFrame(root, board, file, name) {
+  const dir = path.join(root, board);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, file), JSON.stringify({ type: 'frame', name, x: 0, y: 0, width: 240, height: 120, fill: '#ffffff' }));
 }
+
+const idsOnDisk = (fx) => {
+  try { return JSON.parse(fs.readFileSync(path.join(fx.home, '.conn', 'canvas-ids.json'), 'utf8')); } catch { return {}; }
+};
 
 const framesOnBoard = (page) => page.evaluate(() => [...document.querySelectorAll('#canvas-view [data-frame]')].map((f) => f.dataset.frame).sort());
 
@@ -159,8 +177,8 @@ async function main() {
     check('brief-names-a-board', !!boardA && !!boardB, `prompt=${JSON.stringify(a.prompt?.text?.slice(0, 400))}`);
     check('chats-get-different-boards', boardA && boardB && boardA !== boardB, `both told ${boardA}`);
     if (boardA && boardB) {
-      drawFrame(fx, boardA, 'pricing-card.json', 'Pricing card');
-      drawFrame(fx, boardB, 'signup-form.json', 'Signup form');
+      drawFrame(fx.project, boardA, 'pricing-card.json', 'Pricing card');
+      drawFrame(fx.project, boardB, 'signup-form.json', 'Signup form');
       const onB = await until(async () => { const f = await framesOnBoard(page); return f.length ? f : null; }, 5000);
       check('board-b-shows-only-b', JSON.stringify(onB) === JSON.stringify(['signup-form.json']), `chat B board: ${JSON.stringify(onB)}`);
       await showChat(page, a.key);
@@ -170,6 +188,50 @@ async function main() {
       }, 5000);
       check('board-a-shows-only-a', JSON.stringify(onA) === JSON.stringify(['pricing-card.json']), `chat A board: ${JSON.stringify(onA)}`);
     }
+
+    // ---- The pairing is written down once the agent has a session.
+    const sessionA = await until(() => page.evaluate((k) => window.__rail?.chats?.find((c) => c.key === k)?.session || null, a.key));
+    const written = boardA && sessionA && await until(() => (idsOnDisk(fx)[sessionA] === path.basename(boardA) ? idsOnDisk(fx) : null), 5000);
+    check('mapping-written', !!written, `session ${sessionA}, board ${boardA}, canvas-ids.json: ${JSON.stringify(idsOnDisk(fx))}`);
+
+    // ---- A chat with no folder runs in ~/.conn/chats and draws there.
+    const chatsDir = await page.evaluate(async () => (await window.conn.project.info()).chats);
+    const loose = await startChat(page, fx, 'draw a landing page', chatsDir);
+    const boardL = boardIn(loose.prompt?.text);
+    const looseFrame = boardL && (drawFrame(chatsDir, boardL, 'landing.json', 'Landing'), await until(async () => {
+      const f = await framesOnBoard(page);
+      return f.length ? f : null;
+    }, 5000));
+    check(
+      'folderless-board-under-chats-dir',
+      /^\.conn\/canvas\/[a-z0-9]{6,32}$/.test(boardL || '') && loose.started?.cwd === chatsDir && JSON.stringify(looseFrame) === JSON.stringify(['landing.json']),
+      `board ${boardL}, session cwd ${loose.started?.cwd}, frames ${JSON.stringify(looseFrame)}`,
+    );
+
+    // ---- A chat reopened from the rail finds the board its transcript named.
+    const restored = await page.evaluate(async (want, dir) => {
+      const data = await window.conn.agent.history();
+      const row = data.projects.find((p) => p.dir === dir)?.sessions.find((r) => r.id === want);
+      if (!row) return null;
+      await window.connChat.open({ ...row, project: dir });
+      await new Promise((r) => setTimeout(r, 600));
+      window.connChat.design();
+      await new Promise((r) => setTimeout(r, 400));
+      return row.canvas;
+    }, RESTORED.id, fx.project);
+    const back = await until(async () => {
+      const f = await framesOnBoard(page);
+      return f.length ? f : null;
+    }, 5000);
+    check('board-survives-restart', restored === RESTORED.board && JSON.stringify(back) === JSON.stringify(['restored.json']), `rail row says ${restored}, board draws ${JSON.stringify(back)}`);
+
+    // ---- Deleting a chat takes its board with it.
+    const restoredBoard = path.join(fx.project, boardDir(RESTORED.board));
+    await page.evaluate(async (id, dir) => {
+      await window.connChat.remove({ id, project: dir, key: window.__rail.active });
+    }, RESTORED.id, fx.project);
+    const gone = await until(() => (!fs.existsSync(restoredBoard) && !(RESTORED.id in idsOnDisk(fx)) ? true : null), 5000);
+    check('deleting-a-chat-takes-its-board', !!gone, `board folder exists: ${fs.existsSync(restoredBoard)}, canvas-ids.json: ${JSON.stringify(idsOnDisk(fx))}`);
 
     page.ws.close();
   } finally {

@@ -45,6 +45,7 @@ function sessionStore(name, { value, refusal = `not a value ${name} can hold` })
   }
 
   const get = (id) => read()[id] || null;
+  const all = () => ({ ...read() });
 
   function set(id, v) {
     if (!ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
@@ -64,7 +65,7 @@ function sessionStore(name, { value, refusal = `not a value ${name} can hold` })
     return true;
   }
 
-  return { get, set, forget, FILE };
+  return { get, set, forget, all, FILE };
 }
 
 module.exports = { sessionStore };

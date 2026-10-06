@@ -91,11 +91,15 @@ contextBridge.exposeInMainWorld('conn', {
 
   // The agent writes what a frame contains. The board only moves, sizes,
   // copies and trashes whole frames, and saves the exports the person asks for.
+  // A board is named by the folder its chat runs in and the chat's board id.
   canvas: {
+    frames: (project, canvas) => ipcRenderer.invoke('canvas:frames', { project, canvas }),
+    frame: (project, canvas, file) => ipcRenderer.invoke('canvas:frame', { project, canvas, file }),
+    patch: (project, canvas, file, geometry) => ipcRenderer.invoke('canvas:patch', { project, canvas, file, geometry }),
+    duplicate: (project, canvas, file, at) => ipcRenderer.invoke('canvas:duplicate', { project, canvas, file, at }),
+    trash: (project, canvas, files) => ipcRenderer.invoke('canvas:trash', { project, canvas, files }),
+    bind: (session, canvas) => ipcRenderer.invoke('canvas:bind', { session, canvas }),
     save: (name, text, project) => ipcRenderer.invoke('canvas:save', { name, text, project }),
-    patch: (file, geometry, project) => ipcRenderer.invoke('canvas:patch', { file, geometry, project }),
-    duplicate: (file, at, project) => ipcRenderer.invoke('canvas:duplicate', { file, at, project }),
-    trash: (files, project) => ipcRenderer.invoke('canvas:trash', { files, project }),
   },
 
   // The editors this machine has, and opening the project folder in one.
