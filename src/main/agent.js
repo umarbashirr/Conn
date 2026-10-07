@@ -170,6 +170,8 @@ class AgentSession extends EventEmitter {
     try {
       for await (const msg of this.query) {
         if (msg.type === 'system' && msg.subtype === 'init') {
+          // A turn the SDK starts on its own has no send behind it, only this.
+          this.busy = true;
           this.sessionId = msg.session_id;
           // A resumed session comes back on whatever mode it was saved with.
           // The composer is showing ours, so put ours back rather than let the

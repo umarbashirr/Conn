@@ -314,6 +314,12 @@ export function useAgent() {
         return;
       }
 
+      // A turn the SDK starts on its own has no send behind it, only this.
+      if (msg.type === 'system' && msg.subtype === 'init' && !parent) {
+        edit(chat, (c) => ({ ...c, busy: true, startedAt: c.busy ? c.startedAt : Date.now() }));
+        return;
+      }
+
       // The live set of background work, sent whole every time it changes. Swap
       // for it rather than pairing start and stop events, so a missed edge
       // cannot leave a spinner running forever.
