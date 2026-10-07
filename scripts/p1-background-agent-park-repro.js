@@ -3,7 +3,8 @@
 // main turn was over, which also killed any background agent still running in
 // it. This drives a real Claude session: one background agent that sleeps, a
 // main turn that ends while it runs, and checks that the session says it is
-// still working until the agent reports back.
+// still working until the agent reports back. The SDK then starts a turn of its
+// own to read the report, and the session has to say busy for that turn too.
 //
 // Costs a few cents of Haiku. Needs the claude CLI and a login.
 const fs = require('fs');
@@ -34,8 +35,13 @@ const until = async (pred, ms) => {
 (async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'park-repro-'));
   const a = new AgentSession({ cwd, model: 'haiku', mode: 'bypass', invoke: async () => ({}) });
-  const seen = { results: 0, started: 0, notified: 0 };
+  const seen = { results: 0, started: 0, notified: 0, woken: [], last: 0 };
   a.on('message', (m) => {
+    seen.last = Date.now();
+    // Every main-thread init after the first result opens a turn nobody sent.
+    if (m.type === 'system' && m.subtype === 'init' && !m.parent_tool_use_id && seen.results >= 1) {
+      seen.woken.push({ busy: a.busy, working: a.working });
+    }
     if (m.type === 'result') seen.results += 1;
     if (m.type === 'system' && m.subtype === 'task_started') seen.started += 1;
     if (m.type === 'system' && m.subtype === 'task_notification') seen.notified += 1;
@@ -58,6 +64,11 @@ const until = async (pred, ms) => {
   // its own; only then is the chat idle.
   check('not-working-once-everything-reported', await until(() => !a.working, 120000),
     `working=${a.working} busy=${a.busy}`);
+
+  await until(() => Date.now() - seen.last > 5000, 60000);
+  const woken = JSON.stringify(seen.woken);
+  check('busy-during-woken-turn', seen.woken.length > 0 && seen.woken.every((w) => w.busy), woken);
+  check('working-during-woken-turn', seen.woken.length > 0 && seen.woken.every((w) => w.working), woken);
 
   a.stop();
   fs.rmSync(cwd, { recursive: true, force: true });
