@@ -2,13 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { cjk } from '@streamdown/cjk';
 import { code } from '@streamdown/code';
 
+import { SHELL_RENDERER } from '@/components/shell-block';
+
 // mermaid and katex were static imports, so every window parsed mermaid, dagre,
 // rough and katex at startup to render chat messages that are almost always
 // prose and code. Load them the first time a message actually needs one.
 //
 // cjk and code stay eager: a coding agent emits fenced code constantly, and
 // shiki already splits its grammars into their own chunks.
-const BASE = { cjk, code };
+const BASE = { cjk, code, renderers: [SHELL_RENDERER] };
 
 const NEEDS = {
   math: /(?:\$\$[\s\S]+?\$\$)|(?:\$[^$\n]+\$)|\\\(|\\\[/,

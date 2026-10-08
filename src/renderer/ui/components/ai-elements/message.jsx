@@ -11,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ChatLink } from "@/components/chat-link";
+import { InlineCode } from "@/components/shell-block";
 import { cn } from "@/lib/utils";
 import { usePlugins } from "@/lib/streamdown-plugins";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
@@ -255,6 +256,11 @@ export const MessageBranchPage = ({
   );
 };
 
+// Kept whole across renders: given an inlineCode, Streamdown wraps `code` in a
+// new function each time this map changes, and that remounts every code block
+// in the message on each streamed chunk.
+const COMPONENTS = { a: ChatLink, inlineCode: InlineCode };
+
 export const MessageResponse = memo(({
   className,
   components,
@@ -266,7 +272,7 @@ export const MessageResponse = memo(({
       className={cn("size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}
       plugins={plugins}
       linkSafety={{ enabled: false }}
-      components={{ a: ChatLink, ...components }}
+      components={components ? { ...COMPONENTS, ...components } : COMPONENTS}
       {...props} />
   );
 }, (prevProps, nextProps) =>
