@@ -139,7 +139,11 @@ const LAYERS = [
   'menubar-sub-content',
   'sheet-overlay',
   'sheet-content',
-].map((slot) => `[data-slot="${slot}"]`).join(',');
+].map((slot) => `[data-slot="${slot}"]`)
+  // Streamdown's fullscreen table and diagram portal a window-sized layer onto
+  // the body with no slot, and the diagram's carries no attribute at all.
+  .concat('body > .fixed.inset-0')
+  .join(',');
 
 const TRIGGERS = [
   'popover-trigger',
