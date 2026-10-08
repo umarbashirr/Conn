@@ -640,7 +640,7 @@ class CodexSession extends EventEmitter {
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     this.pending.set(id, { respond, answer, params, input, tool: spec.tool });
     this.emit('permission', {
-      id, tool: spec.tool, input, reason: params.reason || verdict.reason, agent: null,
+      id, tool: spec.tool, input, reason: params.reason || verdict.reason, agent: null, forId: params.itemId || null,
     });
   }
 
@@ -686,7 +686,7 @@ class CodexSession extends EventEmitter {
       input: { questions },
       answer: { allow: (_p, g) => shape(g), always: (_p, g) => shape(g), deny: () => ({ answers: {} }) },
     });
-    this.emit('permission', { id, tool: 'AskUserQuestion', input: { questions }, agent: null });
+    this.emit('permission', { id, tool: 'AskUserQuestion', input: { questions }, agent: null, forId: params.itemId || null });
   }
 
   /* What the dialog shows. Enough to judge the call by, in the keys the panel's

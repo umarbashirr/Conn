@@ -455,7 +455,7 @@ class AcpSession extends EventEmitter {
     }
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     this.pending.set(id, { respond, options, tool, input });
-    this.emit('permission', { id, tool, input, reason: verdict.reason, agent: null });
+    this.emit('permission', { id, tool, input, reason: verdict.reason, agent: null, forId: call.toolCallId || null });
   }
 
   #readFile(params, respond) {

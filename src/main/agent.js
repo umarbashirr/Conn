@@ -286,6 +286,7 @@ class AgentSession extends EventEmitter {
       this.emit('permission', {
         id, tool: name, input, reason: verdict.reason, title, displayName,
         agent: from && from.id !== 'main' ? from : null,
+        forId: toolUseID || null,
       });
     });
   }
