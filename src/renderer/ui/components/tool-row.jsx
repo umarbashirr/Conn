@@ -7,8 +7,8 @@ import {
   ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
   GlobeIcon, HighlighterIcon, HourglassIcon, InfoIcon, KeyboardIcon, LogsIcon, MonitorSmartphoneIcon,
   MousePointer2Icon, MousePointerClickIcon, MoveVerticalIcon, PanelRightIcon, RotateCwIcon, ScanTextIcon,
-  SearchIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon, TextCursorInputIcon,
-  TextIcon, UsersIcon, WrenchIcon,
+  SearchIcon, ShieldCheckIcon, ShieldXIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon,
+  TextCursorInputIcon, TextIcon, UsersIcon, WrenchIcon,
 } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
@@ -72,6 +72,23 @@ export function Thumb({ block, className }) {
       loading="lazy"
       src={imageSrc(block)}
       className={cn('h-5 w-8 shrink-0 rounded-[3px] border object-cover object-top', className)} />
+  );
+}
+
+// The answer a card got, kept on the row of the call it held up, and small,
+// so a past decision does not read as one still to make.
+export function PermMark({ perm }) {
+  const denied = perm.decided === 'deny';
+  const always = perm.decided === 'always';
+  const Icon = denied ? ShieldXIcon : ShieldCheckIcon;
+  return (
+    <span
+      data-slot="perm-mark"
+      title={always ? `You chose Always for ${toolName(toolLabel(perm.tool))} in this chat` : undefined}
+      className={cn('flex items-center gap-1 text-[11px]', denied ? 'text-destructive' : 'text-muted-foreground/75')}>
+      <Icon className="size-3" />
+      {always ? 'always allowed' : denied ? 'denied' : 'allowed'}
+    </span>
   );
 }
 

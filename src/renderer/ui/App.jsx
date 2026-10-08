@@ -5,7 +5,7 @@ import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
-import { ToolRow, ToolStrip, Pre } from '@/components/tool-row';
+import { PermMark, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
@@ -26,7 +26,8 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { isLive, subagentsIn } from '@/lib/subagents';
-import { imageSrc, toolImages, toolLabel, toolSummary, toolText } from '@/lib/tools';
+import { imageSrc, toolImages, toolLabel, toolName, toolSummary, toolText } from '@/lib/tools';
+import { attachPerms } from '@/lib/turns';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
@@ -602,7 +603,7 @@ const Row = ({ children }) => <div className="conn-in">{children}</div>;
 const TAIL = 30;
 
 function Transcript({ items, agent }) {
-  const total = runs(items).length;
+  const total = runs(attachPerms(items).rest).length;
   const [pinnedStart, setPinnedStart] = useState(null);
   const start = pinnedStart ?? Math.max(0, total - TAIL);
   useEffect(() => { if (pinnedStart === null && total) setPinnedStart(start); }, [pinnedStart, total, start]);
@@ -637,12 +638,13 @@ function Transcript({ items, agent }) {
 }
 
 export function Items({ items, agent, from = 0 }) {
-  return runs(items).slice(from).map((g) => {
-    if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} /></Row>;
+  const { marks, rest } = attachPerms(items);
+  return runs(rest).slice(from).map((g) => {
+    if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} mark={marks.get(g.id)} /></Row>;
     if (g.run.length < FOLD_AT) {
       return (
         <Fragment key={g.id}>
-          {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} /></Row>)}
+          {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>)}
         </Fragment>
       );
     }
@@ -653,19 +655,19 @@ export function Items({ items, agent, from = 0 }) {
     return (
       <div key={g.id} className="flex flex-col gap-px">
         <ToolStrip items={done}>
-          {done.map((it) => <Item key={it.id} item={it} agent={agent} />)}
+          {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
         </ToolStrip>
         {/* Keyed, so the row the run is currently on is a new element each
             time the run moves on. Without the key React reconciles the next
             tool call into the last one's markup and the reader inherits
             whatever they had opened on the call before. */}
-        <Row key={current.id}><Item item={current} agent={agent} /></Row>
+        <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
       </div>
     );
   });
 }
 
-function Item({ item, agent }) {
+function Item({ item, agent, mark }) {
   const onDecide = agent.decide;
 
   // An agent owns whatever it did, and that opens in a sheet over the chat. Here
@@ -739,10 +741,13 @@ function Item({ item, agent }) {
           at={item.at}
           defaultOpen
           right={(
-            <span className="flex items-center gap-1.5 font-mono text-xs">
-              {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
-              {removed > 0 && <span className="text-rose-600 dark:text-rose-400">-{removed}</span>}
-            </span>
+            <>
+              {mark && <PermMark perm={mark} />}
+              <span className="flex items-center gap-1.5 font-mono text-xs">
+                {added > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{added}</span>}
+                {removed > 0 && <span className="text-rose-600 dark:text-rose-400">-{removed}</span>}
+              </span>
+            </>
           )}>
           <DiffView hunks={hunks} />
           {item.state === 'output-error' && <Pre className="mt-2 text-destructive">{text}</Pre>}
@@ -762,21 +767,26 @@ function Item({ item, agent }) {
           at={item.at}
           thumb={images.at(-1) ?? null}
           defaultOpen={item.state === 'output-error'}
-          right={item.taskId && (
-            <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">
-              <span>{live ? 'background' : item.status}</span>
-              {live && (
-                <span
-                  role="button"
-                  tabIndex={0}
-                  title="Stop this command"
-                  onClick={(e) => { e.stopPropagation(); agent.stopAgent(item); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); agent.stopAgent(item); } }}
-                  className="grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground">
-                  <SquareIcon className="size-3" />
+          right={(
+            <>
+              {mark && <PermMark perm={mark} />}
+              {item.taskId && (
+                <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">
+                  <span>{live ? 'background' : item.status}</span>
+                  {live && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      title="Stop this command"
+                      onClick={(e) => { e.stopPropagation(); agent.stopAgent(item); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); agent.stopAgent(item); } }}
+                      className="grid size-5 place-items-center rounded hover:bg-secondary hover:text-foreground">
+                      <SquareIcon className="size-3" />
+                    </span>
+                  )}
                 </span>
               )}
-            </span>
+            </>
           )}>
           <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
           {images.map((b, i) => (
@@ -815,7 +825,6 @@ function Item({ item, agent }) {
           </div>
         );
       }
-      const pretty = label.replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
       const verb = item.decided === 'deny' ? 'Denied' : item.decided === 'always' ? 'Always allow' : 'Allowed';
       return (
         <div className="flex h-7 items-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
@@ -823,7 +832,7 @@ function Item({ item, agent }) {
           <span className="w-3.5 shrink-0" />
           <span>
             {verb}{' '}
-            <span className="font-mono text-xs text-foreground/75">{pretty}</span>
+            <span className="font-mono text-xs text-foreground/75">{toolName(label)}</span>
           </span>
         </div>
       );
