@@ -14,9 +14,8 @@
     other: { label: 'See all downloads', logo: '#i-download', file: null, fallback: '#download' },
   };
 
-  // Each row is [state, atMs] after the click.
   const MOTION = [['press', 0], ['drop', 100], ['sweep', 400], ['started', 1200], ['rest', 5200]];
-  const STILL = [['started', 0], ['rest', 4000]]; // prefers-reduced-motion: reduce
+  const STILL = [['started', 0], ['rest', 4000]];
   const BUSY_LABEL = { drop: 'Starting download…', sweep: 'Starting download…', started: 'Download started' };
   const COPIED_MS = 1500;
 
@@ -29,7 +28,6 @@
 
   const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
 
-  // The one place the GitHub response is checked. Everything after it trusts the shape.
   function releaseOf(json) {
     const tag = json?.tag_name;
     if (typeof tag !== 'string' || !tag) return null;
@@ -61,8 +59,6 @@
   const hero = document.querySelector('.dl-button');
   const heroNote = document.querySelector('[data-hero-note]');
 
-  // A null release is unknown, not empty: the lookup has not answered or failed, so the platform's
-  // own look stands. Only a known release can take the download away.
   function heroOf(key, release) {
     const platform = PLATFORMS[key];
     if (!release) {

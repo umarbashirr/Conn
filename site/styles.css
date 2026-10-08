@@ -711,8 +711,6 @@ footer li a:hover {
   color: var(--muted);
 }
 
-/* Chromium evaluates a bare cqw inside tan(atan2()) as px. A registered <length>
-   resolves it to px first, so the trig turns the container width into a ratio. */
 @property --frame-width {
   syntax: "<length>";
   inherits: true;
