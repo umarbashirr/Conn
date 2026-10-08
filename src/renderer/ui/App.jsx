@@ -5,7 +5,7 @@ import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
-import { ToolRow, ToolStrip, Pre, toolLabel, toolSummary } from '@/components/tool-row';
+import { ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
@@ -26,6 +26,7 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { isLive, subagentsIn } from '@/lib/subagents';
+import { imageSrc, toolImages, toolLabel, toolSummary, toolText } from '@/lib/tools';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
@@ -90,22 +91,7 @@ function attachmentText(list, body, names, { provider, canvas }) {
   return lines.length ? lines.join('\n\n') + '\n\n' : '';
 }
 
-const toolText = (output) => {
-  if (typeof output === 'string') return output;
-  if (!Array.isArray(output)) return JSON.stringify(output ?? '', null, 2);
-  return output.map((b) => (b.type === 'image' ? '[screenshot]' : b.text ?? JSON.stringify(b))).join('\n');
-};
-
-// Live tool results carry a path (main strips the base64 before IPC); a replayed
-// transcript still carries the bytes for its most recent few. Handle both.
-const toolImages = (output) =>
-  (Array.isArray(output) ? output : []).filter((b) => b.type === 'image' && (b.path || b.source?.data));
-
 const EMPTY_DRAFT = { text: '', attachments: [] };
-
-const imageSrc = (b) => (b.path
-  ? `file://${encodeURI(b.path)}`
-  : `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`);
 
 // Between a message going out and the first row coming back, and again between
 // one tool finishing and the next starting, the transcript holds still. A held

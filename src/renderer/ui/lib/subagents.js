@@ -1,7 +1,7 @@
 // A subagent as every surface sees it: the row in the chat, the Working pill
 // and panel, the sheet, and the Agents tab. Each asks here what state one is
 // in and what it is doing, so no two of them can disagree.
-import { toolLabel, toolSummary } from '@/components/tool-row';
+import { toolLabel, toolSummary } from './tools.js';
 
 // The wire says more than this (a stop still on its way, a status a newer SDK
 // made up), but these four are the answers anything on screen gives.

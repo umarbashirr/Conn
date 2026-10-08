@@ -12,6 +12,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
 import { clock, useTick } from '@/lib/clock';
+import { BUCKET, toolLabel, toolSummary } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -37,63 +38,6 @@ const ICONS = {
   TaskOutput: UsersIcon,
   TaskStop: SquareIcon,
 };
-
-// One short line of context, so a collapsed row still says what it did.
-const SUMMARY = {
-  Bash: (i) => i.command,
-  Read: (i) => tail(fileOf(i)),
-  Write: (i) => tail(fileOf(i)),
-  Edit: (i) => tail(fileOf(i)),
-  MultiEdit: (i) => tail(fileOf(i)),
-  NotebookEdit: (i) => tail(fileOf(i)),
-  Glob: (i) => i.pattern,
-  Grep: (i) => i.pattern,
-  WebFetch: (i) => i.url,
-  Agent: (i) => i.description,
-  Task: (i) => i.description,
-  browser_navigate: (i) => i.url,
-  browser_click: (i) => i.target,
-  browser_fill: (i) => `${i.target} = ${JSON.stringify(i.value ?? '')}`,
-  browser_evaluate: (i) => i.code,
-  browser_press: (i) => i.key,
-};
-
-const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');
-
-// ACP calls often name the file as `path` or a location, not `file_path`.
-function fileOf(i = {}) {
-  const locs = Array.isArray(i.locations) ? i.locations : [];
-  const loc = locs.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
-  return i.file_path || i.path || i.filePath || i.notebook_path || i.target_file || loc || '';
-}
-
-const clip = (s) => {
-  const t = String(s || '').replace(/\s+/g, ' ').trim();
-  if (!t) return '';
-  if (t.includes('/') && !t.includes(' ')) return tail(t);
-  return t.slice(0, 120);
-};
-
-// The name to show. An MCP tool arrives as mcp__server__thing, which says more
-// about the plumbing than about what ran.
-export const toolLabel = (name) =>
-  String(name || '').replace(/^mcp__preview__/, '').replace(/^mcp__[^_]+__/, '');
-
-export function toolSummary(name, input) {
-  const i = input || {};
-  const fn = SUMMARY[name];
-  const raw = fn ? fn(i) : null;
-  const fromFn = raw == null || typeof raw === 'object' ? '' : clip(raw);
-  if (fromFn) return fromFn;
-  const titled = typeof i.title === 'string' ? i.title.trim() : '';
-  const bare = titled.replace(new RegExp(`^${String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i'), '');
-  if (bare && bare.toLowerCase() !== String(name || '').trim().toLowerCase()) return clip(bare);
-  if (!fn) {
-    const first = Object.values(i).find((v) => typeof v === 'string' && v.trim() && v.trim() !== titled);
-    if (first) return clip(first);
-  }
-  return '';
-}
 
 export function ToolRow({ name, input, state, at, right, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -146,22 +90,6 @@ export function ToolRow({ name, input, state, at, right, defaultOpen = false, ch
     </div>
   );
 }
-
-// What a run is made of. Anything without a word of its own is a step,
-// because "3 browser_click calls" is not a sentence.
-const BUCKET = {
-  Bash: 'command',
-  Read: 'file',
-  NotebookRead: 'file',
-  Glob: 'search',
-  Grep: 'search',
-  WebSearch: 'search',
-  WebFetch: 'fetch',
-  Edit: 'edit',
-  Write: 'edit',
-  MultiEdit: 'edit',
-  NotebookEdit: 'edit',
-};
 
 const PLURAL = {
   command: 'commands', file: 'files', search: 'searches', fetch: 'fetches', step: 'steps',
