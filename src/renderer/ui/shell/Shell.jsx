@@ -257,33 +257,6 @@ export default function Shell() {
 
   useEffect(() => watchPaneOverlays(), []);
 
-  // Dialogs use left: var(--dialog-x). The window's own center falls on the
-  // preview once that panel is open, so point the variable at the chat instead.
-  useEffect(() => {
-    const place = () => {
-      const pane = document.querySelector('#paneslot')?.getBoundingClientRect();
-      const agent = document.querySelector('#agent')?.getBoundingClientRect();
-      const root = document.documentElement;
-      if (!pane || pane.width < 8 || !agent || agent.width < 280 || agent.right > pane.left + 24) {
-        root.style.removeProperty('--dialog-x');
-        return;
-      }
-      root.style.setProperty('--dialog-x', `${agent.left + agent.width / 2}px`);
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    for (const sel of ['#paneslot', '#agent']) {
-      const el = document.querySelector(sel);
-      if (el) observer.observe(el);
-    }
-    window.addEventListener('resize', place);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', place);
-      document.documentElement.style.removeProperty('--dialog-x');
-    };
-  }, []);
-
   return (
     <>
       <TitleBar />
