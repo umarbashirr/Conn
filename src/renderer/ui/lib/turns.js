@@ -17,8 +17,10 @@ const settled = (it) => it.kind === 'perm' && it.decided && !it.answers;
    subagent's call lives in its agent's children) the perm stays a line; it
    is never paired by name instead, or a subagent's perm would mark a call
    the main thread made. A preview-bridge prompt has no call to name, so it
-   pairs with the nearest unmarked call of its tool, looking forward first
-   because the CLI can announce a call a beat after it asks, then back. */
+   pairs with the nearest unmarked call of its tool, looking back first:
+   only codex and the ACP agents reach the bridge's card (a Claude session's
+   invoke drives the tool without it), and they announce the call before the
+   bridge asks. Forward is the fallback for a card that got in ahead. */
 export function attachPerms(items) {
   const marks = new Map();
   const calls = new Set(items.filter(isCall).map((it) => it.id));
@@ -30,7 +32,7 @@ export function attachPerms(items) {
     if (!settled(perm) || perm.forId || perm.agent?.id !== 'bridge') return;
     const label = toolLabel(perm.tool);
     const fits = (it) => isCall(it) && !marks.has(it.id) && toolLabel(it.name) === label;
-    const row = items.slice(at + 1).find(fits) ?? items.slice(0, at).findLast(fits);
+    const row = items.slice(0, at).findLast(fits) ?? items.slice(at + 1).find(fits);
     if (row) marks.set(row.id, perm);
   });
 
