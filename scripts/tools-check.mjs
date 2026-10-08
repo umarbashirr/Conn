@@ -4,16 +4,8 @@
    the transcript as a wrench and its plumbing name. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createRequire, registerHooks } from 'node:module';
-
-// package.json pins "type": "commonjs", so the renderer's files are read as
-// the ES modules vite reads them as.
-registerHooks({
-  load(url, context, next) {
-    const loaded = next(url, context);
-    return url.includes('/src/renderer/') ? { ...loaded, format: 'module' } : loaded;
-  },
-});
+import { createRequire } from 'node:module';
+import './renderer-esm.mjs';
 
 const require = createRequire(import.meta.url);
 const { z } = require('zod');
