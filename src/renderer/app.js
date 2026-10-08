@@ -545,12 +545,16 @@ function syncPreview() {
   syncGuestVisibility();
 }
 
+// The toaster's 320px and a 12px margin either side.
+const TOAST_ROOM = 344;
+
 function syncBounds() {
   // The tree and the diff sit where the pane would be, so a tab that is not a
   // preview parks the pane the same way a modal does.
   if (previewParked || !previewInBox()) {
     // Park it just outside the window instead of hiding it. A hidden view stops
     // laying out, and the agent would get a 0x0 page while the pane is closed.
+    document.documentElement.style.removeProperty('--toast-right');
     window.conn.browser.setBounds(inWindowPixels({
       x: window.innerWidth + 40, y: 40,
       width: window.innerWidth * 0.5,
@@ -575,6 +579,11 @@ function syncBounds() {
     box = { x: r.x + f.x, y: r.y + f.y, width: f.width, height: f.height };
   }
 
+  // A toast over the view is hidden under it, so toasts stop short of it when
+  // one fits beside it. At full width none does, and the pane cover freezes
+  // the page under the toast instead.
+  if (box.x >= TOAST_ROOM) document.documentElement.style.setProperty('--toast-right', `${window.innerWidth - box.x + 12}px`);
+  else document.documentElement.style.removeProperty('--toast-right');
   window.conn.browser.setBounds(inWindowPixels(box));
 }
 

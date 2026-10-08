@@ -142,7 +142,8 @@ const LAYERS = [
 ].map((slot) => `[data-slot="${slot}"]`)
   // Streamdown's fullscreen table and diagram portal a window-sized layer onto
   // the body with no slot, and the diagram's carries no attribute at all.
-  .concat('body > .fixed.inset-0')
+  // Toasts sit beside the pane and only land on it at full width.
+  .concat('body > .fixed.inset-0', '[data-sonner-toast]')
   .join(',');
 
 const TRIGGERS = [
@@ -213,6 +214,8 @@ export function watchPaneOverlays() {
     attributes: true,
     attributeFilter: ['data-state', 'style'],
   });
+  // A toast slides onto the pane, and the end of a transition is no mutation.
+  document.addEventListener('transitionend', schedule, true);
   // The still is usually ready by the time the layer paints, instead of the
   // page staying live under a dialog for the length of a capture.
   // Triggers warm on the way down, which is how a menu has its picture before
@@ -228,6 +231,7 @@ export function watchPaneOverlays() {
   document.addEventListener('pointerdown', onPointerDown, true);
   return () => {
     obs.disconnect();
+    document.removeEventListener('transitionend', schedule, true);
     document.removeEventListener('pointerdown', onPointerDown, true);
     if (frame) cancelAnimationFrame(frame);
     if (hold) cancelAnimationFrame(hold);

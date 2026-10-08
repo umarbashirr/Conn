@@ -137,11 +137,13 @@ function useBrowser(tab) {
   return previewOf(tab);
 }
 
-function Tip({ label, children }) {
+// Tooltips open away from the pane, which is a native view they would land
+// under. The bars sit above it and the drawer below.
+function Tip({ label, side = 'top', children }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>{children}</TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side={side}>{label}</TooltipContent>
     </Tooltip>
   );
 }
@@ -778,7 +780,7 @@ function Drawer({ tab, showing }) {
             onClick={() => clearLogs(tab)}>
             clear
           </Button>
-          <Tip label="Close drawer (Ctrl+Shift+J)">
+          <Tip label="Close drawer (Ctrl+Shift+J)" side="bottom">
             <Button
               variant="ghost"
               size="icon"
