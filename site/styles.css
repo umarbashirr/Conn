@@ -566,7 +566,8 @@ footer li a:hover {
   color: var(--dim);
 }
 
-.files code {
+.files [data-file-name] {
+  font-family: var(--mono);
   font-size: 13px;
 }
 
@@ -1682,6 +1683,7 @@ footer {
 .dl-card {
   display: flex;
   flex-direction: column;
+  gap: 15px;
   min-height: 172px;
   padding: 22px;
   border-radius: 14px;
@@ -1748,7 +1750,7 @@ footer {
 }
 
 .dl-file {
-  margin: 18px 0 15px;
+  margin-top: 3px;
   font-size: 12.5px;
   color: var(--dim);
   overflow-wrap: anywhere;
@@ -1760,6 +1762,7 @@ footer {
   justify-content: center;
   gap: 8px;
   height: 40px;
+  margin-top: auto;
   border-radius: 9px;
   background: var(--surface2);
   box-shadow: inset 0 0 0 1px var(--border);
@@ -1768,18 +1771,27 @@ footer {
   --sw: 2.2;
 }
 
-.dl-card-button:hover {
+.dl-card-button:not([data-absent]):hover {
   background: var(--border);
 }
 
-.dl-card[data-detected] .dl-card-button {
+.dl-card[data-detected] .dl-card-button:not([data-absent]) {
   background: var(--fg);
   box-shadow: none;
   color: var(--bg);
 }
 
-.dl-card[data-detected] .dl-card-button:hover {
+.dl-card[data-detected] .dl-card-button:not([data-absent]):hover {
   background: #fff;
+}
+
+.dl-card-button[data-absent] {
+  color: var(--dim);
+  cursor: default;
+}
+
+.dl-card-button[data-absent] svg {
+  display: none;
 }
 
 .size::before {

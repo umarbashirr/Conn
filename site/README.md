@@ -18,22 +18,23 @@ The HTML declares what each element is. The script fills values and changes no l
 
 | Hook | What the script does |
 | --- | --- |
-| `a[data-file="deb\|appimage\|exe"]` | Sets `href` to the release asset and adds `download`. Without that file in the release, the link stays on the releases page. |
-| `[data-file-name="..."]` | Sets the text to the asset name. |
-| `[data-file-size="..."]` | Sets the text to the size in MB. CSS hides the element while it is empty. |
+| `a[data-file="deb\|appimage\|exe"]` | Sets `href` to the release asset and adds `download`. Without that file in the release, it removes `download`, sets `data-absent` and applies the two hooks below. |
+| `data-absent-href="#download"` on a `data-file` link | When the file is absent, `href` becomes this value. The link stays clickable. |
+| `data-absent-label="Not in this release"` on an element inside a `data-file` link | When the file is absent, the element's text becomes this value and the link gets `aria-disabled="true"` and `tabindex="-1"`. The `href` stays on the releases page. CSS styles `a[data-absent]` as an inactive button. |
+| `[data-file-name="..."]` | Sets the text to the asset name. Hidden when the file is absent, because the name in the HTML is the 0.13.3 value. |
+| `[data-file-size="..."]` | Sets the text to the size in MB. CSS hides the element while it is empty. Hidden when the file is absent. |
+| `[data-hero-note]` | The line under the hero button. Shows the text from `heroOf` when the platform's file is missing from the release, and stays hidden otherwise. |
 | `[data-version]` | Sets the text to the release version, without the leading `v`. |
 | `[data-for="linux windows other"]` | Hides the element unless the detected platform is listed. |
 | `[data-platform="linux\|windows"]` | Sets `data-detected` on the card that matches the platform. CSS draws the "Your system" badge from it. |
-| `[data-os]` | Sets the platform name. CSS sizes the logo from it. |
+| `[data-os]` | Sets the platform name, which is the detected platform on the nav button and the hero look on the hero button. CSS sizes the logo from it. |
 | `use[data-logo]` | Points at the platform's logo symbol in the sprite. |
-| `.dl-button` | Sets `href` to the platform's file, and `data-state` while the click animation plays. |
+| `.dl-button` | Takes the hero look: `data-os`, label, logo, `href` and `download`. The script also sets `data-state` while the click animation plays. |
 | `[data-copy="id"]` | Copies the text of the element with that id, then shows "Copied" for 1.5 seconds. |
 
-Platforms are `linux`, `windows` and `other`. macOS, iOS, Android, ChromeOS and anything unrecognised count as `other`, and the hero button then scrolls to `#download`. The `FILES` patterns in `download.js` pick the release assets. The file names and sizes in `index.html` are the 0.13.3 values, and the script replaces them when the release lists that file.
+Platforms are `linux`, `windows` and `other`. macOS, iOS, Android, ChromeOS and anything unrecognised count as `other`, and the hero button then scrolls to `#download`. The `FILES` table in `download.js` holds, for each file, the pattern that picks the release asset and the noun the page uses for it. The file names and sizes in `index.html` are the 0.13.3 values, and the script replaces them when the release lists that file.
 
-If the GitHub request fails, because of a rate limit or no network, the page keeps what it rendered. The platform still applies.
-
-`download.js` puts `platformOf`, `releaseOf` and `mb` on `window` so they can be tested in a browser console.
+The release has three states. Unknown means the GitHub request has not answered or failed, because of a rate limit or no network. The page keeps what it rendered, with the platform's label and every download link on the releases page. A file that is present gets its asset URL and `download` on every link, and its name and size. A file that is absent gets the treatment its elements declare, and the hero falls back to "See all downloads" with a note such as "The Windows installer isn't in v0.13.3 yet." Uploading a missing file to the release changes the page with no code change.
 
 ## How to deploy this folder to Vercel
 

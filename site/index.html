@@ -129,13 +129,14 @@
           </a>
         </div>
         <ul class="files">
-          <li data-for="linux"><code data-file-name="deb">conn-0.13.3-amd64.deb</code></li>
+          <li data-hero-note hidden></li>
+          <li data-for="linux" data-file-name="deb">conn-0.13.3-amd64.deb</li>
           <li data-for="linux" data-file-size="deb">366 MB</li>
-          <li data-for="windows" hidden><code data-file-name="exe">conn-0.13.3-x64.exe</code></li>
+          <li data-for="windows" data-file-name="exe" hidden>conn-0.13.3-x64.exe</li>
           <li data-for="windows" data-file-size="exe" hidden></li>
-          <li data-for="windows other" hidden><a data-file="deb" href="https://github.com/umarbashirr/Conn/releases/latest">Linux</a></li>
-          <li data-for="linux other"><a data-file="exe" href="https://github.com/umarbashirr/Conn/releases/latest">Windows</a></li>
-          <li><a data-file="appimage" href="https://github.com/umarbashirr/Conn/releases/latest">AppImage</a></li>
+          <li data-for="windows other" hidden><a data-file="deb" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Linux</a></li>
+          <li data-for="linux other"><a data-file="exe" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Windows</a></li>
+          <li><a data-file="appimage" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">AppImage</a></li>
           <li><a href="https://github.com/umarbashirr/Conn/releases">All releases</a></li>
         </ul>
         <div class="terminal-option">
@@ -396,7 +397,7 @@
               <code class="dl-file" data-file-name="deb">conn-0.13.3-amd64.deb</code>
               <a class="dl-card-button" data-file="deb" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
-                <span>Download<span class="size" data-file-size="deb">366 MB</span></span>
+                <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="deb">366 MB</span></span>
               </a>
             </li>
             <li class="dl-card">
@@ -410,7 +411,7 @@
               <code class="dl-file" data-file-name="appimage">conn-0.13.3-x86_64.AppImage</code>
               <a class="dl-card-button" data-file="appimage" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
-                <span>Download<span class="size" data-file-size="appimage">459 MB</span></span>
+                <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="appimage">459 MB</span></span>
               </a>
             </li>
             <li class="dl-card" data-platform="windows">
@@ -424,7 +425,7 @@
               <code class="dl-file" data-file-name="exe">conn-0.13.3-x64.exe</code>
               <a class="dl-card-button" data-file="exe" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
-                <span>Download<span class="size" data-file-size="exe"></span></span>
+                <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="exe"></span></span>
               </a>
             </li>
           </ul>
