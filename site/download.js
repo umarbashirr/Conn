@@ -28,7 +28,7 @@
 
   const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
 
-  function releaseOf(json) {
+  function parseRelease(json) {
     const tag = json?.tag_name;
     if (typeof tag !== 'string' || !tag) return null;
     const assets = (Array.isArray(json.assets) ? json.assets : []).filter(
@@ -48,7 +48,7 @@
   async function latestRelease() {
     try {
       const res = await fetch(LATEST);
-      return res.ok ? releaseOf(await res.json()) : null;
+      return res.ok ? parseRelease(await res.json()) : null;
     } catch {
       return null;
     }
@@ -59,18 +59,17 @@
   const hero = document.querySelector('.dl-button');
   const heroNote = document.querySelector('[data-hero-note]');
 
+  function ownHero(key, href, download) {
+    const { label, logo } = PLATFORMS[key];
+    return { os: key, label, logo, href, download, note: null };
+  }
+
   function heroOf(key, release) {
     const platform = PLATFORMS[key];
-    if (!release) {
-      return { os: key, label: platform.label, logo: platform.logo, href: platform.fallback, download: false, note: null };
-    }
     const file = platform.file && release.files[platform.file];
-    if (file) {
-      return { os: key, label: platform.label, logo: platform.logo, href: file.url, download: true, note: null };
-    }
-    const { label, logo, fallback } = PLATFORMS.other;
+    if (file) return ownHero(key, file.url, true);
     const note = platform.file ? `The ${FILES[platform.file].noun} isn't in v${release.version} yet.` : null;
-    return { os: 'other', label, logo, href: fallback, download: false, note };
+    return { ...ownHero('other', PLATFORMS.other.fallback, false), note };
   }
 
   function showHero({ os, label, logo, href, download, note }) {
@@ -166,7 +165,7 @@
 
   const key = platformOf(navigator);
   showPlatform(key);
-  showHero(heroOf(key, null));
+  showHero(ownHero(key, PLATFORMS[key].fallback, false));
   latestRelease().then((release) => {
     if (!release) return;
     showRelease(release);

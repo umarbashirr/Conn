@@ -711,6 +711,8 @@ footer li a:hover {
   color: var(--muted);
 }
 
+/* Chrome 130 (Electron 33) reads a bare cqw inside tan(atan2()) as px and shrinks the mockup to a
+   twelfth; Chrome 153 does not. A registered <length> resolves the width before the trig runs. */
 @property --frame-width {
   syntax: "<length>";
   inherits: true;
