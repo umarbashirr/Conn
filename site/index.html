@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -8,68 +8,479 @@
       name="description"
       content="Conn. A terminal with an agent and a browser it can drive."
     />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0c0e14" />
     <link rel="icon" href="favicon.png" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+      <symbol id="mark" viewBox="0 0 24 24">
+        <path d="M3.6 5.2 12.1 12 3.6 18.8" fill="none" stroke="var(--blue)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M16.35 12a2.7 2.7 0 1 0 5.4 0a2.7 2.7 0 1 0-5.4 0z" fill="var(--violet)"/>
+      </symbol>
+      <symbol id="logo-linux" viewBox="0 0 24 24" fill="currentColor"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></symbol>
+      <symbol id="logo-claude" viewBox="0 0 24 24" fill="currentColor"><path d="M4.709 15.955l4.72-2.647.08-.23-.08-.128H9.2l-.79-.048-2.698-.073-2.339-.097-2.266-.122-.571-.121L0 11.784l.055-.352.48-.321.686.06 1.52.103 2.278.158 1.652.097 2.449.255h.389l.055-.157-.134-.098-.103-.097-2.358-1.596-2.552-1.688-1.336-.972-.724-.491-.364-.462-.158-1.008.656-.722.881.06.225.061.893.686 1.908 1.476 2.491 1.833.365.304.145-.103.019-.073-.164-.274-1.355-2.446-1.446-2.49-.644-1.032-.17-.619a2.97 2.97 0 01-.104-.729L6.283.134 6.696 0l.996.134.42.364.62 1.414 1.002 2.229 1.555 3.03.456.898.243.832.091.255h.158V9.01l.128-1.706.237-2.095.23-2.695.08-.76.376-.91.747-.492.584.28.48.685-.067.444-.286 1.851-.559 2.903-.364 1.942h.212l.243-.242.985-1.306 1.652-2.064.73-.82.85-.904.547-.431h1.033l.76 1.129-.34 1.166-1.064 1.347-.881 1.142-1.264 1.7-.79 1.36.073.11.188-.02 2.856-.606 1.543-.28 1.841-.315.833.388.091.395-.328.807-1.969.486-2.309.462-3.439.813-.042.03.049.061 1.549.146.662.036h1.622l3.02.225.79.522.474.638-.079.485-1.215.62-1.64-.389-3.829-.91-1.312-.329h-.182v.11l1.093 1.068 2.006 1.81 2.509 2.33.127.578-.322.455-.34-.049-2.205-1.657-.851-.747-1.926-1.62h-.128v.17l.444.649 2.345 3.521.122 1.08-.17.353-.608.213-.668-.122-1.374-1.925-1.415-2.167-1.143-1.943-.14.08-.674 7.254-.316.37-.729.28-.607-.461-.322-.747.322-1.476.389-1.924.315-1.53.286-1.9.17-.632-.012-.042-.14.018-1.434 1.967-2.18 2.945-1.726 1.845-.414.164-.717-.37.067-.662.401-.589 2.388-3.036 1.44-1.882.93-1.086-.006-.158h-.055L4.132 18.56l-1.13.146-.487-.456.061-.746.231-.243 1.908-1.312-.006.006z"/></symbol>
+      <symbol id="logo-codex" viewBox="0 0 24 24" fill="currentColor"><path d="M9.205 8.658v-2.26c0-.19.072-.333.238-.428l4.543-2.616c.619-.357 1.356-.523 2.117-.523 2.854 0 4.662 2.212 4.662 4.566 0 .167 0 .357-.024.547l-4.71-2.759a.797.797 0 00-.856 0l-5.97 3.473zm10.609 8.8V12.06c0-.333-.143-.57-.429-.737l-5.97-3.473 1.95-1.118a.433.433 0 01.476 0l4.543 2.617c1.309.76 2.189 2.378 2.189 3.948 0 1.808-1.07 3.473-2.76 4.163zM7.802 12.703l-1.95-1.142c-.167-.095-.239-.238-.239-.428V5.899c0-2.545 1.95-4.472 4.591-4.472 1 0 1.927.333 2.712.928L8.23 5.067c-.285.166-.428.404-.428.737v6.898zM12 15.128l-2.795-1.57v-3.33L12 8.658l2.795 1.57v3.33L12 15.128zm1.796 7.23c-1 0-1.927-.332-2.712-.927l4.686-2.712c.285-.166.428-.404.428-.737v-6.898l1.974 1.142c.167.095.238.238.238.428v5.233c0 2.545-1.974 4.472-4.614 4.472zm-5.637-5.303l-4.544-2.617c-1.308-.761-2.188-2.378-2.188-3.948A4.482 4.482 0 014.21 6.327v5.423c0 .333.143.571.428.738l5.947 3.449-1.95 1.118a.432.432 0 01-.476 0zm-.262 3.9c-2.688 0-4.662-2.021-4.662-4.519 0-.19.024-.38.047-.57l4.686 2.71c.286.167.571.167.856 0l5.97-3.448v2.26c0 .19-.07.333-.237.428l-4.543 2.616c-.619.357-1.356.523-2.117.523zm5.899 2.83a5.947 5.947 0 005.827-4.756C22.287 18.339 24 15.84 24 13.296c0-1.665-.713-3.282-1.998-4.448.119-.5.19-.999.19-1.498 0-3.401-2.759-5.947-5.946-5.947-.642 0-1.26.095-1.88.31A5.962 5.962 0 0010.205 0a5.947 5.947 0 00-5.827 4.757C1.713 5.447 0 7.945 0 10.49c0 1.666.713 3.283 1.998 4.448-.119.5-.19 1-.19 1.499 0 3.401 2.759 5.946 5.946 5.946.642 0 1.26-.095 1.88-.309a5.96 5.96 0 004.162 1.713z"/></symbol>
+      <symbol id="logo-cursor" viewBox="0 0 24 24" fill="currentColor"><path d="M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z"/></symbol>
+      <symbol id="logo-grok" viewBox="0 0 24 24" fill="currentColor"><path d="M9.27 15.29l7.978-5.897c.391-.29.95-.177 1.137.272.98 2.369.542 5.215-1.41 7.169-1.951 1.954-4.667 2.382-7.149 1.406l-2.711 1.257c3.889 2.661 8.611 2.003 11.562-.953 2.341-2.344 3.066-5.539 2.388-8.42l.006.007c-.983-4.232.242-5.924 2.75-9.383.06-.082.12-.164.179-.248l-3.301 3.305v-.01L9.267 15.292M7.623 16.723c-2.792-2.67-2.31-6.801.071-9.184 1.761-1.763 4.647-2.483 7.166-1.425l2.705-1.25a7.808 7.808 0 00-1.829-1A8.975 8.975 0 005.984 5.83c-2.533 2.536-3.33 6.436-1.962 9.764 1.022 2.487-.653 4.246-2.34 6.022-.599.63-1.199 1.259-1.682 1.925l7.62-6.815"/></symbol>
+      <symbol id="logo-opencode" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"/></symbol>
+      <symbol id="logo-windows" viewBox="0 0 24 24" fill="currentColor"><path d="M3 3h8.5v8.5H3zM12.5 3H21v8.5h-8.5zM3 12.5h8.5V21H3zM12.5 12.5H21V21h-8.5z"/></symbol>
+      <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></symbol>
+      <symbol id="i-arrow-up-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9h11v11H9z"/><path d="M5 15H4V4h11v1"/></symbol>
+      <symbol id="i-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7 17 2.5-7.5L21 11 4 4z"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-3.5 7-9.5V6l-7-3-7 3v5.5C5 17.5 12 21 12 21z"/><path d="M9 12l2 2 4-4"/></symbol>
+      <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h8l-1 8 9-12h-8l1-8z"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V3"/><path d="M15 8V3"/><path d="M18 8v4a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5V8z"/></symbol>
+      <symbol id="i-folders" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z"/><path d="M3 10h18"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6z"/></symbol>
+      <symbol id="i-min" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 12h12"/></symbol>
+      <symbol id="i-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6h12v12H6z"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M11 18l-6-6 6-6"/></symbol>
+      <symbol id="i-fwd" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></symbol>
+      <symbol id="i-reload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.3-5.7L20 8.5"/><path d="M20 4v4.5h-4.5"/></symbol>
+      <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M6 11l6-6 6 6"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9c-2.5-2.6-3.7-5.6-3.7-9S9.5 5.6 12 3z"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></symbol>
+      <symbol id="i-download-drop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v10"/><path d="M7 13l5 5 5-5"/><path d="M5 20h14"/></symbol>
+      <symbol id="i-panel-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M9 4v16"/></symbol>
+      <symbol id="i-folder-tree" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v5H4z"/><path d="M14 15h6v5h-6z"/><path d="M7 9v8.5h7"/></symbol>
+      <symbol id="i-git-compare" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0 6 0a3 3 0 1 0-6 0"/><path d="M3 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/></symbol>
+      <symbol id="i-square-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 9l3 3-3 3"/><path d="M13 15h3"/></symbol>
+      <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14v12H5z"/><path d="M12 8V4"/><path d="M9.5 13v2"/><path d="M14.5 13v2"/><path d="M2 14h3"/><path d="M19 14h3"/></symbol>
+      <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.5-.8 1.5-1.6 0-.9-.6-1.4-.6-2.2 0-.9.7-1.5 1.6-1.5H17a4 4 0 0 0 4-4c0-4.7-4-8.7-9-8.7z"/><path d="M8 11h.01"/><path d="M11 7.5h.01"/><path d="M15.5 8.5h.01"/></symbol>
+      <symbol id="i-code-xml" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 16l4-4-4-4"/><path d="M6 8l-4 4 4 4"/><path d="M14.5 4l-5 16"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+      <symbol id="i-square-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H5v15h15v-7"/><path d="M18.4 2.6a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"/><path d="M21 21l-4.3-4.3"/></symbol>
+      <symbol id="i-blocks" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h7v7H4z"/><path d="M4 13h7v7H4z"/><path d="M13 13h7v7h-7z"/><path d="M13 4h7v7h-7z"/></symbol>
+      <symbol id="i-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+      <symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14l1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6A2 2 0 0 1 18.5 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol>
+      <symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/><path d="M9 13h6"/><path d="M9 17h6"/></symbol>
+      <symbol id="i-file-pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21H6V3h8l4 4v5"/><path d="M14 3v4h4"/><path d="M19.4 14.6a1.4 1.4 0 0 1 2 2L16 22l-3 .7.7-3z"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h3l2-3h6l2 3h3v13H4z"/><path d="M12 10a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5a3 3 0 0 1 6 0v6a3 3 0 0 1-6 0z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v3"/></symbol>
+      <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+      <symbol id="i-smartphone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 2h10v20H7z"/><path d="M12 18h.01"/></symbol>
+      <symbol id="i-ellipsis-v" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5h.01"/><path d="M12 12h.01"/><path d="M12 19h.01"/></symbol>
+    </svg>
+    <a class="skip" href="#main">Skip to content</a>
     <header>
-      <a href="#hero" class="brand">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path d="M3.6 5.2 12.1 12 3.6 18.8" fill="none" stroke="currentColor" stroke-width="2.35" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="19.05" cy="12" r="2.7" fill="currentColor"/>
-        </svg>
-        Conn
-      </a>
-      <a href="#install">Install</a>
-    </header>
-    <main>
-      <section id="hero" aria-labelledby="product-name">
-        <h1 id="product-name">Conn</h1>
-        <p class="tagline">A terminal with an agent and a browser it can drive.</p>
-        <p class="rider">Two riders, one machine, either one can steer.</p>
-        <p class="contrast">
-          Cursor puts an agent next to an editor. Conn puts one next to a shell and a live browser.
-        </p>
-        <p class="cta-row">
-          <a href="#install">Install</a>
-        </p>
-      </section>
-      <section id="install" aria-labelledby="install-heading">
-        <h2 id="install-heading">Install</h2>
-        <div>
-          <p class="os">Linux</p>
-          <pre data-os="linux"><code>curl -fsSL https://raw.githubusercontent.com/umarbashirr/Conn/main/install.sh | sh</code></pre>
-          <p class="os">Windows PowerShell</p>
-          <pre data-os="windows"><code>irm https://raw.githubusercontent.com/umarbashirr/Conn/main/install.ps1 | iex</code></pre>
+      <nav aria-label="Primary">
+        <a class="brand" href="/">
+          <span class="mark"><svg aria-hidden="true" focusable="false"><use href="#mark" /></svg></span>
+          Conn
+        </a>
+        <ul class="nav-links">
+          <li><a href="#features">Features</a></li>
+          <li><a href="#conn-command">The conn command</a></li>
+          <li><a href="https://github.com/umarbashirr/Conn#readme">Docs</a></li>
+          <li><a href="https://github.com/umarbashirr/Conn/releases">Changelog</a></li>
+        </ul>
+        <div class="nav-actions">
+          <a class="nav-github" href="https://github.com/umarbashirr/Conn">
+            GitHub
+            <svg width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-arrow-up-right" /></svg>
+          </a>
+          <a class="nav-download" href="#download" data-os="linux">
+            <svg class="os-logo" aria-hidden="true" focusable="false"><use data-logo href="#logo-linux" /></svg>
+            Download
+          </a>
         </div>
-        <p class="prereq">Needs an existing Claude Code login. The agent uses <code>claude</code>.</p>
-      </section>
-      <section id="proof" aria-labelledby="proof-heading">
-        <h2 id="proof-heading">Agent, terminal, browser</h2>
-        <figure aria-labelledby="proof-heading">
-          <article data-pane="agent">
-            <h3>Agent</h3>
-            <p>A Claude chat that can type in the shell and operate the live page.</p>
-          </article>
-          <article data-pane="terminal">
-            <h3>Terminal</h3>
-            <p>A real shell with dark chrome in light and dark.</p>
-          </article>
-          <article data-pane="browser">
-            <h3>Browser</h3>
-            <p>A live page the agent can click, type, and read.</p>
-          </article>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="pill">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="pill-version">v<span data-version>0.13.3</span></span>
+          <span class="pill-note">Linux and Windows</span>
+        </p>
+        <h1 id="hero-title">A terminal with an agent<br class="wide" /> and a browser it can drive.</h1>
+        <p class="lede">
+          The agent reads your code, runs commands, loads the page, clicks through it and reads the
+          console. You watch it happen in one window, and you can take the browser back whenever you
+          want.
+        </p>
+        <div class="cta">
+          <a class="dl-button" data-state="rest" data-os="linux" href="https://github.com/umarbashirr/Conn/releases/latest">
+            <span class="dl-sweep" aria-hidden="true"></span>
+            <span class="dl-progress" aria-hidden="true"></span>
+            <span class="dl-lead" aria-hidden="true">
+              <svg class="dl-logo" focusable="false"><use data-logo href="#logo-linux" /></svg>
+              <svg class="dl-arrow" focusable="false"><use href="#i-download" /></svg>
+              <svg class="dl-tray" focusable="false"><use href="#i-download-drop" /></svg>
+              <svg class="dl-check" focusable="false"><use href="#i-check" /></svg>
+            </span>
+            <span class="dl-label" aria-live="polite">Download for Linux</span>
+          </a>
+          <a class="btn-ghost" href="https://github.com/umarbashirr/Conn">
+            View on GitHub
+            <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-arrow-up-right" /></svg>
+          </a>
+        </div>
+        <ul class="files">
+          <li data-for="linux"><code data-file-name="deb">conn-0.13.3-amd64.deb</code></li>
+          <li data-for="linux" data-file-size="deb">366 MB</li>
+          <li data-for="windows" hidden><code data-file-name="exe">conn-0.13.3-x64.exe</code></li>
+          <li data-for="windows" data-file-size="exe" hidden></li>
+          <li data-for="windows other" hidden><a data-file="deb" href="https://github.com/umarbashirr/Conn/releases/latest">Linux</a></li>
+          <li data-for="linux other"><a data-file="exe" href="https://github.com/umarbashirr/Conn/releases/latest">Windows</a></li>
+          <li><a data-file="appimage" href="https://github.com/umarbashirr/Conn/releases/latest">AppImage</a></li>
+          <li><a href="https://github.com/umarbashirr/Conn/releases">All releases</a></li>
+        </ul>
+        <div class="terminal-option">
+          <p>Prefer the terminal?</p>
+          <div class="chip">
+            <span class="prompt" aria-hidden="true">$</span>
+            <code>curl -fsSL .../Conn/main/install.sh | sh</code>
+            <button class="copy copy-icon" type="button" data-copy="cmd-linux">
+              <svg class="copy-idle" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-copy" /></svg>
+              <svg class="copy-done" width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>
+              <span class="copy-label sr-only" aria-live="polite">Copy install command</span>
+            </button>
+          </div>
+        </div>
+
+        <figure class="window">
+          <p class="sr-only">
+            The Conn window in its dark theme. A rail on the left lists two projects and their
+            chats. In the middle, a chat where the agent read and edited a signup page, loaded it
+            in the browser and took a screenshot, with a picked button chip in the composer. On the
+            right, a live browser tab shows the signup page with its Create account button picked.
+          </p>
+          <div class="window-frame">
+            <div class="app" aria-hidden="true">
+              <div class="app-title">
+                <svg width="13" height="13" focusable="false"><use href="#i-panel-left" /></svg>
+                <span class="menus"><span>File</span><span>Edit</span><span>View</span><span>Help</span></span>
+                <span class="tools">
+                  <svg width="13" height="13" focusable="false"><use href="#i-globe" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-folder-tree" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-git-compare" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-square-terminal" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-bot" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-palette" /></svg>
+                </span>
+                <span class="divider"></span>
+                <span class="tools">
+                  <svg width="13" height="13" focusable="false"><use href="#i-code-xml" /></svg>
+                  <svg width="13" height="13" focusable="false"><use href="#i-moon" /></svg>
+                </span>
+                <span class="win-btn"><svg width="12" height="12" focusable="false"><use href="#i-min" /></svg></span>
+                <span class="win-btn"><svg width="12" height="12" focusable="false"><use href="#i-max" /></svg></span>
+                <span class="win-btn"><svg width="12" height="12" focusable="false"><use href="#i-close" /></svg></span>
+              </div>
+              <div class="app-body">
+                <div class="rail">
+                  <div class="r-item"><svg width="13" height="13" focusable="false"><use href="#i-square-pen" /></svg><span>New chat</span></div>
+                  <div class="r-item"><svg width="13" height="13" focusable="false"><use href="#i-search" /></svg><span>Search</span><span class="hint">Ctrl K</span></div>
+                  <div class="r-item"><svg width="13" height="13" focusable="false"><use href="#i-blocks" /></svg><span>Customize</span></div>
+                  <div class="r-item"><svg width="13" height="13" focusable="false"><use href="#i-gauge" /></svg><span>Usage</span></div>
+                  <div class="r-head"><span>Projects</span><svg width="12" height="12" focusable="false"><use href="#i-plus" /></svg></div>
+                  <div class="r-project"><svg width="13" height="13" focusable="false"><use href="#i-folder-open" /></svg><span>shop</span><span class="when">now</span></div>
+                  <div class="r-chat r-active"><span class="bullet"></span><span>Fix the signup button</span><span class="when">now</span></div>
+                  <div class="r-chat"><span class="bullet"></span><span>Dark mode for pricing</span><span class="when">2h</span></div>
+                  <div class="r-chat"><span class="bullet"></span><span>Slow checkout on iOS</span><span class="when">1d</span></div>
+                  <div class="r-project r-second"><svg width="13" height="13" focusable="false"><use href="#i-folder-open" /></svg><span>api</span><span class="when">3d</span></div>
+                  <div class="r-chat"><span class="bullet"></span><span>Rate limit webhooks</span><span class="when">3d</span></div>
+                  <div class="r-chat"><span class="bullet"></span><span>Retry failed emails</span><span class="when">5d</span></div>
+                </div>
+                <div class="chat">
+                  <div class="chat-head">Fix the signup button</div>
+                  <div class="transcript">
+                    <div class="turn-user"><p>The Create account button is shorter than the email field. Fix it and check it in the browser.</p></div>
+                    <p class="turn-agent">The input uses h-11 and the button uses py-2, so they render at 44px and 39px. I'll give the button the same height and check it in the preview.</p>
+                    <div>
+                      <div class="tool"><svg class="chev" width="11" height="11" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-file-text" /></svg><span>Read</span><code>src/routes/signup.tsx</code></div>
+                      <div class="tool"><svg class="chev" width="11" height="11" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-file-pen" /></svg><span>Edit</span><code>src/routes/signup.tsx</code><span class="tool-end"><code class="add">+1</code><code class="del">-1</code></span></div>
+                      <div class="tool"><svg class="chev" width="11" height="11" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-globe" /></svg><span>Navigate</span><code>localhost:5173/signup</code></div>
+                      <div class="tool"><svg class="chev" width="11" height="11" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-camera" /></svg><span>Screenshot</span><code>1280x800</code><span class="tool-end"><code class="took">0.4s</code></span></div>
+                      <div class="shot"><div class="thumb"><div class="mini"><span class="mini-title">Create your account</span><span class="mini-input"></span><span class="mini-button"></span></div></div></div>
+                    </div>
+                    <p class="turn-agent">Both are 44px now and line up in the screenshot. The console has no errors.</p>
+                  </div>
+                  <div class="composer-area">
+                    <div class="composer">
+                      <div class="picked"><svg width="11" height="11" focusable="false"><use href="#i-pointer" /></svg><code>button "Create account"</code><code class="ref">e4</code></div>
+                      <p>and make it full width on mobile</p>
+                      <div class="composer-bar">
+                        <span class="attach"><svg width="12" height="12" focusable="false"><use href="#i-plus" /></svg></span>
+                        <span class="mode">Auto <code>⇧Tab</code></span>
+                        <span class="model"><svg class="claude" width="12" height="12" focusable="false"><use href="#logo-claude" /></svg>Opus 5.5<svg width="11" height="11" focusable="false"><use href="#i-chevron-down" /></svg></span>
+                        <svg width="13" height="13" focusable="false"><use href="#i-mic" /></svg>
+                        <span class="send"><svg width="13" height="13" focusable="false"><use href="#i-send" /></svg></span>
+                      </div>
+                    </div>
+                    <div class="composer-foot">
+                      <span><svg width="11" height="11" focusable="false"><use href="#i-folder" /></svg>shop<svg width="10" height="10" focusable="false"><use href="#i-chevron-down" /></svg></span>
+                      <span><svg width="11" height="11" focusable="false"><use href="#i-plug" /></svg>12 skills · 3 MCP</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="right">
+                  <div class="tabs">
+                    <span class="tab"><svg width="12" height="12" focusable="false"><use href="#i-square-terminal" /></svg>zsh</span>
+                    <span class="tab"><span class="live"></span><svg width="12" height="12" focusable="false"><use href="#i-square-terminal" /></svg>npm run dev</span>
+                    <span class="tab tab-active"><svg width="12" height="12" focusable="false"><use href="#i-globe" /></svg>Northwind<svg class="close" width="10" height="10" focusable="false"><use href="#i-close" /></svg></span>
+                    <span class="tab-new"><svg width="13" height="13" focusable="false"><use href="#i-plus" /></svg></span>
+                  </div>
+                  <div class="urlbar">
+                    <span class="nav-btn"><svg width="13" height="13" focusable="false"><use href="#i-back" /></svg></span>
+                    <span class="nav-btn faint"><svg width="13" height="13" focusable="false"><use href="#i-fwd" /></svg></span>
+                    <span class="nav-btn"><svg width="13" height="13" focusable="false"><use href="#i-reload" /></svg></span>
+                    <span class="nav-btn"><svg width="13" height="13" focusable="false"><use href="#i-star" /></svg></span>
+                    <span class="address">localhost:5173/signup</span>
+                    <span class="nav-btn pick"><svg width="13" height="13" focusable="false"><use href="#i-pointer" /></svg></span>
+                    <span class="nav-btn"><svg width="13" height="13" focusable="false"><use href="#i-smartphone" /></svg></span>
+                    <span class="nav-btn dots"><svg width="13" height="13" focusable="false"><use href="#i-ellipsis-v" /></svg></span>
+                  </div>
+                  <div class="signup">
+                    <div class="signup-card">
+                      <div class="signup-brand"><span class="signup-logo"></span>Northwind</div>
+                      <div><p class="signup-title">Create your account</p><p class="signup-sub">Start a 14-day trial. No card needed.</p></div>
+                      <div class="signup-field"><span class="signup-label">Email</span><span class="signup-input">you@example.com</span></div>
+                      <div class="signup-button"><span>Create account</span><i class="pick-outline"></i><b class="pick-label">button <code>264x44</code></b></div>
+                      <p class="signup-foot">Already have an account? Sign in</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="app-status">
+                <code>Northwind</code>
+                <span class="status-divider"></span>
+                <svg width="10" height="10" focusable="false"><use href="#i-min" /></svg>
+                <code class="status-zoom">100%</code>
+                <svg width="10" height="10" focusable="false"><use href="#i-plus" /></svg>
+              </div>
+            </div>
+          </div>
+          <figcaption>
+            <dl class="legend">
+              <div><dt>RAIL   Ctrl+B</dt><dd>Every open folder and its chats</dd></div>
+              <div><dt>AGENT</dt><dd>Chats, one-line tool calls, permission cards</dd></div>
+              <div><dt>SHELLS AND PREVIEW   Ctrl+`   Ctrl+Shift+B</dt><dd>Your own shell and a live Chromium page, as tabs</dd></div>
+            </dl>
+          </figcaption>
         </figure>
       </section>
-      <section id="limits" aria-labelledby="limits-heading">
-        <h2 id="limits-heading">Limits</h2>
-        <p>
-          Linux has a curl one-liner. Windows has a PowerShell one-liner. This page has no macOS command.
-        </p>
+
+      <section class="clis" aria-labelledby="clis-title">
+        <h2 id="clis-title">Brings the agent CLI you already use, logged in the way it already is</h2>
+        <ul>
+          <li><svg class="claude" width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-claude" /></svg><span class="cli-name">Claude Code</span><code>claude</code></li>
+          <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-codex" /></svg><span class="cli-name">Codex</span><code>codex</code></li>
+          <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-cursor" /></svg><span class="cli-name">Cursor</span><code>agent</code></li>
+          <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-grok" /></svg><span class="cli-name">Grok</span><code>grok</code></li>
+          <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-opencode" /></svg><span class="cli-name">OpenCode</span><code>opencode</code></li>
+        </ul>
+      </section>
+
+      <section class="features" id="features" aria-labelledby="features-title">
+        <div class="section-head">
+          <p class="eyebrow">WHAT IT DOES</p>
+          <h2 id="features-title">The agent sees the page you see.</h2>
+          <p class="section-lede">
+            Cursor puts an agent next to an editor. Conn puts one next to a shell and a live
+            browser, with the browser tools already wired in. No MCP config, no restart, no setup
+            step.
+          </p>
+        </div>
+        <ul class="cards">
+          <li class="card" data-accent="violet">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-pointer" /></svg></span>
+            <h3>Point instead of describing</h3>
+            <p>Press Ctrl+Shift+E and click an element in the preview. It lands on the composer as a chip with its selector, its size and a screenshot of just that element.</p>
+            <code class="detail">css: #go   129x39 at 48,261</code>
+          </li>
+          <li class="card" data-accent="amber">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-shield" /></svg></span>
+            <h3>Four permission modes</h3>
+            <p>Plan reads and changes nothing. Ask shows a card before each edit, command or page change. Auto stops on forced rm, sudo and history rewrites. Full bypass asks for nothing.</p>
+            <code class="detail">Shift+Tab   Plan  Ask  Auto  Full</code>
+          </li>
+          <li class="card" data-accent="green">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-zap" /></svg></span>
+            <h3>Dev servers open themselves</h3>
+            <p>The terminal watches its own output for a local URL. When Vite, Django or next dev prints one, a toast offers to load it in the preview. Say always once and it stops asking.</p>
+            <code class="detail">Local: http://localhost:5173/</code>
+          </li>
+          <li class="card" data-accent="blue">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-history" /></svg></span>
+            <h3>Sessions shared with claude --resume</h3>
+            <p>Claude chats are the transcripts in ~/.claude/projects. A chat you started in the terminal shows up in the rail, and one you start here shows up in claude --resume.</p>
+            <code class="detail">~/.claude/projects/</code>
+          </li>
+          <li class="card" data-accent="violet">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-plug" /></svg></span>
+            <h3>Skills and MCP servers, read off disk</h3>
+            <p>The pill above the composer lists every skill and server this folder has. Type / to filter skills. Add a server and it joins the running chat without a restart.</p>
+            <code class="detail">.mcp.json   ~/.claude.json   plugins</code>
+          </li>
+          <li class="card" data-accent="blue">
+            <span class="card-icon"><svg width="19" height="19" aria-hidden="true" focusable="false"><use href="#i-folders" /></svg></span>
+            <h3>Eight folders in one window</h3>
+            <p>Each folder keeps its own chats, shells and preview tabs. Switch away from one and its chats keep running. Run conn . on an open folder and its window comes forward.</p>
+            <code class="detail">conn ~/code/shop</code>
+          </li>
+        </ul>
+      </section>
+
+      <section class="command" id="conn-command" aria-labelledby="command-title">
+        <div class="command-copy">
+          <p class="eyebrow green">THE CONN COMMAND</p>
+          <h2 id="command-title">Any shell can drive the same browser.</h2>
+          <p class="section-lede">
+            Every terminal Conn opens gets a loopback bridge and a tool token. A test script, a
+            Makefile target or another agent can load the page, read it and click through it with
+            the same ref handles the agent uses.
+          </p>
+          <ul class="points">
+            <li><svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>Bare ports, hostnames and full URLs all work with conn go.</li>
+            <li><svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>A terminal agent driving the preview gets the same permission mode as the chat on screen.</li>
+            <li><svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>Also exposed as an MCP server, so other tools can call it directly.</li>
+          </ul>
+        </div>
+        <figure class="terminal">
+          <figcaption>
+            <svg width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-terminal" /></svg>
+            <span class="where">zsh  ~/code/shop</span>
+            <span class="bridge">CONN_BRIDGE_URL set</span>
+          </figcaption>
+          <pre><code><span class="p">$ </span>conn go 3000
+<span class="o">loaded http://localhost:3000/signup</span>
+
+<span class="p">$ </span>conn snapshot
+<span class="o">- heading "Create your account" [ref=e1]
+- textbox "Email" [ref=e3]
+- button "Create account" [ref=e4]
+- link "Sign in" [ref=e5]</span>
+
+<span class="p">$ </span>conn fill e3 "you@example.com"
+<span class="p">$ </span>conn click e4
+<span class="ok">navigated to /welcome</span>
+
+<span class="p">$ </span>conn console --level error
+<span class="o">0 errors</span></code></pre>
+        </figure>
+      </section>
+
+      <section class="download" id="download" aria-labelledby="download-title">
+        <div class="install-card">
+          <div class="download-head">
+            <p class="eyebrow">DOWNLOAD</p>
+            <h2 id="download-title">Download Conn</h2>
+            <p>
+              Version <span data-version>0.13.3</span> for 64-bit Linux and Windows. Open the file and it
+              installs like any other app. No terminal needed.
+            </p>
+          </div>
+          <ul class="downloads">
+            <li class="dl-card" data-platform="linux">
+              <div class="dl-card-head">
+                <span class="dl-card-logo"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-linux" /></svg></span>
+                <div>
+                  <h3>Linux <span class="badge"><span class="dot" aria-hidden="true"></span>Your system</span></h3>
+                  <p>Debian and Ubuntu</p>
+                </div>
+              </div>
+              <code class="dl-file" data-file-name="deb">conn-0.13.3-amd64.deb</code>
+              <a class="dl-card-button" data-file="deb" href="https://github.com/umarbashirr/Conn/releases/latest">
+                <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
+                <span>Download<span class="size" data-file-size="deb">366 MB</span></span>
+              </a>
+            </li>
+            <li class="dl-card">
+              <div class="dl-card-head">
+                <span class="dl-card-logo"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-linux" /></svg></span>
+                <div>
+                  <h3>Linux AppImage</h3>
+                  <p>Any other distro</p>
+                </div>
+              </div>
+              <code class="dl-file" data-file-name="appimage">conn-0.13.3-x86_64.AppImage</code>
+              <a class="dl-card-button" data-file="appimage" href="https://github.com/umarbashirr/Conn/releases/latest">
+                <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
+                <span>Download<span class="size" data-file-size="appimage">459 MB</span></span>
+              </a>
+            </li>
+            <li class="dl-card" data-platform="windows">
+              <div class="dl-card-head">
+                <span class="dl-card-logo"><svg width="18" height="18" aria-hidden="true" focusable="false"><use href="#logo-windows" /></svg></span>
+                <div>
+                  <h3>Windows <span class="badge"><span class="dot" aria-hidden="true"></span>Your system</span></h3>
+                  <p>10 and 11</p>
+                </div>
+              </div>
+              <code class="dl-file" data-file-name="exe">conn-0.13.3-x64.exe</code>
+              <a class="dl-card-button" data-file="exe" href="https://github.com/umarbashirr/Conn/releases/latest">
+                <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
+                <span>Download<span class="size" data-file-size="exe"></span></span>
+              </a>
+            </li>
+          </ul>
+          <p class="or">or install from the terminal</p>
+          <div class="install">
+            <p class="install-label"><svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-terminal" /></svg>Linux</p>
+            <div class="command-row">
+              <code id="cmd-linux">curl -fsSL https://raw.githubusercontent.com/umarbashirr/Conn/main/install.sh | sh</code>
+              <button class="copy" type="button" data-copy="cmd-linux">
+                <svg class="copy-idle" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-copy" /></svg>
+                <svg class="copy-done" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>
+                <span class="copy-label" aria-live="polite">Copy</span><span class="sr-only"> Linux install command</span>
+              </button>
+            </div>
+          </div>
+          <div class="install">
+            <p class="install-label"><svg width="13" height="13" aria-hidden="true" focusable="false"><use href="#logo-windows" /></svg>Windows PowerShell</p>
+            <div class="command-row">
+              <code id="cmd-windows">irm https://raw.githubusercontent.com/umarbashirr/Conn/main/install.ps1 | iex</code>
+              <button class="copy" type="button" data-copy="cmd-windows">
+                <svg class="copy-idle" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-copy" /></svg>
+                <svg class="copy-done" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>
+                <span class="copy-label" aria-live="polite">Copy</span><span class="sr-only"> PowerShell install command</span>
+              </button>
+            </div>
+          </div>
+          <ul class="notes">
+            <li>
+              <h3>Upgrades in place</h3>
+              <p>Run the script again later and it upgrades, or says there is nothing to do.</p>
+            </li>
+            <li>
+              <h3>No root?</h3>
+              <p>Add --user to the script to install under ~/.local without a password.</p>
+            </li>
+            <li>
+              <h3>Bring your agent</h3>
+              <p>Conn ships no claude of its own. If claude --version answers in your terminal, the panel works.</p>
+            </li>
+          </ul>
+        </div>
+        <p class="no-mac">There is no macOS build yet.</p>
       </section>
     </main>
+
     <footer>
-      <a href="https://github.com/umarbashirr/Conn">Source</a>
+      <a class="brand" href="/">
+        <span class="mark"><svg aria-hidden="true" focusable="false"><use href="#mark" /></svg></span>
+        Conn
+      </a>
+      <p>A terminal with an agent and a browser it can drive.</p>
+      <ul>
+        <li><a href="https://github.com/umarbashirr/Conn">GitHub</a></li>
+        <li><a href="https://github.com/umarbashirr/Conn/releases">Releases</a></li>
+        <li><a href="https://github.com/umarbashirr/Conn#readme">README</a></li>
+        <li><a href="https://opensource.org/license/mit">MIT license</a></li>
+      </ul>
     </footer>
   </body>
 </html>
