@@ -760,6 +760,7 @@ function Item({ item, agent }) {
           input={item.input}
           state={item.state}
           at={item.at}
+          thumb={images.at(-1) ?? null}
           defaultOpen={item.state === 'output-error'}
           right={item.taskId && (
             <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">

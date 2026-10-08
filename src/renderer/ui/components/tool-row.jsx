@@ -3,16 +3,19 @@
 // a stack of boxes.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ChevronRightIcon, CircleAlertIcon, FilePenIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
-  GlobeIcon, MousePointerClickIcon, SearchIcon, SquareIcon, SquareTerminalIcon,
-  TextCursorInputIcon, UsersIcon, WrenchIcon,
+  ActivityIcon, AppWindowIcon, ArrowLeftIcon, ArrowRightIcon, ArrowRightLeftIcon, BracesIcon, CameraIcon,
+  ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
+  GlobeIcon, HighlighterIcon, HourglassIcon, InfoIcon, KeyboardIcon, LogsIcon, MonitorSmartphoneIcon,
+  MousePointer2Icon, MousePointerClickIcon, MoveVerticalIcon, PanelRightIcon, RotateCwIcon, ScanTextIcon,
+  SearchIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon, TextCursorInputIcon,
+  TextIcon, UsersIcon, WrenchIcon,
 } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
 import { clock, useTick } from '@/lib/clock';
-import { BUCKET, toolLabel, toolSummary } from '@/lib/tools';
+import { bucketOf, imageSrc, toolImages, toolLabel, toolName, toolSummary } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -26,11 +29,33 @@ const ICONS = {
   Write: FilePlusIcon,
   WebFetch: GlobeIcon,
   WebSearch: SearchIcon,
+  Skill: SparklesIcon,
   browser_navigate: GlobeIcon,
+  browser_snapshot: ScanTextIcon,
+  browser_text: TextIcon,
   browser_click: MousePointerClickIcon,
   browser_fill: TextCursorInputIcon,
   browser_type: TextCursorInputIcon,
-  browser_snapshot: SearchIcon,
+  browser_press: KeyboardIcon,
+  browser_select: ChevronsUpDownIcon,
+  browser_hover: MousePointer2Icon,
+  browser_scroll: MoveVerticalIcon,
+  browser_screenshot: CameraIcon,
+  browser_console: LogsIcon,
+  browser_network: ActivityIcon,
+  browser_evaluate: BracesIcon,
+  browser_wait: HourglassIcon,
+  browser_viewport: MonitorSmartphoneIcon,
+  browser_back: ArrowLeftIcon,
+  browser_forward: ArrowRightIcon,
+  browser_reload: RotateCwIcon,
+  browser_state: InfoIcon,
+  browser_show: PanelRightIcon,
+  browser_highlight: HighlighterIcon,
+  browser_tabs: AppWindowIcon,
+  browser_tab_new: SquarePlusIcon,
+  browser_tab_select: ArrowRightLeftIcon,
+  browser_tab_close: SquareXIcon,
   // An Agent call draws as its own container, but the tools for looking in on
   // one still land here.
   Agent: UsersIcon,
@@ -39,13 +64,25 @@ const ICONS = {
   TaskStop: SquareIcon,
 };
 
-export function ToolRow({ name, input, state, at, right, defaultOpen = false, children }) {
+// A screenshot shrunk to a glance, so a folded row still shows the page it saw.
+export function Thumb({ block, className }) {
+  return (
+    <img
+      alt=""
+      loading="lazy"
+      src={imageSrc(block)}
+      className={cn('h-5 w-8 shrink-0 rounded-[3px] border object-cover object-top', className)} />
+  );
+}
+
+export function ToolRow({ name, input, state, at, right, thumb = null, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   // The input arrives after the row does, so a row can turn into a diff a beat
   // later. Follow defaultOpen until the reader takes over.
   const touched = useRef(false);
   useEffect(() => { if (!touched.current) setOpen(defaultOpen); }, [defaultOpen]);
-  const Icon = ICONS[name] || WrenchIcon;
+  // A browser tool this table has not met yet is still a page, not a wrench.
+  const Icon = ICONS[name] || (name.startsWith('browser_') ? GlobeIcon : WrenchIcon);
   const running = state === 'input-available' || state === 'input-streaming';
   const failed = state === 'output-error';
   const summary = toolSummary(name, input);
@@ -72,8 +109,8 @@ export function ToolRow({ name, input, state, at, right, defaultOpen = false, ch
           ? <CircleAlertIcon className="size-3.5 shrink-0 text-destructive" />
           : <Icon className="size-3.5 shrink-0 text-muted-foreground" />}
         {running
-          ? <Shimmer as="span" className="shrink-0 text-[13px]">{name}</Shimmer>
-          : <span className={cn('shrink-0 text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>{name}</span>}
+          ? <Shimmer as="span" className="shrink-0 text-[13px]">{toolName(name)}</Shimmer>
+          : <span className={cn('shrink-0 text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>{toolName(name)}</span>}
         {summary && (
           <span className="truncate font-mono text-muted-foreground text-xs">{summary}</span>
         )}
@@ -84,6 +121,7 @@ export function ToolRow({ name, input, state, at, right, defaultOpen = false, ch
             </span>
           )}
           {right}
+          {!open && thumb && <Thumb block={thumb} />}
         </span>
       </Button>
       <Fold open={open} className="px-2 pt-1 pb-2">{children}</Fold>
@@ -92,7 +130,7 @@ export function ToolRow({ name, input, state, at, right, defaultOpen = false, ch
 }
 
 const PLURAL = {
-  command: 'commands', file: 'files', search: 'searches', fetch: 'fetches', step: 'steps',
+  command: 'commands', file: 'files', search: 'searches', fetch: 'fetches', skill: 'skills', step: 'steps',
 };
 
 // The three that are looking for something, which is what earns the run a
@@ -105,7 +143,7 @@ const LOOKED = ['file', 'search', 'fetch'];
 function summarise(items) {
   const counts = new Map();
   for (const it of items) {
-    const key = BUCKET[toolLabel(it.name)] || 'step';
+    const key = bucketOf(it);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
   const say = (k, one = k) => `${counts.get(k)} ${counts.get(k) === 1 ? one : PLURAL[k]}`;
@@ -114,11 +152,12 @@ function summarise(items) {
   // and burying the edits inside "explored" makes a writing turn look like
   // a reading one.
   const parts = [];
+  const lead = (word) => (parts.length ? word : word[0].toUpperCase() + word.slice(1));
   const looked = LOOKED.filter((k) => counts.has(k));
   if (counts.has('edit')) {
     const n = counts.get('edit');
     const files = [...new Set(items
-      .filter((it) => BUCKET[toolLabel(it.name)] === 'edit')
+      .filter((it) => bucketOf(it) === 'edit')
       .map((it) => toolSummary(toolLabel(it.name), it.input))
       .filter(Boolean))];
     // Twelve edits of one file should name that file, not pretend they
@@ -129,12 +168,14 @@ function summarise(items) {
   }
   if (looked.length) {
     const bits = looked.map((k) => say(k, k === 'search' ? 'search' : k === 'fetch' ? 'fetch' : 'file'));
-    parts.push(`${counts.has('edit') ? 'explored' : 'Explored'} ${bits.join(', ')}`);
+    parts.push(`${lead('explored')} ${bits.join(', ')}`);
   }
-  if (counts.has('command')) {
-    const bit = say('command');
-    parts.push(parts.length ? `ran ${bit}` : `Ran ${bit}`);
+  if (counts.has('command')) parts.push(`${lead('ran')} ${say('command')}`);
+  if (counts.has('browser')) {
+    const n = counts.get('browser');
+    parts.push(`${lead('used')} the browser ${n === 1 ? 'once' : `${n} times`}`);
   }
+  if (counts.has('skill')) parts.push(`${lead('loaded')} ${say('skill')}`);
   if (counts.has('step')) parts.push(say('step'));
   return parts.join(', ');
 }
@@ -150,6 +191,7 @@ function summarise(items) {
 export function ToolStrip({ items, children }) {
   const [open, setOpen] = useState(false);
   const failed = items.filter((i) => i.state === 'output-error').length;
+  const shot = items.flatMap((it) => toolImages(it.output)).at(-1);
 
   return (
     <div className="rounded-md">
@@ -164,7 +206,7 @@ export function ToolStrip({ items, children }) {
         {/* Holds the icon column, so the summary starts where every tool
             name beside it does. A run that is only edits gets the pen, so
             it does not wear the same mark as a run of reads. */}
-        {items.every((it) => BUCKET[toolLabel(it.name)] === 'edit')
+        {items.every((it) => bucketOf(it) === 'edit')
           ? <FilePenIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
           : <ListIcon className="size-3.5 shrink-0 text-muted-foreground/70" />}
         <span className="truncate text-[13px] text-muted-foreground">
@@ -175,6 +217,7 @@ export function ToolStrip({ items, children }) {
             {failed} failed
           </span>
         )}
+        {!open && shot && <Thumb block={shot} className="ml-auto" />}
       </Button>
 
       <Fold open={open} className="ml-3 flex flex-col gap-px border-l pl-1.5">{children}</Fold>
