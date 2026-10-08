@@ -135,12 +135,16 @@ async function main() {
       globalThis.__visible = [];
       ipcMain.on('browser:visible', (_e, v) => globalThis.__visible.push(v));
       globalThis.__command = (c) => BrowserWindow.getAllWindows()[0].webContents.send('app:command', c);
+      // A window behind others is throttled, and a transition or a capture then
+      // takes seconds instead of a frame.
+      globalThis.__front = () => BrowserWindow.getAllWindows()[0].setAlwaysOnTop(true);
       return true;
     })()`);
     const shown = () => main.run('globalThis.__visible.at(-1)');
 
     const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 950, deviceScaleFactor: 1, mobile: false });
+    await main.run('globalThis.__front()');
     await page.evaluate(async () => {
       for (let i = 0; i < 60 && !window.connChat; i++) await new Promise((r) => setTimeout(r, 250));
       await new Promise((r) => setTimeout(r, 1000));
