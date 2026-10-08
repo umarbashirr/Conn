@@ -348,11 +348,11 @@ footer li a:hover {
   font-size: 16px;
   font-weight: 650;
   white-space: nowrap;
-  transition: background-color 150ms, box-shadow 150ms;
+  transition: background-color 150ms, box-shadow 150ms, transform 100ms ease-out;
   --sw: 2.3;
 }
 
-.dl-button:hover {
+.dl-button[data-state="rest"]:hover {
   background: #fff;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 30%, transparent),
     0 12px 32px color-mix(in srgb, var(--blue) 20%, transparent);
@@ -370,6 +370,7 @@ footer li a:hover {
   inset: 0;
   width: 100%;
   height: 100%;
+  transition: opacity 120ms, transform 160ms ease-out;
 }
 
 .dl-button[data-os="windows"] .dl-logo {
@@ -384,8 +385,13 @@ footer li a:hover {
   opacity: 0;
 }
 
+.dl-tray {
+  transform: translateY(-3px);
+}
+
 .dl-check {
   color: #16a34a;
+  stroke-dasharray: 24;
   --sw: 2.8;
 }
 
@@ -401,6 +407,7 @@ footer li a:hover {
   bottom: 0;
   left: 0;
   width: 110px;
+  transition: opacity 150ms;
   background: linear-gradient(
     90deg,
     transparent,
@@ -417,6 +424,103 @@ footer li a:hover {
   background: var(--blue);
   transform: scaleX(0);
   transform-origin: left;
+}
+
+.dl-button[data-state="press"] {
+  background: #d3d8e2;
+  transform: scale(0.97);
+}
+
+.dl-button[data-state="press"] .dl-logo,
+.dl-button[data-state="drop"] .dl-logo,
+.dl-button[data-state="sweep"] .dl-logo,
+.dl-button[data-state="started"] .dl-logo {
+  opacity: 0;
+}
+
+.dl-button[data-state="press"] .dl-arrow {
+  opacity: 1;
+}
+
+.dl-button[data-state="drop"] .dl-arrow,
+.dl-button[data-state="sweep"] .dl-arrow {
+  transform: translateY(3px);
+}
+
+.dl-button[data-state="drop"] .dl-tray,
+.dl-button[data-state="sweep"] .dl-tray {
+  opacity: 1;
+  transform: none;
+}
+
+.dl-button[data-state="drop"] .dl-label,
+.dl-button[data-state="started"] .dl-label {
+  animation: dl-fade-in 200ms ease-out;
+}
+
+.dl-button[data-state="drop"] .dl-sweep {
+  opacity: 1;
+  transform: translateX(-40px);
+}
+
+.dl-button[data-state="sweep"] .dl-sweep {
+  opacity: 1;
+  animation: dl-sweep 800ms linear forwards;
+}
+
+.dl-button[data-state="sweep"] .dl-progress {
+  opacity: 1;
+  animation: dl-progress 800ms linear forwards;
+}
+
+.dl-button[data-state="started"] .dl-progress {
+  transform: none;
+  transition: opacity 200ms;
+}
+
+.dl-button[data-state="started"] .dl-check {
+  opacity: 1;
+  animation: dl-draw 320ms ease-out;
+}
+
+@keyframes dl-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes dl-sweep {
+  from {
+    transform: translateX(-40px);
+  }
+
+  to {
+    transform: translateX(272px);
+  }
+}
+
+@keyframes dl-progress {
+  from {
+    transform: scaleX(0);
+  }
+
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes dl-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dl-button,
+  .dl-button * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 .btn-ghost {
