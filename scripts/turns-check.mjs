@@ -63,15 +63,27 @@ const WAIT = 'mcp__preview__browser_wait';
 }
 
 {
-  const items = [call('tw0', WAIT), bridge('b1', 'browser_waitFor', { decided: 'allow' }), call('tb1', 'Bash'), call('tw1', WAIT)];
+  const items = [call('tw1', WAIT), bridge('b1', 'browser_waitFor', { decided: 'always' }), call('tw2', WAIT)];
   assert.deepEqual(pairs(attachPerms(items)), { tw1: 'b1' },
-    'a bridge perm pairs forward first, with the call the CLI announced after it asked');
+    'a bridge perm pairs with the call announced before it asked, not the next one that Always let through');
+}
+
+{
+  const items = [call('tw0', WAIT), bridge('b1', 'browser_waitFor', { decided: 'allow' }), call('tb1', 'Bash'), call('tw1', WAIT)];
+  assert.deepEqual(pairs(attachPerms(items)), { tw0: 'b1' },
+    'the nearest call of its tool before a bridge perm wins over one after it');
+}
+
+{
+  const items = [bridge('b1', 'browser_waitFor', { decided: 'allow' }), call('tb1', 'Bash'), call('tw1', WAIT)];
+  assert.deepEqual(pairs(attachPerms(items)), { tw1: 'b1' },
+    'with nothing behind it, a bridge perm pairs forward');
 }
 
 {
   const items = [call('tw0', WAIT), call('tw1', WAIT), call('tb1', 'Bash'), bridge('b1', 'browser_waitFor', { decided: 'always' })];
   assert.deepEqual(pairs(attachPerms(items)), { tw1: 'b1' },
-    'with nothing ahead, a bridge perm pairs back, with the nearest call of its tool');
+    'a bridge perm pairs back with the nearest call of its tool, past calls of other tools');
 }
 
 {
