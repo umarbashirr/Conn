@@ -164,6 +164,13 @@ async function main() {
     await sleep(500);
     check('dot-does-not-come-back', !!(await rowIs(FIRST, { activity: 'idle', dot: false })), J(await row(FIRST)));
 
+    await emitTo(0, 'message', INIT);
+    await emitTo(0, 'error', 'agent crashed');
+    const crashed = await until(async () => (await toasts()).find((t) => t.includes(`${FIRST} ended with an error`)), 2500);
+    check('crash-ending-raises-a-toast', !!crashed, J(await toasts()));
+    check('crash-ending-takes-a-dot', !!(await rowIs(FIRST, { activity: 'finished', line: 'Ended with an error', dot: true })), J(await row(FIRST)));
+    await click(s, 'Open');
+
     await click(s, `css=[data-sidebar="menu-button"][title=${J(FIRST)}]`);
     await emitTo(0, 'message', INIT);
     await emitTo(0, 'message', RESULT);
@@ -181,6 +188,14 @@ async function main() {
       !!foot.foot && foot.foot.includes('Customize') && foot.foot.includes('Usage') && !foot.header.includes('Customize') && !foot.header.includes('Usage'),
       J(foot),
     );
+
+    await click(s, 'Usage');
+    const usage = await until(() => evaluate(s, `document.querySelector('[role="dialog"]')?.innerText.includes('Tokens per day') || null`));
+    check('usage-opens-its-dialog', !!usage, 'no Usage dialog after clicking Usage');
+    await key(s, 'Escape');
+    await click(s, 'Customize');
+    const customize = await until(() => evaluate(s, `/MCP servers/.test(document.querySelector('#agent-root')?.innerText || '') || null`));
+    check('customize-opens-its-page', !!customize, 'no Customize page after clicking Customize');
   } finally {
     await stop(s).catch((e) => console.log(`stop: ${e.message}`));
   }
