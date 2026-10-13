@@ -400,9 +400,11 @@ function newTerminalTab(command) {
 
 export const focusShell = () => shownShell()?.term.focus();
 
+// A slot dragged past its floor is at no height until the release tells the
+// store it is shut, and a fit there would squeeze the shell to one row.
 function resizeActive() {
   const shell = shownShell();
-  if (!shell) return;
+  if (!shell || !$('#terms').clientHeight) return;
   try { shell.fit.fit(); } catch {}
 }
 
@@ -875,6 +877,10 @@ window.conn.onCommand(({ name, open, chat, tab }) => {
 
 window.addEventListener('resize', () => { resizeActive(); syncBounds(); });
 wire(() => new ResizeObserver(() => syncBounds()).observe($('#paneslot')));
+// The panels report a drag before they commit its sizes, so a fit run from the
+// report measures the box the terminal is leaving. Its own box says when it
+// has arrived, the way #paneslot does for the preview.
+wire(() => new ResizeObserver(() => resizeActive()).observe($('#terms')));
 
 // ---------------------------------------------------------------- keys
 
