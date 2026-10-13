@@ -96,8 +96,10 @@ async function using(open, fn) {
   try { return await fn(c); } finally { c.close(); }
 }
 
-const page = (s, fn) => using(connect(s.cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)), fn);
-const main = (s, fn) => using(connect(s.inspect, (t) => t.type === 'node'), fn);
+const connectPage = (s) => connect(s.cdp, (t) => t.type === 'page' && /index\.html/.test(t.url));
+const connectMain = (s) => connect(s.inspect, (t) => t.type === 'node');
+const page = (s, fn) => using(connectPage(s), fn);
+const main = (s, fn) => using(connectMain(s), fn);
 
 const mainPrefix = (s) => `const req = process.getBuiltinModule('module').createRequire(${J(path.join(s.root, 'src/main/index.js'))}); const electron = req('electron');`;
 
@@ -480,11 +482,18 @@ async function previewVia(run, format, ms = 15000) {
   return done.r;
 }
 
-const within = (promise, ms, what) => {
+// The error names the bound the caller set, which is not always the time left of it.
+const within = (promise, ms, what, bound = ms) => {
   let timer;
-  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms / 1000} s`)), ms); });
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${bound / 1000} s`)), ms); });
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 };
+
+// A connection that lands after its caller gave up is closed, so a late socket is not left open.
+const connectWithin = (open, ms, what, bound) => within(open, ms, what, bound).catch((e) => {
+  open.then((c) => c.close(), () => {});
+  throw e;
+});
 
 const previewLayers = (s, format) => previewVia((expression) => evaluate(s, expression, { main: true }), format);
 const previewBoxes = (s) => evaluate(s, 'globalThis.__previewBoxes()', { main: true });
@@ -554,66 +563,82 @@ export async function bounds(s, { wait = 1500 } = {}) {
 /* Window frames arrive only when the window changes, and the preview changes
    without the window, so a second loop lays the newest preview over the newest
    window frame as fast as it can while the clock writes whatever is ready. */
-export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.basename(s.dir)}.mp4`), fps = 10, preview = true } = {}) {
+export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.basename(s.dir)}.mp4`), fps = 10, preview = true, bound } = {}) {
   const sharp = preview ? sharpOf(s) : null;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const ffmpeg = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
-  const closed = new Promise((r) => ffmpeg.once('close', r));
   let failure = null;
+  // A write that finds ffmpeg gone, or killed on purpose, gets EPIPE. That is not a cause: ffmpeg's own exit says what happened.
+  let broken = false;
+  let gone = false;
+  let ended;
+  const closed = new Promise((resolve) => { ended = resolve; });
+  ffmpeg.once('exit', () => { gone = true; });
+  ffmpeg.once('close', (code, signal) => ended({ code, signal }));
+  ffmpeg.once('error', (e) => { failure ??= e; ended({ code: null, signal: null }); });
+  ffmpeg.stdin.on('error', (e) => { broken = true; if (e.code !== 'EPIPE') failure ??= e; });
   // One budget for everything before the first frame goes out. Under load the first capture alone has taken 9 s.
-  const giveUp = Math.max(15000, seconds * 1000);
+  const giveUp = bound ?? Math.max(15000, seconds * 1000);
   const deadline = Date.now() + giveUp;
+  const left = (least = 200) => Math.max(least, deadline - Date.now());
+  let c = null;
+  let m = null;
   try {
-    await page(s, (c) => main(s, async (m) => {
-      // Taken before the screencast starts. During one, a capture waits for a frame, and an idle window sends one every few seconds.
-      let latest = Buffer.from((await within(c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 }), giveUp, 'the first capture of the window')).data, 'base64');
-      let drawn = null;
-      let running = true;
-      let why = 'the first composite did not finish';
-      let firstDrawn;
-      const ready = new Promise((resolve) => { firstDrawn = resolve; });
-      if (!sharp) firstDrawn();
-      c.on('Page.screencastFrame', (p) => { latest = Buffer.from(p.data, 'base64'); c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); });
-      await c.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 });
-      const compose = (async () => {
-        while (running && sharp) {
-          try {
-            const seen = await previewVia((expression) => m.run(expression), 'jpeg', drawn ? undefined : Math.max(200, deadline - Date.now()));
-            const unread = seen.layers.find((l) => !l.image);
-            if (unread) { why = `the app could not capture the preview at ${unread.x},${unread.y}`; await sleep(50); continue; }
-            const base = latest;
-            drawn = seen.layers.length ? await (await withPreview(sharp, base, seen)).jpeg({ quality: 85 }).toBuffer() : base;
-            firstDrawn();
-          } catch (e) { failure ??= e; running = false; firstDrawn(); }
-        }
-      })();
-      // No frame goes out until the first composite is ready, or the opening of the video would show an empty slot.
-      let timer;
-      const gate = await Promise.race([ready.then(() => 'drawn'), new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), 'late'); })]);
-      clearTimeout(timer);
-      if (gate === 'late') failure ??= new Error(`no frame with the preview was ready within ${giveUp / 1000} s of the start: ${why}`);
-      const start = Date.now();
-      for (let n = 0; n < seconds * fps && !failure; n++) {
-        await sleep(Math.max(0, start + (n * 1000) / fps - Date.now()));
-        const frame = drawn ?? latest;
-        ffmpeg.stdin.write(frame);
+    c = await connectWithin(connectPage(s), left(), 'the connection to the window', giveUp);
+    m = sharp ? await connectWithin(connectMain(s), left(), 'the connection to the main process', giveUp) : null;
+    // Taken before the screencast starts. During one, a capture waits for a frame, and an idle window sends one every few seconds.
+    let latest = Buffer.from((await within(c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 }), left(), 'the first capture of the window', giveUp)).data, 'base64');
+    let drawn = null;
+    let running = true;
+    let why = 'the first composite did not finish';
+    let firstDrawn;
+    const ready = new Promise((resolve) => { firstDrawn = resolve; });
+    if (!sharp) firstDrawn();
+    c.on('Page.screencastFrame', (p) => { latest = Buffer.from(p.data, 'base64'); c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); });
+    await within(c.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 }), left(), 'starting the screencast', giveUp);
+    const compose = (async () => {
+      while (running && sharp) {
+        try {
+          const seen = await previewVia((expression) => m.run(expression), 'jpeg', drawn ? undefined : left());
+          const unread = seen.layers.find((l) => !l.image);
+          if (unread) { why = `the app could not capture the preview at ${unread.x},${unread.y}`; await sleep(50); continue; }
+          const base = latest;
+          drawn = seen.layers.length ? await (await withPreview(sharp, base, seen)).jpeg({ quality: 85 }).toBuffer() : base;
+          firstDrawn();
+        } catch (e) { failure ??= e; running = false; firstDrawn(); }
       }
-      running = false;
-      await compose;
-      await c.send('Page.stopScreencast');
-    }));
+    })();
+    // No frame goes out until the first composite is ready, or the opening of the video would show an empty slot.
+    let timer;
+    const gate = await Promise.race([ready.then(() => 'drawn'), new Promise((resolve) => { timer = setTimeout(resolve, left(0), 'late'); })]);
+    clearTimeout(timer);
+    if (gate === 'late') failure ??= new Error(`no frame with the preview was ready within ${giveUp / 1000} s of the start: ${why}`);
+    const start = Date.now();
+    for (let n = 0; n < seconds * fps && !failure && !broken && !gone; n++) {
+      await sleep(Math.max(0, start + (n * 1000) / fps - Date.now()));
+      if (!failure && !broken && !gone) ffmpeg.stdin.write(drawn ?? latest);
+    }
+    running = false;
+    await compose;
+    // Cleanup, and closing the connection ends the screencast anyway, so a slow answer here is not worth failing a finished video for.
+    await within(c.send('Page.stopScreencast'), left(1000), 'stopping the screencast', giveUp).catch(() => {});
   } catch (e) {
-    ffmpeg.kill('SIGKILL');
-    await closed;
-    fs.rmSync(out, { force: true });
-    throw e;
+    failure ??= e;
+  } finally {
+    c?.close();
+    m?.close();
   }
   if (failure) ffmpeg.kill('SIGKILL');
-  else ffmpeg.stdin.end();
-  const code = await closed;
-  if (failure) { fs.rmSync(out, { force: true }); throw failure; }
-  if (code) throw new Error('ffmpeg failed to write the video');
+  else if (!broken && !gone) ffmpeg.stdin.end();
+  const { code, signal } = await closed;
+  if (!failure && signal) failure = new Error(`ffmpeg was killed by ${signal} before it finished the video`);
+  if (!failure && code) failure = new Error(`ffmpeg failed to write the video, exit ${code}`);
+  if (!failure && !fs.existsSync(out)) failure = new Error('ffmpeg exited without writing the video');
+  if (failure) {
+    fs.rmSync(out, { force: true });
+    throw failure;
+  }
   return out;
 }
 
@@ -685,7 +710,7 @@ const COMMANDS = {
     if (!b.match) process.exitCode = 1;
   },
   async record({ s, flags }) {
-    console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out, preview: !flags['no-preview'] }));
+    console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out, preview: !flags['no-preview'], bound: Number(flags.bound) || undefined }));
   },
   async js({ s, pos, flags }) {
     const v = await evaluate(s, pos[1], { main: !!flags.main, awaitPromise: true });

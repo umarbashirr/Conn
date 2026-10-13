@@ -7,7 +7,11 @@
    A view the app borrows to screenshot a background tab must not be drawn, and
    a drag must move the column divider. A recording whose first composite
    fails, or never arrives, must exit non-zero within its bound, print the real
-   cause, and leave no ffmpeg or capture slot behind. `sessions` lists what was booted. stop
+   cause, and leave no ffmpeg, capture slot or partial file behind. Against a
+   fake window, a recording must take its first frame before the screencast
+   starts and must bound a connect or a screencast that never answers. Against
+   a fake ffmpeg that closes its input, dies by a signal, or is missing, it must
+   fail cleanly and never print a path for a video it did not write. `sessions` lists what was booted. stop
    refuses a folder a boot did not make and a state file without a real pid, and
    it skips the group kill when the group's leader does not name the session's
    --user-data-dir. After stop no process may still name either instance's
@@ -15,6 +19,7 @@
    the renderer build is missing or older than its source. Needs a built
    renderer: `npx vite build` first. */
 import { execFileSync, spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
@@ -65,6 +70,61 @@ const authDirsOf = (s) => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(p
 
 const running = (needle) => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(pid)).filter((pid) => {
   try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(needle); } catch { return false; }
+});
+
+/* A window that speaks just enough CDP for record: a page target, captures, and a screencast
+   that sends no frames. In starved modes a capture is answered only while no screencast is
+   running, as in a window with nothing to draw. */
+const fakeWindow = (mode, image) => new Promise((resolve) => {
+  const sockets = new Set();
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/json/list') { res.writeHead(404).end(); return; }
+    if (mode === 'connect-hangs') return;
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify([{ type: 'page', url: 'file:///fake/index.html', webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/page` }]));
+  });
+  server.on('upgrade', (req, socket) => {
+    sockets.add(socket);
+    const accept = crypto.createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    const send = (message) => {
+      const body = Buffer.from(JSON.stringify(message));
+      const head = body.length < 126 ? Buffer.from([0x81, body.length])
+        : body.length < 65536 ? Buffer.from([0x81, 126, body.length >> 8, body.length & 255])
+          : Buffer.concat([Buffer.from([0x81, 127]), (() => { const n = Buffer.alloc(8); n.writeBigUInt64BE(BigInt(body.length)); return n; })()]);
+      socket.write(Buffer.concat([head, body]));
+    };
+    let streaming = false;
+    const answer = ({ id, method }) => {
+      if (method === 'Page.captureScreenshot') { if (!streaming) send({ id, result: { data: image.toString('base64') } }); return; }
+      if (method === 'Page.startScreencast') { streaming = true; if (mode !== 'start-hangs') send({ id, result: {} }); return; }
+      if (method === 'Page.stopScreencast') { streaming = false; if (mode !== 'stop-hangs') send({ id, result: {} }); return; }
+      send({ id, result: {} });
+    };
+    let held = Buffer.alloc(0);
+    socket.on('data', (chunk) => {
+      held = Buffer.concat([held, chunk]);
+      for (;;) {
+        if (held.length < 2) return;
+        let length = held[1] & 127;
+        let at = 2;
+        if (length === 126) { if (held.length < 4) return; length = held.readUInt16BE(2); at = 4; }
+        else if (length === 127) { if (held.length < 10) return; length = Number(held.readBigUInt64BE(2)); at = 10; }
+        if (held.length < at + 4 + length) return;
+        const mask = held.subarray(at, at + 4);
+        const text = Buffer.from(held.subarray(at + 4, at + 4 + length)).map((b, i) => b ^ mask[i % 4]);
+        const opcode = held[0] & 15;
+        held = held.subarray(at + 4 + length);
+        if (opcode === 8) { socket.end(); return; }
+        if (opcode === 1) answer(JSON.parse(text.toString()));
+      }
+    });
+    socket.on('error', () => {});
+  });
+  server.listen(0, '127.0.0.1', () => resolve({
+    port: server.address().port,
+    close: () => { for (const socket of sockets) socket.destroy(); server.closeAllConnections(); server.close(); },
+  }));
 });
 
 const alive = (pid) => {
@@ -184,10 +244,6 @@ async function main() {
     check('record-with-a-failing-first-composite-prints-the-real-cause', throwFirst.code === 1 && throwFirst.ms < 20000 && /forced composite failure/.test(throwFirst.err) && !/ffmpeg failed/.test(throwFirst.err), JSON.stringify(throwFirst));
     check('record-with-a-failing-first-composite-leaves-nothing-behind', leftAfterThrow.ffmpeg.length === 0 && leftAfterThrow.slots.length === 0 && !leftAfterThrow.file, JSON.stringify(leftAfterThrow));
 
-    const idle = await record(b, { seconds: 1, out: path.join(out, 'idle.mp4') });
-    const idleLength = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', idle], { encoding: 'utf8' }));
-    check('record-of-an-idle-window-still-makes-a-video', idleLength > 0.8 && idleLength < 1.2, idleLength);
-
     const partial = path.join(out, 'partial.mp4');
     // ffmpeg creates its output only after probing its input for a few seconds, so the failure comes 9 s after the first composite.
     await forced("(() => { let began; const real = globalThis.__previewReal; globalThis.__preview = async (f) => { began ??= Date.now(); if (Date.now() - began < 9000) return real(f); throw new Error('forced late failure'); }; })()");
@@ -195,6 +251,59 @@ async function main() {
     const leftAfterLate = await afterForced(partial);
     await forced('globalThis.__preview = globalThis.__previewReal');
     check('record-that-fails-after-its-first-frames-says-why-and-leaves-no-partial-file', lateFail.code === 1 && /forced late failure/.test(lateFail.err) && leftAfterLate.ffmpeg.length === 0 && leftAfterLate.slots.length === 0 && !leftAfterLate.file, JSON.stringify({ lateFail, leftAfterLate }));
+
+    const redWindow = await sharp({ create: { width: 1440, height: 900, channels: 3, background: '#c80000' } }).jpeg().toBuffer();
+    const fakeSession = (port) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-fakecdp-'));
+      decoys.push(dir);
+      fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ dir, root: ROOT, home: path.join(dir, 'home'), userData: path.join(dir, 'userdata'), project: path.join(dir, 'shop'), pid: process.pid, inspect: 1, cdp: port }));
+      return dir;
+    };
+    const fakeBin = (script) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-bin-'));
+      decoys.push(dir);
+      if (script !== null) fs.writeFileSync(path.join(dir, 'ffmpeg'), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
+      return dir;
+    };
+    const recordFake = (mode, bin, seconds = 2) => new Promise((resolve) => {
+      fakeWindow(mode, redWindow).then((window) => {
+        const file = path.join(out, `fake-${mode}-${Math.random().toString(36).slice(2)}.mp4`);
+        const began = Date.now();
+        const child = spawn(process.execPath, [DRIVE, 'record', '--session', fakeSession(window.port), '--seconds', String(seconds), '--no-preview', '--bound', '3000', '--out', file], { cwd: ROOT, env: bin ? { ...process.env, PATH: fs.existsSync(path.join(bin, 'ffmpeg')) ? `${bin}:/usr/bin:/bin` : bin } : process.env });
+        let printed = '';
+        let err = '';
+        child.stdout.on('data', (d) => { printed += d; });
+        child.stderr.on('data', (d) => { err += d; });
+        const hang = setTimeout(() => child.kill('SIGKILL'), 20000);
+        child.once('close', (code, signal) => {
+          clearTimeout(hang);
+          window.close();
+          resolve({ code, signal, printed: printed.trim(), err: err.trim(), ms: Date.now() - began, file, wrote: fs.existsSync(file) });
+        });
+      });
+    });
+
+    // The window sends no screencast frame and answers a capture only before the screencast starts, so a video of
+    // it exists only if record took its first frame first.
+    const starved = await recordFake('starved');
+    const starvedFrame = path.join(out, 'starved.png');
+    if (starved.wrote) execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', starved.file, '-vf', 'select=eq(n\\,0)', '-frames:v', '1', starvedFrame]);
+    check('record-takes-its-first-frame-before-the-screencast-starts', starved.code === 0 && starved.wrote && await share(starvedFrame, { x: 600, y: 300, width: 100, height: 100 }, (r, g, b) => r > 140 && g < 70 && b < 70) > 0.9, JSON.stringify(starved));
+    const noStart = await recordFake('start-hangs');
+    check('record-bounds-a-screencast-that-never-starts', noStart.code === 1 && noStart.ms < 10000 && /starting the screencast did not finish within 3 s/.test(noStart.err) && !noStart.wrote, JSON.stringify(noStart));
+    const noConnect = await recordFake('connect-hangs');
+    check('record-bounds-a-connection-that-never-answers', noConnect.code === 1 && noConnect.ms < 10000 && /the connection to the window did not finish within 3 s/.test(noConnect.err), JSON.stringify(noConnect));
+    const noStop = await recordFake('stop-hangs');
+    check('record-does-not-fail-a-finished-video-over-a-stop-that-never-answers', noStop.code === 0 && noStop.wrote && noStop.ms < 12000, JSON.stringify(noStop));
+    // It never reads, so frames stay buffered in Node, and the write that finds it gone gets EPIPE.
+    const closedInput = await recordFake('starved', fakeBin('sleep 3'));
+    check('record-survives-ffmpeg-closing-its-input', closedInput.code === 1 && /ffmpeg exited without writing the video/.test(closedInput.err) && !/Unhandled|EPIPE/.test(closedInput.err) && !closedInput.printed, JSON.stringify(closedInput));
+    const diesEarly = await recordFake('starved', fakeBin('head -c 20000 > /dev/null; exit 3'), 6);
+    check('record-stops-writing-and-reports-the-exit-when-ffmpeg-dies-mid-recording', diesEarly.code === 1 && /exit 3/.test(diesEarly.err) && diesEarly.ms < 4500 && !diesEarly.printed, JSON.stringify(diesEarly));
+    const bySignal = await recordFake('starved', fakeBin('kill -9 $$'));
+    check('record-fails-when-ffmpeg-dies-by-a-signal', bySignal.code === 1 && /killed by SIGKILL/.test(bySignal.err) && !bySignal.printed && !bySignal.wrote, JSON.stringify(bySignal));
+    const noFfmpeg = await recordFake('starved', fakeBin(null));
+    check('record-fails-fast-when-ffmpeg-is-missing', noFfmpeg.code === 1 && noFfmpeg.ms < 10000 && /ENOENT/.test(noFfmpeg.err) && !/Unhandled/.test(noFfmpeg.err) && !noFfmpeg.printed, JSON.stringify(noFfmpeg));
 
     const SUB = { id: 'task-research-1', label: 'research', type: 'general-purpose' };
     await invoke(a, 'navigate', { url: `http://127.0.0.1:${server.address().port}/` }, SUB);
