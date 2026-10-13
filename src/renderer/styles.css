@@ -781,7 +781,10 @@ html, body {
   margin: 0; height: 100%;
   background: var(--bg); color: var(--fg);
   font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
-  overflow: hidden;
+  /* Clip, not hidden. A hidden box can still be scrolled by focus, and the
+     native page is placed by window coordinates, so a window scrolled by one
+     pixel leaves the page a pixel off its slot. */
+  overflow: clip;
   -webkit-font-smoothing: antialiased;
 }
 body { display: flex; flex-direction: column; }
