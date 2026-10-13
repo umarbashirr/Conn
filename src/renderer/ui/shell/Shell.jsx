@@ -43,7 +43,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import App from '../App';
-import { focusShell, runCommand } from '../../app.js';
+import { focusShell, hideSlot, runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
 import AgentsView from './AgentsView';
@@ -66,6 +66,7 @@ import {
   KINDS,
   shownIn,
   SLOT_OF,
+  SLOTS,
   subscribeTabs,
   tabsIn,
 } from './tabs-store';
@@ -336,20 +337,20 @@ export default function Shell() {
               <section id="right" data-full={full || undefined}>
                 {/* A drag that pushes a slot past its minimum collapses it, and
                     nothing else tells the store. Only a person's drag can do
-                    that, so only a person's release is mirrored, and a
-                    collapsed page parks instead of going 0x0. The handle is
-                    disabled while a slot is shut, so a release can only ever
-                    close a slot, never open an empty one. */}
+                    that, so only a person's release is passed on, and it puts
+                    the slot away the way a key press would, so a collapsed
+                    page parks instead of going 0x0 and a shell that comes
+                    back takes the keys. The handle is disabled while a slot
+                    is shut, so a release can only ever close a slot, never
+                    open an empty one. */}
                 <ResizablePanelGroup
                   orientation="vertical"
                   groupRef={slots}
                   onLayoutChange={relayoutNow}
                   onLayoutChanged={(sizes, { isUserInteraction }) => {
                     if (!isUserInteraction) return;
-                    const top = sizes['right-top'];
-                    const bottom = sizes['right-bottom'];
-                    if (top > 0 && bottom > 0) split.current = top;
-                    setLayout({ topOpen: top > 0, bottomOpen: bottom > 0 });
+                    if (sizes['right-top'] > 0 && sizes['right-bottom'] > 0) split.current = sizes['right-top'];
+                    for (const slot of SLOTS) if (sizes[`right-${slot}`] === 0) hideSlot(slot);
                   }}>
                   {/* Clipped, because a slot collapsed to no height still has a
                       strip that would otherwise draw over the other slot. */}

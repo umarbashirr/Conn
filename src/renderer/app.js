@@ -677,7 +677,7 @@ function newPreview() {
    you wanted the chat wider for a minute. Closing a tab is the tab's own
    business, and the store shuts the slot itself when the last one goes, so the
    two never have to be done together. */
-function hideSlot(slot) {
+export function hideSlot(slot) {
   if (!layout[OPEN_KEY[slot]]) return;
   // Both panes hidden at once is a blank window, so putting the last slot away
   // gives the chat its half back first.
