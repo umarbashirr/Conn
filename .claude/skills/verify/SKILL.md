@@ -47,7 +47,7 @@ For a one-shot check, `node .claude/skills/verify/drive.mjs --smoke` boots, save
 node .claude/skills/verify/drive.mjs doctor --session <session>
 ```
 
-It reads and changes nothing. It checks the build, Electron, a display, `ffmpeg`, that the instance's processes are running, that both ports answer, and that the chat window and the agent stand-in are installed. Run it first when something looks off. Without `--session` it checks only what boot needs.
+It reads and changes nothing. It checks the build, Electron, a display, `ffmpeg`, `sharp`, that the instance's processes are running, that both ports answer, and that the chat window and the agent stand-in are installed. Run it first when something looks off. Without `--session` it checks only what boot needs.
 
 ## Drive
 
@@ -62,9 +62,9 @@ Pass the instance with `--session <session>` on each command below.
 | `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
-| `shot` | Saves a PNG of the window and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element. |
+| `shot` | Saves a PNG of the whole window as a person sees it, with the browser pane's page drawn in at its real bounds, and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element, `--no-preview` leaves the pane's page out. |
 | `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`nativeView`), and the `#paneslot` rectangle (`paneslot`). `match` is true when `ipc` is within 1 px of `paneslot`, and `nativeViewMatch` says the same of `nativeView`. Exits 1 unless `match` is true. |
-| `record` | Records the window for `--seconds <n>` (default 10) to `--out <file.mp4>`. |
+| `record` | Records the window, with the browser pane's page in it, for `--seconds <n>` (default 10) to `--out <file.mp4>`. `--no-preview` leaves the pane's page out. |
 | `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. Use it for read-only checks. |
 | `sessions` | Lists the instances this checkout's driver booted, with each one's path, start time, ports, and whether a process still runs. It needs no `--session`. |
 | `stop` | Ends the instance. See Cleanup. |
@@ -75,7 +75,7 @@ The first `say`, `perm` or `invoke` has no chat to talk to, so it types `Hello` 
 
 ### Browser tools
 
-`invoke` drives the page inside the browser pane. Each tool takes one JSON object. A `?` marks an argument you can leave out. These are the shapes in `src/main/tools.js`, lines 6 to 34, and that file wins if the two disagree.
+`invoke` drives the page inside the browser pane. Each tool takes one JSON object. A `?` marks an argument you can leave out. These are the shapes in the `TOOLS` table in `src/main/tools.js`, and that table wins if the two disagree.
 
 | Tool | Arguments | Does |
 | --- | --- | --- |
@@ -166,7 +166,7 @@ A proof shows the action and the state it caused, not only the last screen. Foll
 
 Two things about pictures.
 
-- The browser pane is a native view laid over the window. `shot` photographs the window and leaves that view out, so you see its empty slot and not the page inside. To see the page, run `invoke screenshot`. It prints the PNG path.
+- The browser pane is a native view laid over the window, which a plain capture of the window leaves out. `shot` and `record` take the pane's page from the main process and lay it over the window at the pane's real bounds, using `sharp` from the checkout's `node_modules`, so one image or video shows the page above the terminal. They leave it out when a person would not see it, which is when no pane is open, the shell has hidden it behind a menu (the shell paints its own still there), or it is parked off the window. Pass `--no-preview` to leave it out anyway. `invoke screenshot` returns the page alone and prints the PNG path.
 - `record` blocks for the whole duration, so start it in the background and drive while it runs. Here `reply.txt` is any text file of about 1,500 characters, which at 250 ms per 40-character chunk streams for about 10 seconds.
 
 ```
@@ -187,7 +187,7 @@ It prints `stopped` and exits 0 when the instance is gone. If a process survives
 
 Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay.
 
-`stop` works in two steps. It first signals the whole process group that `boot` started, `SIGTERM` and then `SIGKILL`, so Electron, its helpers and a terminal's jobs go together. It then looks for stragglers and signals them by pid. The app launches provider agents into process groups of their own, and Codex starts a `git fetch` at startup that can outlive the app and keep a debug port bound, so a group kill alone misses them.
+`stop` works in two steps. It first signals the whole process group that `boot` started, `SIGTERM` and then `SIGKILL`, so Electron, its helpers and a terminal's jobs go together. It does that only while the group's leader has this session's `--user-data-dir` on its command line, so a hand-edited state file cannot aim the signal at another group. It then looks for stragglers and signals them by pid. The app launches provider agents into process groups of their own, and Codex starts a `git fetch` at startup that can outlive the app and keep a debug port bound, so a group kill alone misses them.
 
 A process counts as a straggler only when the session's folders name it.
 
@@ -196,7 +196,7 @@ A process counts as a straggler only when the session's folders name it.
 - It inherited `HOME=<session>/home`.
 - Its working directory is inside the session.
 
-`stop` refuses a session folder that is not a `conn-verify-*` folder directly under the temp dir, or whose state file names a home or user-data dir other than its own. It signals nothing and deletes nothing in that case. It never matches on a program name, and it never signals the shell or tool that ran `stop`, even when that shell stands in the project folder. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
+`stop` refuses a session folder that is not a `conn-verify-*` folder directly under the temp dir, or whose state file names a home or user-data dir other than its own, or a pid that is not a real process id. It signals nothing and deletes nothing in that case. It never matches on a program name, and it never signals the shell or tool that ran `stop`, even when that shell stands in the project folder. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
 
 If you lost the session path, run `node .claude/skills/verify/drive.mjs sessions`. It lists only the instances whose state file this checkout's driver wrote, so it never shows another checkout's lanes. If another agent shares your checkout, the start time tells your instances apart. Stop the ones you booted. Do not look for sessions in `ps` or under `/tmp`.
 

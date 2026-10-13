@@ -13,13 +13,13 @@ const SHOTS = process.env.CONN_VERIFY_SHOTS || path.join(os.tmpdir(), 'verify-ev
 const J = JSON.stringify;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function until(fn, ms) {
+async function until(fn, ms, every = 150) {
   const end = Date.now() + ms;
   let last;
   while (Date.now() < end) {
     last = await fn();
     if (last) return last;
-    await sleep(150);
+    await sleep(every);
   }
   return last;
 }
@@ -109,7 +109,8 @@ function assertMadeByBoot(s) {
   const dir = s?.dir;
   const madeByBoot = typeof dir === 'string' && path.resolve(dir) === dir
     && path.dirname(dir) === path.resolve(os.tmpdir()) && path.basename(dir).startsWith('conn-verify-')
-    && s.home === path.join(dir, 'home') && s.userData === path.join(dir, 'userdata') && s.project === path.join(dir, 'shop');
+    && s.home === path.join(dir, 'home') && s.userData === path.join(dir, 'userdata') && s.project === path.join(dir, 'shop')
+    && Number.isInteger(s.pid) && s.pid > 1;
   if (!madeByBoot) throw new Error(`refusing to touch ${dir}: a session is a conn-verify-* folder directly under ${os.tmpdir()}`);
 }
 
@@ -133,7 +134,7 @@ export function sessions() {
 }
 
 const standIn = `(() => {
-  const { ipcMain } = electron;
+  const { ipcMain, BrowserWindow, View } = electron;
   const { AgentSession } = req('./agent');
   globalThis.__decided = [];
   globalThis.__bounds = [];
@@ -146,6 +147,23 @@ const standIn = `(() => {
   AgentSession.prototype.models = async function models() { return []; };
   AgentSession.prototype.decide = function decide(id, decision, input) { globalThis.__decided.push({ id, decision, input }); };
   ipcMain.on('browser:bounds', (_e, b) => { globalThis.__bounds.push(b); if (globalThis.__bounds.length > 50) globalThis.__bounds.shift(); });
+  const setVisible = View.prototype.setVisible;
+  View.prototype.setVisible = function setVisibleAndRemember(v) { this.__shown = v; return setVisible.call(this, v); };
+  globalThis.__preview = async (format) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    const { width, height } = win.getContentBounds();
+    const layers = [];
+    for (const view of win.contentView.children) {
+      const b = view.getBounds();
+      const inWindow = b.width > 0 && b.height > 0 && b.x < width && b.y < height && b.x + b.width > 0 && b.y + b.height > 0;
+      const wc = view.webContents;
+      if (!inWindow || view.__shown === false || !wc || wc.isDestroyed()) continue;
+      let image = await wc.capturePage();
+      if (image.isEmpty()) image = await wc.capturePage();
+      layers.push({ ...b, image: image.isEmpty() ? null : (format === 'jpeg' ? image.toJPEG(85) : image.toPNG()).toString('base64') });
+    }
+    return { width, height, layers };
+  };
   return true;
 })()`;
 
@@ -208,7 +226,8 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
 export async function stop(s) {
   assertMadeByBoot(s);
   const tryKill = (pid, sig) => { try { process.kill(pid, sig); } catch {} };
-  const ownsGroup = () => heldBy(s).some((p) => statOf(p).pgrp === s.pid);
+  const leaderIsOurs = () => read(`/proc/${s.pid}/cmdline`).includes(`--user-data-dir=${s.userData}`);
+  const ownsGroup = () => leaderIsOurs() && heldBy(s).some((p) => statOf(p).pgrp === s.pid);
   const signal = (sig) => {
     if (ownsGroup()) tryKill(-s.pid, sig);
     for (const pid of heldBy(s)) tryKill(Number(pid), sig);
@@ -234,6 +253,7 @@ export async function doctor(s) {
   await row('electron-installed', () => createRequire(path.join(root, 'package.json'))('electron'));
   await row('display', () => Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY) || 'no DISPLAY; boot with --xvfb');
   await row('ffmpeg-for-record', () => { execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' }); });
+  await row('sharp-for-the-preview', () => { sharpOf({ root }); });
   if (s) {
     await row('instance-is-running', () => (heldBy(s).length ? `${heldBy(s).length} processes hold ${s.home}` : `nothing runs on ${s.home}; boot again`));
     await row('inspector-answers', async () => (await main(s, (c) => c.run('process.pid'))) > 0);
@@ -391,19 +411,65 @@ export const click = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
   return hit;
 });
 
-/* The preview is a native view over the window. Page.captureScreenshot leaves
-   it out, so a picture of the window shows its slot and not the page in it. */
-export const shot = (s, out = path.join(SHOTS, `${path.basename(s.dir)}-${Date.now()}.png`), { css } = {}) => page(s, async (c) => {
-  let clip;
-  if (css) {
-    clip = await c.run(`(() => { const r = document.querySelector(${J(css)})?.getBoundingClientRect(); return r && { x: r.x, y: r.y, width: r.width, height: r.height, scale: 1 }; })()`);
-    if (!clip) throw new Error(`nothing matches ${css}`);
+const sharpOf = (s) => {
+  try { return createRequire(path.join(s.root, 'package.json'))('sharp'); }
+  catch { throw new Error(`the preview is composited with sharp from ${s.root}/node_modules; run npm ci, or pass --no-preview`); }
+};
+
+/* Starts the capture with a plain evaluation and polls for it. Asking the
+   inspector to await a promise in the main process failed with "Promise was
+   collected" in the first seconds after boot, and a shot can be the first thing
+   a script does. Each call has its own slot, since a recording and a shot can
+   run together. */
+async function previewVia(run, format) {
+  const id = J(Math.random().toString(36).slice(2));
+  await run(`(globalThis.__seen ??= {}, globalThis.__seen[${id}] = null, globalThis.__preview(${J(format)}).then((r) => { globalThis.__seen[${id}] = { r }; }, (e) => { globalThis.__seen[${id}] = { e: String(e) }; }), true)`);
+  const done = await until(() => run(`globalThis.__seen[${id}]`), 15000, 15);
+  await run(`delete globalThis.__seen[${id}]`);
+  if (!done) throw new Error('the preview capture never finished');
+  if (done.e) throw new Error(done.e);
+  return done.r;
+}
+
+const previewLayers = (s, format) => previewVia((expression) => evaluate(s, expression, { main: true }), format);
+
+/* The preview is a native view above the window, so a CDP capture of the window
+   has an empty slot where it sits. This lays each view the user can see over
+   that capture at its real bounds. */
+async function withPreview(sharp, windowImage, { width, layers }) {
+  const ratio = (await sharp(windowImage).metadata()).width / width;
+  const over = [];
+  for (const l of layers) {
+    const input = await sharp(Buffer.from(l.image, 'base64')).resize(Math.round(l.width * ratio), Math.round(l.height * ratio), { fit: 'fill' }).toBuffer();
+    over.push({ input, left: Math.round(l.x * ratio), top: Math.round(l.y * ratio) });
   }
-  const { data } = await c.send('Page.captureScreenshot', { format: 'png', ...(clip && { clip }) });
+  return sharp(windowImage).composite(over);
+}
+
+export async function shot(s, out = path.join(SHOTS, `${path.basename(s.dir)}-${Date.now()}.png`), { css, preview = true } = {}) {
+  const seen = preview ? await previewLayers(s, 'png') : { layers: [] };
+  const unread = seen.layers.find((l) => !l.image);
+  if (unread) throw new Error(`the preview is showing at ${unread.x},${unread.y} but the app could not capture it; try again, or pass --no-preview`);
+  const composite = seen.layers.length > 0;
+  const png = await page(s, async (c) => {
+    const rect = css ? await c.run(`(() => { const r = document.querySelector(${J(css)})?.getBoundingClientRect(); return r && { x: r.x, y: r.y, width: r.width, height: r.height }; })()`) : null;
+    if (css && !rect) throw new Error(`nothing matches ${css}`);
+    const { data } = await c.send('Page.captureScreenshot', { format: 'png', ...(rect && !composite && { clip: { ...rect, scale: 1 } }) });
+    const windowImage = Buffer.from(data, 'base64');
+    if (!composite) return windowImage;
+    const sharp = sharpOf(s);
+    const whole = await (await withPreview(sharp, windowImage, seen)).png().toBuffer();
+    if (!rect) return whole;
+    const { width: pixels, height: rows } = await sharp(whole).metadata();
+    const per = pixels / await c.run('innerWidth');
+    const left = Math.max(0, Math.round(rect.x * per));
+    const top = Math.max(0, Math.round(rect.y * per));
+    return sharp(whole).extract({ left, top, width: Math.min(pixels - left, Math.round(rect.width * per)), height: Math.min(rows - top, Math.round(rect.height * per)) }).png().toBuffer();
+  });
   fs.mkdirSync(path.dirname(out), { recursive: true });
-  fs.writeFileSync(out, Buffer.from(data, 'base64'));
+  fs.writeFileSync(out, png);
   return out;
-});
+}
 
 export async function bounds(s, { wait = 1500 } = {}) {
   const close = (a, b) => !!a && !!b && ['x', 'y', 'width', 'height'].every((k) => Math.abs(a[k] - b[k]) <= 1);
@@ -421,30 +487,50 @@ export async function bounds(s, { wait = 1500 } = {}) {
   return now;
 }
 
-/* Frames arrive only when the page changes. */
-export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.basename(s.dir)}.mp4`), fps = 10 } = {}) {
+/* Window frames arrive only when the window changes, and the preview changes
+   without the window, so a second loop lays the newest preview over the newest
+   window frame as fast as it can while the clock writes whatever is ready. */
+export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.basename(s.dir)}.mp4`), fps = 10, preview = true } = {}) {
+  const sharp = preview ? sharpOf(s) : null;
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const ffmpeg = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
   const closed = new Promise((r) => ffmpeg.once('close', r));
-  await page(s, async (c) => {
+  let failure = null;
+  await page(s, (c) => main(s, async (m) => {
     let latest = null;
+    let drawn = null;
+    let running = true;
     c.on('Page.screencastFrame', (p) => { latest = Buffer.from(p.data, 'base64'); c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); });
     await c.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 });
+    const compose = (async () => {
+      while (running && sharp) {
+        const base = latest;
+        if (!base) { await sleep(20); continue; }
+        try {
+          const seen = await previewVia((expression) => m.run(expression), 'jpeg');
+          if (seen.layers.some((l) => !l.image)) continue;
+          drawn = seen.layers.length ? await (await withPreview(sharp, base, seen)).jpeg({ quality: 85 }).toBuffer() : base;
+        } catch (e) { failure ??= e; running = false; }
+      }
+    })();
     const start = Date.now();
     for (let n = 0; n < seconds * fps; n++) {
       await sleep(Math.max(0, start + (n * 1000) / fps - Date.now()));
-      latest ??= Buffer.from((await c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 })).data, 'base64');
-      ffmpeg.stdin.write(latest);
+      const frame = drawn ?? latest ?? Buffer.from((await c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 })).data, 'base64');
+      ffmpeg.stdin.write(frame);
     }
+    running = false;
+    await compose;
     await c.send('Page.stopScreencast');
-  });
+  }));
   ffmpeg.stdin.end();
   if (await closed) throw new Error('ffmpeg failed to write the video');
+  if (failure) throw failure;
   return out;
 }
 
-const BOOLEAN = new Set(['smoke', 'xvfb', 'open', 'bare', 'main', 'enter']);
+const BOOLEAN = new Set(['smoke', 'xvfb', 'open', 'bare', 'main', 'enter', 'no-preview']);
 
 function parse(argv) {
   const pos = [];
@@ -499,14 +585,14 @@ const COMMANDS = {
   },
   async key({ s, pos }) { await key(s, pos[1]); },
   async type({ s, pos, flags }) { await type(s, pos[1] === '-' ? await stdin() : pos[1], { enter: !!flags.enter }); },
-  async shot({ s, flags }) { console.log(await shot(s, flags.out, { css: flags.css })); },
+  async shot({ s, flags }) { console.log(await shot(s, flags.out, { css: flags.css, preview: !flags['no-preview'] })); },
   async bounds({ s, flags }) {
     const b = await bounds(s, { wait: Number(flags.wait) || 1500 });
     console.log(J(b, null, 2));
     if (!b.match) process.exitCode = 1;
   },
   async record({ s, flags }) {
-    console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out }));
+    console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out, preview: !flags['no-preview'] }));
   },
   async js({ s, pos, flags }) {
     const v = await evaluate(s, pos[1], { main: !!flags.main, awaitPromise: true });
