@@ -182,7 +182,7 @@ node .claude/skills/verify/drive.mjs say --session <session> - --stream 250 < re
 wait
 ```
 
-The frames come from the page's screencast and are written to `ffmpeg` on a fixed clock, so the MP4 is as long as `--seconds`. Check it with `ffprobe -v error -show_entries format=duration -of csv=p=0 run.mp4`. Pull a still from it with `ffmpeg -i run.mp4 -frames:v 1 first.png`.
+The frames come from the page's screencast and are written to `ffmpeg` on a fixed clock, so the MP4 is as long as `--seconds`. While the browser pane is showing, `record` writes no frame until the first one with the pane's page in it is ready. If that takes longer than 15 seconds, or the recording's length when that is longer, it stops, deletes the partial file, exits 1 and names the cause. A busy machine can make a recording start a few seconds late. Check it with `ffprobe -v error -show_entries format=duration -of csv=p=0 run.mp4`. Pull a still from it with `ffmpeg -i run.mp4 -frames:v 1 first.png`.
 
 ## Cleanup
 

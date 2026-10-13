@@ -4,8 +4,10 @@
    and click must reach the app and its main process. With the preview open on
    the shop page, a shot and a recording must hold the page's pixels inside
    #paneslot, and a shot must not when the preview is hidden or left out.
-   a view the app borrows to screenshot a background tab must not be drawn, and
-   a drag must move the column divider. `sessions` lists what was booted. stop
+   A view the app borrows to screenshot a background tab must not be drawn, and
+   a drag must move the column divider. A recording whose first composite
+   fails, or never arrives, must exit non-zero within its bound, print the real
+   cause, and leave no ffmpeg or capture slot behind. `sessions` lists what was booted. stop
    refuses a folder a boot did not make and a state file without a real pid, and
    it skips the group kill when the group's leader does not name the session's
    --user-data-dir. After stop no process may still name either instance's
@@ -59,6 +61,10 @@ const authDirsOf = (s) => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(p
     const dir = /-auth (\S+)\/Xauthority/.exec(cmd)?.[1];
     return dir && fs.readFileSync(`/proc/${pid}/environ`, 'utf8').includes(`HOME=${s.home}`) ? [dir] : [];
   } catch { return []; }
+});
+
+const running = (needle) => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(pid)).filter((pid) => {
+  try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(needle); } catch { return false; }
 });
 
 const alive = (pid) => {
@@ -151,6 +157,44 @@ async function main() {
     const first = path.join(out, 'rec-first.png');
     execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', clip, '-vf', 'select=eq(n\\,0)', '-frames:v', '1', first]);
     check('record-opens-with-the-page-already-drawn', await share(first, slot, white) > 0.8, await share(first, slot, white));
+
+    // A recording that cannot get its first composite must stop within its bound and say why. The hard kill
+    // turns a hang into a failed check, and the bound is the larger of 15 s and the recording's length.
+    const recordCli = (file, seconds = 1) => new Promise((resolve) => {
+      const began = Date.now();
+      const child = spawn('node', [DRIVE, 'record', '--session', a.dir, '--seconds', String(seconds), '--out', file], { cwd: ROOT });
+      let err = '';
+      child.stderr.on('data', (d) => { err += d; });
+      const hang = setTimeout(() => child.kill('SIGKILL'), 30000);
+      child.once('close', (code) => { clearTimeout(hang); resolve({ code, err: err.trim(), ms: Date.now() - began }); });
+    });
+    const forced = (source) => evaluate(a, `(() => { globalThis.__previewReal ??= globalThis.__preview; ${source}; return true; })()`, { main: true });
+    const afterForced = async (file) => ({ ffmpeg: running(file), slots: await evaluate(a, 'Object.keys(globalThis.__seen || {})', { main: true }), file: fs.existsSync(file) });
+    const noImage = path.join(out, 'no-image.mp4');
+    await forced('globalThis.__preview = async () => ({ width: 1440, height: 900, layers: [{ x: 946, y: 92, width: 494, height: 789, image: null }] })');
+    const nullFirst = await recordCli(noImage);
+    const leftAfterNull = await afterForced(noImage);
+    check('record-with-no-first-image-fails-within-its-bound-and-says-why', nullFirst.code === 1 && nullFirst.ms < 20000 && /could not capture the preview/.test(nullFirst.err), JSON.stringify(nullFirst));
+    check('record-with-no-first-image-leaves-nothing-behind', leftAfterNull.ffmpeg.length === 0 && leftAfterNull.slots.length === 0 && !leftAfterNull.file, JSON.stringify(leftAfterNull));
+    const throwing = path.join(out, 'throwing.mp4');
+    await forced("globalThis.__preview = async () => { throw new Error('forced composite failure'); }");
+    const throwFirst = await recordCli(throwing);
+    const leftAfterThrow = await afterForced(throwing);
+    await forced('globalThis.__preview = globalThis.__previewReal');
+    check('record-with-a-failing-first-composite-prints-the-real-cause', throwFirst.code === 1 && throwFirst.ms < 20000 && /forced composite failure/.test(throwFirst.err) && !/ffmpeg failed/.test(throwFirst.err), JSON.stringify(throwFirst));
+    check('record-with-a-failing-first-composite-leaves-nothing-behind', leftAfterThrow.ffmpeg.length === 0 && leftAfterThrow.slots.length === 0 && !leftAfterThrow.file, JSON.stringify(leftAfterThrow));
+
+    const idle = await record(b, { seconds: 1, out: path.join(out, 'idle.mp4') });
+    const idleLength = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', idle], { encoding: 'utf8' }));
+    check('record-of-an-idle-window-still-makes-a-video', idleLength > 0.8 && idleLength < 1.2, idleLength);
+
+    const partial = path.join(out, 'partial.mp4');
+    // ffmpeg creates its output only after probing its input for a few seconds, so the failure comes 9 s after the first composite.
+    await forced("(() => { let began; const real = globalThis.__previewReal; globalThis.__preview = async (f) => { began ??= Date.now(); if (Date.now() - began < 9000) return real(f); throw new Error('forced late failure'); }; })()");
+    const lateFail = await recordCli(partial, 14);
+    const leftAfterLate = await afterForced(partial);
+    await forced('globalThis.__preview = globalThis.__previewReal');
+    check('record-that-fails-after-its-first-frames-says-why-and-leaves-no-partial-file', lateFail.code === 1 && /forced late failure/.test(lateFail.err) && leftAfterLate.ffmpeg.length === 0 && leftAfterLate.slots.length === 0 && !leftAfterLate.file, JSON.stringify({ lateFail, leftAfterLate }));
 
     const SUB = { id: 'task-research-1', label: 'research', type: 'general-purpose' };
     await invoke(a, 'navigate', { url: `http://127.0.0.1:${server.address().port}/` }, SUB);

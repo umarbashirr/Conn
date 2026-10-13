@@ -150,7 +150,8 @@ const standIn = `(() => {
   const setVisible = View.prototype.setVisible;
   View.prototype.setVisible = function setVisibleAndRemember(v) { this.__shown = v; return setVisible.call(this, v); };
   // Only the view the shell last placed in the box. To screenshot a tab parked behind
-  // another, the app borrows its view as a 1x1 at 0,0, and that one is never shown.
+  // another, the app shows its view as a 1x1 at 0,0 for the length of the capture,
+  // and that is not a box the shell placed.
   const shownViews = () => {
     const win = BrowserWindow.getAllWindows()[0];
     const { width, height } = win.getContentBounds();
@@ -266,7 +267,7 @@ const newestFile = (dir) => fs.readdirSync(dir, { withFileTypes: true }).reduce(
   return here.mtime > best.mtime ? here : best;
 }, { mtime: 0, file: dir });
 
-/* A row passes when it returns and fails when it throws; a returned string is only a detail. */
+// A row passes when it returns and fails when it throws; a returned string is only a detail.
 export async function doctor(s, { root = s?.root || ROOT } = {}) {
   const rows = [];
   const row = async (name, fn) => {
@@ -464,7 +465,7 @@ const sharpOf = (s) => {
    a script does. Each call has its own slot, since a recording and a shot can
    run together, and a capture that lands after its caller gave up finds the
    slot deleted and leaves it so. */
-async function previewVia(run, format) {
+async function previewVia(run, format, ms = 15000) {
   const id = J(Math.random().toString(36).slice(2));
   await run(`(() => {
     const seen = (globalThis.__seen ??= {});
@@ -472,12 +473,18 @@ async function previewVia(run, format) {
     globalThis.__preview(${J(format)}).then((r) => { if (${id} in seen) seen[${id}] = { r }; }, (e) => { if (${id} in seen) seen[${id}] = { e: String(e) }; });
     return true;
   })()`);
-  const done = await until(() => run(`globalThis.__seen[${id}]`), 15000, 15);
+  const done = await until(() => run(`globalThis.__seen[${id}]`), ms, 15);
   await run(`delete globalThis.__seen[${id}]`);
   if (!done) throw new Error('the preview capture never finished');
   if (done.e) throw new Error(done.e);
   return done.r;
 }
+
+const within = (promise, ms, what) => {
+  let timer;
+  const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms / 1000} s`)), ms); });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+};
 
 const previewLayers = (s, format) => previewVia((expression) => evaluate(s, expression, { main: true }), format);
 const previewBoxes = (s) => evaluate(s, 'globalThis.__previewBoxes()', { main: true });
@@ -554,42 +561,59 @@ export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.b
     '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out], { stdio: ['pipe', 'inherit', 'inherit'] });
   const closed = new Promise((r) => ffmpeg.once('close', r));
   let failure = null;
-  await page(s, (c) => main(s, async (m) => {
-    let latest = null;
-    let drawn = null;
-    let running = true;
-    let firstDrawn;
-    const ready = new Promise((resolve) => { firstDrawn = resolve; });
-    if (!sharp) firstDrawn();
-    c.on('Page.screencastFrame', (p) => { latest = Buffer.from(p.data, 'base64'); c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); });
-    await c.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 });
-    const compose = (async () => {
-      while (running && sharp) {
-        if (!latest) { await sleep(20); continue; }
-        try {
-          const seen = await previewVia((expression) => m.run(expression), 'jpeg');
-          if (seen.layers.some((l) => !l.image)) continue;
-          const base = latest;
-          drawn = seen.layers.length ? await (await withPreview(sharp, base, seen)).jpeg({ quality: 85 }).toBuffer() : base;
-          firstDrawn();
-        } catch (e) { failure ??= e; running = false; firstDrawn(); }
+  // One budget for everything before the first frame goes out. Under load the first capture alone has taken 9 s.
+  const giveUp = Math.max(15000, seconds * 1000);
+  const deadline = Date.now() + giveUp;
+  try {
+    await page(s, (c) => main(s, async (m) => {
+      // Taken before the screencast starts. During one, a capture waits for a frame, and an idle window sends one every few seconds.
+      let latest = Buffer.from((await within(c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 }), giveUp, 'the first capture of the window')).data, 'base64');
+      let drawn = null;
+      let running = true;
+      let why = 'the first composite did not finish';
+      let firstDrawn;
+      const ready = new Promise((resolve) => { firstDrawn = resolve; });
+      if (!sharp) firstDrawn();
+      c.on('Page.screencastFrame', (p) => { latest = Buffer.from(p.data, 'base64'); c.send('Page.screencastFrameAck', { sessionId: p.sessionId }); });
+      await c.send('Page.startScreencast', { format: 'jpeg', quality: 80, everyNthFrame: 1 });
+      const compose = (async () => {
+        while (running && sharp) {
+          try {
+            const seen = await previewVia((expression) => m.run(expression), 'jpeg', drawn ? undefined : Math.max(200, deadline - Date.now()));
+            const unread = seen.layers.find((l) => !l.image);
+            if (unread) { why = `the app could not capture the preview at ${unread.x},${unread.y}`; await sleep(50); continue; }
+            const base = latest;
+            drawn = seen.layers.length ? await (await withPreview(sharp, base, seen)).jpeg({ quality: 85 }).toBuffer() : base;
+            firstDrawn();
+          } catch (e) { failure ??= e; running = false; firstDrawn(); }
+        }
+      })();
+      // No frame goes out until the first composite is ready, or the opening of the video would show an empty slot.
+      let timer;
+      const gate = await Promise.race([ready.then(() => 'drawn'), new Promise((resolve) => { timer = setTimeout(resolve, Math.max(0, deadline - Date.now()), 'late'); })]);
+      clearTimeout(timer);
+      if (gate === 'late') failure ??= new Error(`no frame with the preview was ready within ${giveUp / 1000} s of the start: ${why}`);
+      const start = Date.now();
+      for (let n = 0; n < seconds * fps && !failure; n++) {
+        await sleep(Math.max(0, start + (n * 1000) / fps - Date.now()));
+        const frame = drawn ?? latest;
+        ffmpeg.stdin.write(frame);
       }
-    })();
-    // No frame goes out until the first composite is ready, or the opening of the video would show an empty slot.
-    await ready;
-    const start = Date.now();
-    for (let n = 0; n < seconds * fps && !failure; n++) {
-      await sleep(Math.max(0, start + (n * 1000) / fps - Date.now()));
-      const frame = drawn ?? latest ?? Buffer.from((await c.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 })).data, 'base64');
-      ffmpeg.stdin.write(frame);
-    }
-    running = false;
-    await compose;
-    await c.send('Page.stopScreencast');
-  }));
-  ffmpeg.stdin.end();
-  if (await closed) throw new Error('ffmpeg failed to write the video');
-  if (failure) throw failure;
+      running = false;
+      await compose;
+      await c.send('Page.stopScreencast');
+    }));
+  } catch (e) {
+    ffmpeg.kill('SIGKILL');
+    await closed;
+    fs.rmSync(out, { force: true });
+    throw e;
+  }
+  if (failure) ffmpeg.kill('SIGKILL');
+  else ffmpeg.stdin.end();
+  const code = await closed;
+  if (failure) { fs.rmSync(out, { force: true }); throw failure; }
+  if (code) throw new Error('ffmpeg failed to write the video');
   return out;
 }
 
