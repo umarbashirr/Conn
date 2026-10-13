@@ -20,15 +20,13 @@ import { cn } from '@/lib/utils';
 import { Items } from '../App';
 import { onProject, project } from '../../project.js';
 import { agentsState, getAgentsVersion, selectAgent, subscribeAgents } from './agents-store';
-import { subscribe as subscribeLayout } from './layout-store';
 import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
 // Whether this tab is the one on screen, asked the way FilesView asks.
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
-  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offLayout(); offFocus(); };
+  return () => { offTabs(); offFocus(); };
 };
 const onTop = () => shownIn(project.focused, SLOT_OF.agents)?.kind === 'agents';
 

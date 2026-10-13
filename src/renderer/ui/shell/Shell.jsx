@@ -250,7 +250,6 @@ function TabStrip({ slot }) {
    in here and says which one is showing. */
 function Terminals() {
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
-  useLayout();
   const dir = useFocusedDir();
   return <div id="terms" hidden={shownIn(dir, 'bottom')?.kind !== 'terminal' || undefined} />;
 }

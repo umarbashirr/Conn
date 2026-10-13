@@ -52,7 +52,6 @@ import {
   setViewport,
   subscribeCanvas,
 } from './canvas-store';
-import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
 import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
@@ -71,9 +70,8 @@ function useCanvas() {
 // Whether this tab is the one on screen, asked the way ChangesView asks.
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
-  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offLayout(); offFocus(); };
+  return () => { offTabs(); offFocus(); };
 };
 const onTop = () => shownIn(project.focused, SLOT_OF.canvas)?.kind === 'canvas';
 

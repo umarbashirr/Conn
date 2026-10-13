@@ -64,7 +64,6 @@ import {
   visibleRows,
   wrapsLines,
 } from './files-store';
-import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
 import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
@@ -78,16 +77,14 @@ function useFiles() {
   return filesState;
 }
 
-/* Whether the tree is the thing on screen. Three stores answer that between
-   them: the strip says which tab the bottom slot is on in a folder, the layout
-   says whether that slot is up, and focus says which folder to ask. A folder
-   holds one tree at most, so the kind the slot is drawing is the whole
-   question. */
+/* Whether the tree is the thing on screen. Two stores answer that between them:
+   the strip says which tab the bottom slot is drawing in a folder, and focus
+   says which folder to ask. A folder holds one tree at most, so the kind the
+   slot is drawing is the whole question. */
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
-  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offLayout(); offFocus(); };
+  return () => { offTabs(); offFocus(); };
 };
 
 // A boolean rather than the tabs version, so opening a preview somewhere else

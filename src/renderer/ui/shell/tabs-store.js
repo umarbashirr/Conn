@@ -97,12 +97,15 @@ function setOpen(panel, slot, open) {
 /* Whatever turns a slot on or off, from a keyboard chord to a drag that
    collapsed it to Customize taking the window, goes through the layout store.
    Writing it down here as it happens is what lets a chat come back to the
-   column it left. */
+   column it left, and telling this store's readers is what lets them ask
+   shownIn alone whether their tab is on screen. */
 subscribeLayout(() => {
   const panel = panelOf(front.dir) || (layout.rightOpen ? panelFor(front.dir) : null);
   if (!panel) return;
-  for (const slot of SLOTS) panel.slots[slot].open = layout[OPEN_KEY[slot]];
   panel.full = layout.previewFull;
+  const moved = SLOTS.filter((slot) => panel.slots[slot].open !== layout[OPEN_KEY[slot]]);
+  for (const slot of moved) panel.slots[slot].open = layout[OPEN_KEY[slot]];
+  if (moved.length) changed();
 });
 
 /* The chat on screen and the folder with focus. `remember` is whether this is

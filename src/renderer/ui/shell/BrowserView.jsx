@@ -812,7 +812,6 @@ function Drawer({ tab, showing }) {
 export function ConsoleView() {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
-  useLayout();
   const dir = useFocusedDir();
   const up = shownIn(dir, 'bottom')?.kind === 'console';
   const current = currentOf(dir);

@@ -52,7 +52,6 @@ import {
   subscribeChanges,
   summary,
 } from './changes-store';
-import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
 import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
@@ -74,9 +73,8 @@ function useChanges() {
    are both showing their diff has to come out unchanged. */
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
-  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offLayout(); offFocus(); };
+  return () => { offTabs(); offFocus(); };
 };
 
 const onTop = () => shownIn(project.focused, SLOT_OF.changes)?.kind === 'changes';
