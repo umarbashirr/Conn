@@ -399,11 +399,12 @@ function newTerminalTab(command) {
 
 export const focusShell = () => shownShell()?.term.focus();
 
-// A slot dragged past its floor is at no height until the release tells the
-// store it is shut, and a fit there would squeeze the shell to one row.
+// A box with no height or no width is a slot or the column on its way shut,
+// and a fit there would squeeze the shell to one row or two columns.
 function resizeActive() {
   const shell = shownShell();
-  if (!shell || !$('#terms').clientHeight) return;
+  const box = $('#terms');
+  if (!shell || !box.clientHeight || !box.clientWidth) return;
   try { shell.fit.fit(); } catch {}
 }
 
