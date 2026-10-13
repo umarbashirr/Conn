@@ -32,9 +32,6 @@ const AT_ELEMENT = new Set(['browser_click', 'browser_hover', 'browser_highlight
 const ELSEWHERE = 'in the page';
 const REF = /^e\d+$/;
 
-const isAsk = (it) => it.kind === 'perm' && !it.decided;
-const isLiveAgent = (it) => it.kind === 'agent' && isLive(it);
-const isTurnEdge = (it) => it.kind === 'user' || it.kind === 'note';
 const isSnapshot = (it) => it.kind === 'tool' && it.output != null && it.name.endsWith('browser_snapshot');
 
 function elementName(items, before, ref) {
@@ -63,14 +60,40 @@ function wants(items, at) {
   ].filter(Boolean).join(' ');
 }
 
-function stepIn(items) {
+// One walk back from the newest item finds everything the line needs. The call
+// or prose in flight only counts inside the current turn, so it stops counting
+// at the message or note that opened or closed the turn. A permission or a live
+// subagent counts wherever it sits.
+function scan(items) {
+  const found = { ask: -1, agent: null, step: -1, edge: null };
+  let behindTurnEdge = false;
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
-    if (isTurnEdge(it)) return -1;
-    if (it.kind === 'tool' && it.state === 'input-available') return i;
-    if (it.kind === 'assistant' && it.streaming) return i;
+    switch (it.kind) {
+      case 'perm':
+        if (!it.decided) found.ask = i;
+        break;
+      case 'agent':
+        if (!found.agent && isLive(it)) found.agent = it;
+        break;
+      case 'tool':
+        if (!behindTurnEdge && found.step < 0 && it.state === 'input-available') found.step = i;
+        break;
+      case 'assistant':
+        if (!behindTurnEdge && found.step < 0 && it.streaming) found.step = i;
+        break;
+      case 'user':
+        behindTurnEdge = true;
+        found.edge ??= it;
+        break;
+      case 'note':
+        behindTurnEdge = true;
+        if (it.ended) found.edge ??= it;
+        break;
+    }
+    if (found.ask >= 0) break;
   }
-  return -1;
+  return found;
 }
 
 /**
@@ -80,12 +103,10 @@ function stepIn(items) {
  * @returns {Activity}
  */
 export function activityOf(items, busy, seen) {
-  const ask = items.findIndex(isAsk);
+  const { ask, agent, step: at, edge } = scan(items);
   if (ask >= 0) return { state: 'waiting', line: wants(items, ask) };
 
-  const agent = items.findLast(isLiveAgent);
   if (busy || agent) {
-    const at = stepIn(items);
     if (at < 0) return { state: 'working', line: agent ? nameOf(agent) : 'Thinking', target: null };
     const step = items[at];
     if (step.kind === 'assistant') return { state: 'working', line: 'Writing', target: null };
@@ -97,9 +118,6 @@ export function activityOf(items, busy, seen) {
     };
   }
 
-  const last = items[items.length - 1];
-  if (!seen && last?.kind === 'note' && last.ended) {
-    return { state: 'finished', line: last.error ? 'Ended with an error' : 'Finished' };
-  }
+  if (!seen && edge?.ended) return { state: 'finished', line: edge.error ? 'Ended with an error' : 'Finished' };
   return IDLE;
 }
