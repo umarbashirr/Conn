@@ -198,7 +198,6 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
     await evaluate(s, standIn, { main: true });
     await evaluate(s, 'electron.BrowserWindow.getAllWindows()[0].setContentSize(1440, 900)', { main: true });
     await sleep(1000);
-    await evaluate(s, `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Later')?.click()`);
   } catch (e) {
     await stop(s).catch(() => {});
     throw e;
