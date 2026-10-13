@@ -764,7 +764,7 @@ function setPreviewFull(on) {
   if (next === state.previewFull) return;
   setLayout({ previewFull: next });
   // Full width with both slots shut is a blank half window, so it brings back
-  // the tab the column was last on, or a preview when there was none.
+  // the kind the top slot was on, else the bottom's, else a preview.
   if (next && !state.rightOpen) {
     const dir = state.focused;
     showRight(activeIn(dir, 'top')?.kind || activeIn(dir, 'bottom')?.kind || 'browser');

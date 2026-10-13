@@ -925,7 +925,6 @@ function Toolbar({ tab, showing }) {
 
 export default function BrowserView() {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
-  useLayout();
   const shown = onScreen();
   const open = previews();
 

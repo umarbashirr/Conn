@@ -64,9 +64,9 @@ function useChanges() {
 }
 
 /* Whether the diff is the thing on screen. Two stores answer that between them:
-   the strip says which tab is active in a folder, and focus says which folder to
-   ask. A folder holds one diff at most, so the kind of its active tab is the
-   whole question.
+   the strip says which tab the bottom slot is drawing in a folder, and focus
+   says which folder to ask. A folder holds one diff at most, so the kind the
+   slot is drawing is the whole question.
 
    The answer is a boolean and not the tabs version on purpose. Everything below
    hangs off it, including the poll, and moving focus between two folders that

@@ -17,7 +17,7 @@
    what they say still lands here: a build error a tab logged while you were
    reading another one is in its console when you click over to it. */
 'use strict';
-import { act, setLayout, subscribe as subscribeLayout } from './layout-store.js';
+import { act, setLayout } from './layout-store.js';
 import { activateTab, activeIn, chatOfTab, everyTab, openTab, previewTabs, removeTab, setTabTitle, shownIn, subscribeTabs } from './tabs-store.js';
 import { toast } from './toast.jsx';
 
@@ -689,8 +689,7 @@ function projectsChanged(info) {
 window.conn.project.onChanged(projectsChanged);
 window.conn.project.info().then(projectsChanged).catch(() => {});
 
-/* The three things that move the box. The strip says which tab the top slot
-   is drawing, the layout says how the window around it is laid out, and focus
-   says whose strip we are reading, which arrives above with the projects. */
+/* The two things that move the box. The strip says which tab the top slot is
+   drawing and whether the slot is up, and focus says whose strip we are
+   reading, which arrives above with the projects. */
 subscribeTabs(syncPreview);
-subscribeLayout(syncPreview);
