@@ -38,8 +38,7 @@ const blank = () => ({
   favicon: '',
   console: [],
   network: [],
-  // Which of the two the Console tab is reading for this preview.
-  drawerTab: 'console',
+  logTab: 'console',
   viewport: '',
   // The frame's scale, pinned while a handle is being dragged. Refitting on
   // every move would slide the handle out from under the pointer.
@@ -69,9 +68,9 @@ const ownerOf = new Map(); // tab id -> the folder whose strip that tab is in
 // again would read as the setting not taking.
 const autoOpen = new Set();
 
-// The preview each folder was last reading. Flipping to the diff and hitting
-// the drawer key should go back to the preview you were on, not to the first
-// one in the strip.
+// The preview each folder was last reading. Flipping to the canvas and opening
+// the Console should speak for the preview you were on, not for the first one
+// in the strip.
 const lastPreview = new Map();
 
 let focusedDir = '';
@@ -107,9 +106,8 @@ export function subscribeBrowser(fn) {
   return () => listeners.delete(fn);
 }
 
-// A page that logs in a loop used to repaint the drawer per message, and did it
-// while the drawer was closed and nobody could see it. Coalesce to one repaint
-// per frame.
+// A page that logs in a loop would repaint its log once per message. Coalesce
+// to one repaint per frame.
 let queued = false;
 function changed({ soon = false } = {}) {
   version += 1;
@@ -195,7 +193,7 @@ function syncPreview() {
     current = now;
     browserState = now ? recordOf(now) : idle;
     // A network fetch still out for the preview we just left would otherwise
-    // land in this one's drawer.
+    // land in this one's log.
     fetchSeq += 1;
   }
 
@@ -264,7 +262,7 @@ export const go = (action, tab) => window.conn.browser.action(action, undefined,
    toolbar and Network on a failed load. Both bring the page up on top and the
    Console tab up below, so the two are on screen together. The chord and the
    menu go through app.js instead, which opens the tab without naming a page. */
-export function showDrawer(which, tab = current) {
+export function showLog(which, tab = current) {
   if (!tab) return;
   reveal(tab);
   act('showConsole');
@@ -279,17 +277,17 @@ let fetchSeq = 0;
 export async function pickLogs(which, tab = current) {
   if (!tab) return;
   const b = recordOf(tab);
-  b.drawerTab = which || b.drawerTab;
+  b.logTab = which || b.logTab;
   // The rows still in the body belong to whatever was open last, and they would
   // sit there in plain sight while the fetch is out.
-  if (b.drawerTab === 'network') b.network = [];
+  if (b.logTab === 'network') b.network = [];
   changed();
 
   // Stamped on every pick, not only the ones that fetch, so clicking straight
   // over to the console retires a network fetch that is still out instead of
   // letting it land behind the tab that replaced it.
   const seq = ++fetchSeq;
-  if (b.drawerTab !== 'network') return;
+  if (b.logTab !== 'network') return;
 
   const rows = await window.conn.browser.action('network', undefined, tab).catch(() => []);
   if (seq !== fetchSeq) return;
@@ -691,8 +689,8 @@ function projectsChanged(info) {
 window.conn.project.onChanged(projectsChanged);
 window.conn.project.info().then(projectsChanged).catch(() => {});
 
-/* The three things that move the box. The strip says which tab is active, the
-   layout says whether the column is open at all, and focus says whose strip we
-   are reading, which arrives above with the projects. */
+/* The three things that move the box. The strip says which tab the top slot
+   is drawing, the layout says how the window around it is laid out, and focus
+   says whose strip we are reading, which arrives above with the projects. */
 subscribeTabs(syncPreview);
 subscribeLayout(syncPreview);

@@ -96,7 +96,7 @@ import {
   toggleResponsive,
   screenshot,
   setViewport,
-  showDrawer,
+  showLog,
   subscribeBrowser,
   VIEWPORTS,
 } from './browser-store';
@@ -141,7 +141,7 @@ function useBrowser(tab) {
 }
 
 // Tooltips open away from the pane, which is a native view they would land
-// under. The bars sit above it and the drawer below.
+// under. The bars sit above it.
 function Tip({ label, side = 'top', children }) {
   return (
     <Tooltip>
@@ -457,7 +457,7 @@ function PageError({ tab, error }) {
           <Button type="button" variant="outline" size="sm" onClick={() => setDetails((v) => !v)}>
             {details ? 'Hide details' : 'Details'}
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => showDrawer('network', tab)}>
+          <Button type="button" variant="outline" size="sm" onClick={() => showLog('network', tab)}>
             Network
           </Button>
           <span className="flex-1" />
@@ -730,11 +730,11 @@ function LogRow({ row }) {
    once per preview like the toolbars, so where you had scrolled a tab's log
    is still there when you come back to that tab, and drawn only while it is
    the one on screen, so a page that logs in a loop repaints nothing hidden. */
-function Drawer({ tab, showing }) {
+function PreviewLog({ tab, showing }) {
   const s = useBrowser(tab);
   const body = useRef(null);
   const seat = useRef({ top: 0, stick: true });
-  const rows = s.drawerTab === 'console' ? s.console : s.network;
+  const rows = s.logTab === 'console' ? s.console : s.network;
 
   useEffect(() => {
     const el = body.current;
@@ -751,12 +751,12 @@ function Drawer({ tab, showing }) {
     const el = body.current;
     if (!el) return;
     el.scrollTop = seat.current.stick ? el.scrollHeight : seat.current.top;
-  }, [showing, rows.length, s.drawerTab]);
+  }, [showing, rows.length, s.logTab]);
 
   // The network list is fetched when asked for, never sent, so coming back on
   // screen asks again rather than show the list from the last time it was up.
   useEffect(() => {
-    if (showing && s.drawerTab === 'network') pickLogs('network', tab);
+    if (showing && s.logTab === 'network') pickLogs('network', tab);
   }, [showing]);
 
   if (!showing) return null;
@@ -765,7 +765,7 @@ function Drawer({ tab, showing }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Tabs value={s.drawerTab} onValueChange={(v) => pickLogs(v, tab)} className="min-h-0 flex-1 gap-0">
+      <Tabs value={s.logTab} onValueChange={(v) => pickLogs(v, tab)} className="min-h-0 flex-1 gap-0">
         <div className="flex items-center gap-2 border-b px-2 py-1">
           <TabsList className="h-7 bg-transparent p-0">
             <TabsTrigger value="console" className="gap-1.5 text-xs">
@@ -797,7 +797,7 @@ function Drawer({ tab, showing }) {
 
         <ScrollArea className="min-h-0 flex-1" viewportRef={body}>
           {rows.length === 0
-            ? <div className="p-3 text-xs text-muted-foreground">{`no ${s.drawerTab} entries`}</div>
+            ? <div className="p-3 text-xs text-muted-foreground">{`no ${s.logTab} entries`}</div>
             : rows.slice(-300).map((row, i) => <LogRow key={`${i}-${row.url || row.message}`} row={row} />)}
         </ScrollArea>
       </Tabs>
@@ -818,7 +818,7 @@ export function ConsoleView() {
 
   return (
     <div id="console-view" className="flex h-full min-h-0 flex-col" hidden={!up || undefined}>
-      {previews().map(({ tab }) => <Drawer key={tab} tab={tab} showing={up && tab === current} />)}
+      {previews().map(({ tab }) => <PreviewLog key={tab} tab={tab} showing={up && tab === current} />)}
       {!current && <div className="p-3 text-xs text-muted-foreground">No preview in this chat</div>}
     </div>
   );
@@ -906,7 +906,7 @@ function Toolbar({ tab, showing }) {
             variant="ghost"
             size="sm"
             className="h-7 gap-1 px-2 text-destructive"
-            onClick={() => showDrawer('console', tab)}>
+            onClick={() => showLog('console', tab)}>
             <TriangleAlertIcon />
             {errors}
           </Button>
