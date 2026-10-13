@@ -517,7 +517,7 @@ export function useAgent() {
             run: () => window.connChat?.open({
               key: finished.key, id: finished.session, project: finished.project, title: finished.title,
             }),
-          }]);
+          }], { duration: 10000 });
         }
       }
     }));
