@@ -319,7 +319,7 @@ function spawnShell(dir, tabId) {
      for the tab to be on screen and measurable. */
   requestAnimationFrame(() => {
     if (shells.get(tabId) !== shell) return;
-    if (shell === shownShell()) try { fit.fit(); } catch {}
+    if (shell === shownShell()) resizeActive();
     start(shell);
   });
 }
@@ -399,8 +399,9 @@ function newTerminalTab(command) {
 
 export const focusShell = () => shownShell()?.term.focus();
 
-// A box with no height or no width is a slot or the column on its way shut,
-// and a fit there would squeeze the shell to one row or two columns.
+// A box with no height or no width is a slot or the column caught mid-drag on
+// its way shut, and a fit there would squeeze the shell to one row or two
+// columns.
 function resizeActive() {
   const shell = shownShell();
   const box = $('#terms');

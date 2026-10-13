@@ -314,7 +314,13 @@ export default function Shell() {
         <ResizableHandle className={railOpen ? undefined : 'pointer-events-none opacity-0'} />
 
         <ResizablePanel id="content" minSize="380px">
-          <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
+          {/* The column dragged past half its floor collapses, and nothing
+              else tells the store, which would go on calling both slots up
+              with no column to draw them in. It is the column put away. */}
+          <ResizablePanelGroup
+            orientation="horizontal"
+            onLayoutChange={relayoutNow}
+            onLayoutChanged={(sizes) => { if (sizes.right === 0) for (const slot of SLOTS) hideSlot(slot); }}>
             {/* 300, not 380. Both panes are collapsible, and when their
                 minimums stopped fitting the library picked one to drop to
                 nothing: it picked the chat, and a window one notch too
