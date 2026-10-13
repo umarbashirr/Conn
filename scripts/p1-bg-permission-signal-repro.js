@@ -35,7 +35,7 @@ function checkAttentionModule() {
   else fail('agent-waiting-is-not-perm', 'subagent waiting must not count as undecided perm');
 
   const needs = railBadge({ busy: true, agents: 2, waiting: true });
-  if (needs && needs.label === 'needs you' && needs.tone === 'wait') pass('badge-prefers-needs-you');
+  if (needs && needs.label === 'Review' && needs.tone === 'wait') pass('badge-prefers-needs-you');
   else fail('badge-prefers-needs-you', JSON.stringify(needs));
 
   const working = railBadge({ busy: true, agents: 0, waiting: false });

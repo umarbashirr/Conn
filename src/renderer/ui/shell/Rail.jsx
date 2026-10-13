@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { railBadge } from './chat-attention.js';
+import { IDLE } from '@/lib/activity';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -32,6 +33,7 @@ import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -80,8 +82,18 @@ const SUB = 'mx-0 ml-4 border-l-0 px-0 pr-0';
 // The root font is 13px, so text-xs comes out under 10px. Sizes here are pixels.
 const ROW = 'h-7 text-[12px]';
 const NAV = `${ROW} text-sidebar-foreground/80 [&>svg]:size-3.5`;
+const FOOT = 'h-[26px] text-[12px] text-sidebar-foreground/60 [&>svg]:size-3.5';
 const GROUP_LABEL = 'h-7 font-normal text-[11px] text-muted-foreground';
 const GROUP_ACTION = 'top-3 text-sidebar-foreground/60 hover:text-sidebar-foreground [&>svg]:size-3.5';
+
+const LINE_TONE = {
+  working: 'text-[hsl(var(--success))]/85',
+  waiting: 'text-amber-700/85 dark:text-amber-500/85',
+  finished: 'text-muted-foreground',
+};
+
+const TALL = 'h-[40px] items-start py-1';
+const TALL_ACTION = 'peer-data-[size=default]/menu-button:top-0.5';
 
 function Row({ chat, current, onDelete, onRename }) {
   const done = isDone(chat);
@@ -89,6 +101,11 @@ function Row({ chat, current, onDelete, onRename }) {
   const pinned = isPinned(chat);
   const badge = railBadge(chat);
   const working = badge?.tone === 'busy';
+  const activity = chat.activity ?? IDLE;
+  const tall = activity.state !== 'idle';
+  // The spinner and the line already say working, so only waiting and a count
+  // of agents earn a chip beside the line.
+  const chip = badge && (badge.tone === 'wait' || chat.agents > 0);
 
   return (
     <ContextMenu>
@@ -97,41 +114,60 @@ function Row({ chat, current, onDelete, onRename }) {
           <SidebarMenuButton
             isActive={current}
             title={chat.title}
-            className={ROW}
+            data-activity={activity.state}
+            className={cn(ROW, tall && TALL)}
             onClick={() => window.connChat?.open(chat)}>
-            {working ? (
-              <LoaderCircleIcon className="size-3.5! animate-spin text-[hsl(var(--success))]" />
-            ) : pinned ? (
-              <PinIcon className="size-3.5! text-muted-foreground" />
-            ) : done ? (
-              <CircleCheckIcon className="size-3.5! text-muted-foreground" />
-            ) : (
-              <span
-                aria-hidden
-                className={cn('mx-1 size-1.5 shrink-0 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
-            )}
-            <span className="truncate">{chat.title}</span>
-            {badge && (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
-                  badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
-                  badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
-                )}>
-                {badge.label}
-              </Badge>
-            )}
-            <span className={`shrink-0 text-[11px] text-muted-foreground ${badge ? '' : 'ml-auto'}`}>
-              {relative(chat.at)}
+            <span className="flex h-lh w-3.5 shrink-0 items-center justify-center">
+              {working ? (
+                <LoaderCircleIcon className="size-3.5 animate-spin text-[hsl(var(--success))]" />
+              ) : activity.state === 'finished' ? (
+                <span data-slot="finished-dot" aria-hidden className="size-2 rounded-full bg-[hsl(var(--token-conn))]" />
+              ) : activity.state === 'waiting' ? (
+                <span aria-hidden className="size-2 rounded-full bg-amber-500" />
+              ) : pinned ? (
+                <PinIcon className="size-3.5 text-muted-foreground" />
+              ) : done ? (
+                <CircleCheckIcon className="size-3.5 text-muted-foreground" />
+              ) : (
+                <span
+                  aria-hidden
+                  className={cn('size-1.5 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
+              )}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{relative(chat.at)}</span>
+              </span>
+              {tall && (
+                <span className="flex items-center gap-2">
+                  <span data-slot="activity-line" className={cn('min-w-0 flex-1 truncate text-[11px] font-normal', LINE_TONE[activity.state])}>
+                    {activity.line}
+                  </span>
+                  {chip && (
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'shrink-0 px-1.5 py-0 text-[10px]',
+                        badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+                        badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
+                      )}>
+                      {badge.label}
+                    </Badge>
+                  )}
+                </span>
+              )}
             </span>
           </SidebarMenuButton>
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-y-0.5 right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-55% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
+            className={cn(
+              'pointer-events-none absolute right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-55% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100',
+              tall ? 'top-0.5 h-[18px]' : 'inset-y-0.5',
+            )} />
           <SidebarMenuAction
             showOnHover
-            className={saved ? 'right-14' : 'right-7'}
+            className={cn(saved ? 'right-14' : 'right-7', tall && TALL_ACTION)}
             title={pinned ? 'Unpin' : 'Pin'}
             aria-label={`${pinned ? 'Unpin' : 'Pin'} ${chat.title}`}
             onClick={(e) => { e.stopPropagation(); pinChat(chat, !pinned); }}>
@@ -140,7 +176,7 @@ function Row({ chat, current, onDelete, onRename }) {
           {saved && (
             <SidebarMenuAction
               showOnHover
-              className="right-7 hover:text-[hsl(var(--success))]"
+              className={cn('right-7 hover:text-[hsl(var(--success))]', tall && TALL_ACTION)}
               title={done ? 'Move back to the list' : 'Mark completed'}
               aria-label={`${done ? 'Move back' : 'Mark completed'}: ${chat.title}`}
               onClick={(e) => { e.stopPropagation(); markDone(chat, !done); }}>
@@ -149,7 +185,7 @@ function Row({ chat, current, onDelete, onRename }) {
           )}
           <SidebarMenuAction
             showOnHover
-            className="hover:text-destructive"
+            className={cn('hover:text-destructive', tall && TALL_ACTION)}
             title="Delete chat"
             aria-label={`Delete ${chat.title}`}
             onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
@@ -669,20 +705,6 @@ export default function Rail() {
               <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            {/* Skills, agents and MCP servers for this folder, and the app's
-                settings, on a page in the chat's place. */}
-            <SidebarMenuButton className={NAV} title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
-              <BlocksIcon />
-              <span>Customize</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton className={NAV} title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
-              <GaugeIcon />
-              <span>Usage</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
@@ -717,6 +739,25 @@ export default function Rail() {
           )}
         </SidebarGroup>
       </SidebarContent>
+
+      <SidebarFooter data-slot="rail-foot" className="gap-0 border-t px-2 py-1.5">
+        <SidebarMenu className="gap-px">
+          <SidebarMenuItem>
+            {/* Skills, agents and MCP servers for this folder, and the app's
+                settings, on a page in the chat's place. */}
+            <SidebarMenuButton className={FOOT} title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
+              <BlocksIcon />
+              <span>Customize</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton className={FOOT} title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
+              <GaugeIcon />
+              <span>Usage</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <NewChatDialog open={starting} onOpenChange={setStarting} />
       <ConfirmRemove folder={leaving} onCancel={() => setLeaving(null)} onConfirm={removeFolder} />

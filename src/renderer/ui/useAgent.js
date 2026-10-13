@@ -3,8 +3,10 @@ import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { chatActivity } from '@/lib/activity';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
+import { toast } from './shell/toast';
 import { handover } from './handover.js';
 
 const conn = () => window.conn;
@@ -14,6 +16,12 @@ const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', openc
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
+
+const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with an error' : 'is done'}`, null, [{
+  label: 'Open',
+  primary: true,
+  run: () => window.connChat?.open({ key: chat.key, id: chat.session, project: chat.project, title: chat.title }),
+}], { duration: 10000 });
 
 // A stopped turn's transcript. Its open permission cards are a deny and the
 // agents that were waiting on them are not waiting any more.
@@ -109,6 +117,7 @@ const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   title: 'New chat',
   items: [],
   busy: false,
+  endedUnseen: false,
   // When the turn on this chat started, so the header can count it. Per chat,
   // because the fleet runs several at once and switching chats mid-turn must
   // not hand the other one's clock to this one.
@@ -484,9 +493,11 @@ export function useAgent() {
       if (msg.type === 'result') {
         const secs = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
         const failed = msg.subtype && msg.subtype !== 'success';
+        const away = chat !== activeRef.current;
         edit(chat, (c) => ({
           ...c,
           busy: false,
+          endedUnseen: away,
           usage: account(c.usage, msg),
           // A blocking agent cannot outlive the turn that was waiting on it. If
           // its notification went missing, the turn ending says the same thing,
@@ -496,11 +507,14 @@ export function useAgent() {
             : it)), {
             id: uid('r'),
             kind: 'note',
+            ended: true,
             error: !!failed,
             text: failed ? `turn ended: ${msg.subtype} ${secs}` : `done in ${secs}`,
           }],
         }));
         window.connRail?.refresh();
+        const finished = away && chatsRef.current.find((c) => c.key === chat);
+        if (finished) toastEnd(finished, failed);
       }
     }));
 
@@ -544,11 +558,16 @@ export function useAgent() {
       patch(chat || activeRef.current, id, { decided: decision })) ?? (() => {}));
 
     offs.push(conn().agent.onError(({ chat, error }) => {
-      edit(chat || activeRef.current, (c) => ({
+      const key = chat || activeRef.current;
+      const away = key !== activeRef.current;
+      edit(key, (c) => ({
         ...c,
         busy: false,
-        items: [...c.items, { id: uid('e'), kind: 'note', error: true, text: `agent error: ${error}` }],
+        endedUnseen: away,
+        items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: `agent error: ${error}` }],
       }));
+      const finished = away && chatsRef.current.find((c) => c.key === key);
+      if (finished) toastEnd(finished, true);
     }));
 
     // A session ending is not the chat ending: a parked chat is stopped on
@@ -687,9 +706,15 @@ export function useAgent() {
         busy: c.busy,
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
+        activity: chatActivity(c.items, c.busy, !c.endedUnseen),
       })),
     });
   }, [chats, activeKey]);
+
+  useEffect(() => {
+    if (!chats.some((c) => c.key === activeKey && c.endedUnseen)) return;
+    setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false } : c)));
+  }, [activeKey, chats]);
 
   const sendTo = useCallback(async (key, text, images = []) => {
     if (!text.trim() && !(images || []).length) return;

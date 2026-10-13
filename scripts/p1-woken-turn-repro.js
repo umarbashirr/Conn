@@ -77,6 +77,7 @@ function view(title) {
     transcript: document.querySelector('#agent-root')?.textContent || '',
     rail: row && {
       spinner: !!row.querySelector('svg.animate-spin'),
+      activity: row.dataset.activity,
       badge: [...row.querySelectorAll('[data-slot="badge"]')].map((b) => b.textContent.trim()).join(','),
     },
   };
@@ -148,7 +149,7 @@ async function main() {
     await sleep(300);
     const woken = await state();
     check('woken-turn-shows-stop', /picking up from there/.test(woken.transcript) && woken.stop === true, `stop ${woken.stop}`);
-    check('woken-turn-rail-busy', woken.rail?.spinner === true && woken.rail.badge === 'working', JSON.stringify(woken.rail));
+    check('woken-turn-rail-busy', woken.rail?.spinner === true && woken.rail.activity === 'working' && !woken.rail.badge, JSON.stringify(woken.rail));
     check('woken-turn-sent-nothing', JSON.stringify(await main.run('globalThis.__sent')) === '["first task"]',
       JSON.stringify(await main.run('globalThis.__sent')));
 
