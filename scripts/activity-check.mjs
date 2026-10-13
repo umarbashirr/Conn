@@ -124,6 +124,11 @@ is(
 is(activityOf([user(), said(), ended()], false, false), { state: 'finished', line: 'Finished' }, 'an unseen finished turn is finished');
 is(activityOf([user(), said(), ended(true)], false, false), { state: 'finished', line: 'Ended with an error' }, 'a failed turn says so');
 is(activityOf([user(), said(), ended()], false, true), IDLE, 'a finished turn the person has opened is idle');
+is(
+  activityOf([user(), said(), ended(), note('the session ended, so its background work stopped')], false, false),
+  { state: 'finished', line: 'Finished' },
+  'a note after the turn ended does not hide that it ended',
+);
 is(activityOf([user(), said(), ended(), user('more')], false, false), IDLE, 'a new message ends finished before the turn starts');
 is(
   activityOf([user(), said(), ended(), user('more'), tool('Bash', { command: 'ls' })], true, false),
