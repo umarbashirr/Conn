@@ -1,7 +1,7 @@
 // A subagent as every surface sees it: the row in the chat, the Working pill
 // and panel, the sheet, and the Agents tab. Each asks here what state one is
 // in and what it is doing, so no two of them can disagree.
-import { toolLabel, toolSummary } from './tools.js';
+import { toolLabel, toolName, toolSummary } from './tools.js';
 
 // The wire says more than this (a stop still on its way, a status a newer SDK
 // made up), but these four are the answers anything on screen gives.
@@ -39,7 +39,8 @@ export function subagentsIn(items, out = []) {
 }
 
 // Nothing on the wire carries a status string, so the newest step is the
-// closest thing to one: "Reading agent-row.jsx" rather than a timer.
+// closest thing to one: "Reading agent-row.jsx" rather than a timer. A browser
+// call with no verb here reads as the name its row shows, never its plumbing.
 const DOING = {
   Read: 'Reading',
   NotebookRead: 'Reading',
@@ -52,11 +53,29 @@ const DOING = {
   MultiEdit: 'Editing',
   NotebookEdit: 'Editing',
   Write: 'Writing',
+  browser_navigate: 'Opening',
+  browser_snapshot: 'Reading the page',
+  browser_text: 'Reading the page',
+  browser_click: 'Clicking',
+  browser_fill: 'Filling',
+  browser_type: 'Typing',
+  browser_press: 'Pressing',
+  browser_select: 'Selecting',
+  browser_hover: 'Hovering',
+  browser_scroll: 'Scrolling',
+  browser_screenshot: 'Screenshotting',
+  browser_evaluate: 'Evaluating',
+  browser_wait: 'Waiting',
+  browser_highlight: 'Highlighting',
+  browser_back: 'Going back',
+  browser_forward: 'Going forward',
+  browser_reload: 'Reloading the page',
+  browser_tab_new: 'Opening a tab',
 };
 
-const doingTool = (name, input) => {
+export const doingTool = (name, input) => {
   const label = toolLabel(name);
-  return [DOING[label] || label, toolSummary(label, input)].filter(Boolean).join(' ');
+  return [DOING[label] || toolName(label), toolSummary(label, input)].filter(Boolean).join(' ');
 };
 
 // A line of prose it is writing reads better cut at its first sentence.
