@@ -22,7 +22,7 @@ registerHooks({
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const shell = (file) => import(pathToFileURL(path.join(ROOT, 'src/renderer/ui/shell', file)).href);
 const tabs = await shell('tabs-store.js');
-const { layout } = await shell('layout-store.js');
+const { layout, setLayout } = await shell('layout-store.js');
 
 const failures = [];
 const check = (name, ok, detail) => {
@@ -30,7 +30,7 @@ const check = (name, ok, detail) => {
   if (!ok) failures.push(name);
 };
 
-const { KINDS, SLOTS, SLOT_OF, activeIn, activateTab, closeTab, openTab, showPanel } = tabs;
+const { KINDS, SLOTS, SLOT_OF, activeIn, activateTab, closeTab, getTabsVersion, openTab, revealTab, showPanel, shownIn } = tabs;
 const slots = () => `top ${layout.topOpen} bottom ${layout.bottomOpen} right ${layout.rightOpen}`;
 const active = (dir) => `top ${activeIn(dir, 'top')?.id ?? null} bottom ${activeIn(dir, 'bottom')?.id ?? null}`;
 
@@ -73,6 +73,22 @@ openTab(dir, 'terminal');
 check('another-chat-opens-only-its-own-bottom-slot', layout.bottomOpen === true && layout.topOpen === false, slots());
 showPanel(dir, 'chat-one');
 check('coming-back-restores-that-chat-s-slots', layout.bottomOpen === false && layout.topOpen === false, slots());
+
+// A key press puts a slot away through the layout alone. The tab stays the
+// slot's, it stops being drawn, and the tabs' readers hear of it.
+const shell2 = openTab(dir, 'terminal');
+check('a-slot-that-is-up-draws-its-tab', shownIn(dir, 'bottom')?.id === shell2.id, `shown ${shownIn(dir, 'bottom')?.id}`);
+const before = getTabsVersion();
+setLayout({ bottomOpen: false });
+check('a-shut-slot-draws-nothing', shownIn(dir, 'bottom') === null && activeIn(dir, 'bottom')?.id === shell2.id, `shown ${shownIn(dir, 'bottom')?.id} active ${activeIn(dir, 'bottom')?.id}`);
+check('shutting-a-slot-tells-the-tabs-readers', getTabsVersion() > before, `version ${before} -> ${getTabsVersion()}`);
+
+// An agent's page in a chat behind comes up there, not in the chat in front.
+const behind = openTab(dir, 'browser', null, { chat: 'chat-three', reveal: false });
+revealTab(behind.id);
+check('a-page-revealed-behind-leaves-the-front-alone', layout.topOpen === false, slots());
+showPanel(dir, 'chat-three');
+check('the-chat-behind-comes-forward-on-its-page', layout.topOpen === true && shownIn(dir, 'top')?.id === behind.id, `${slots()}; shown ${shownIn(dir, 'top')?.id}`);
 
 console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
 process.exit(failures.length ? 1 : 0);
