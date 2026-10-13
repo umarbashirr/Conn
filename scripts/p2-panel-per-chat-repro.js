@@ -181,6 +181,9 @@ async function main() {
         && host.querySelector('.xterm'));
     });
     check('chat-one-terminal-still-drawn', backHomed);
+    // Coming back to a chat puts its shell on screen, not the keys in it.
+    const typing = await page.evaluate(() => (document.activeElement?.closest('#terms') ? 'the terminal' : document.activeElement?.tagName.toLowerCase() || 'nothing'));
+    check('coming-back-leaves-the-keys-out-of-the-shell', typing !== 'the terminal', `the keys go to ${typing}`);
 
     await openChat(page, two);
     p = await panel(page);

@@ -54,7 +54,7 @@ async function main() {
 
   const site = http.createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end('<!doctype html><title>split</title><body style="background:#e8f0ff"><h1>Split column</h1></body>');
+    res.end('<!doctype html><title>split</title><body style="background:#e8f0ff"><h1>Split column</h1><script>console.log("split says hello")</script></body>');
   });
   await new Promise((r) => site.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${site.address().port}/`;
@@ -73,6 +73,9 @@ async function main() {
     check('a-handle-between-the-slots', !!g.handle && g.handle.width > 100 && g.handle.y > g.slot?.y, JSON.stringify(g.handle));
     const before = await bounds(s);
     check('bounds-match-paneslot-before-any-drag', before.match, JSON.stringify({ ipc: before.ipc, paneslot: before.paneslot }));
+    // A page that logs in a loop repaints whatever draws its log, so nothing does until the Console tab is up.
+    const drawn = await evaluate(s, `document.querySelectorAll('#console-view [data-level]').length`);
+    check('no-log-rows-drawn-while-the-console-tab-is-away', drawn === 0, `${drawn} rows drawn`);
 
     if (!g.handle) {
       check('drags', false, 'no handle to drag');
@@ -144,6 +147,16 @@ async function main() {
     const after = await bounds(s);
     check('the-bottom-menu-leaves-the-window-unscrolled', scrolled === 0, `scrolled by ${scrolled}px`);
     check('bounds-follow-paneslot-after-the-bottom-menu', after.match, JSON.stringify({ ipc: after.ipc, paneslot: after.paneslot }));
+
+    // A new page asked for from the top strip is where the next keys belong, not the shell under it.
+    await click(s, 'css=section#right [data-strip="bottom"] [role="tab"]:has(.lucide-square-terminal)');
+    await sleep(300);
+    await click(s, 'css=section#right [data-strip="top"] button[title="Open another tab"]');
+    await sleep(300);
+    await click(s, 'Browser');
+    await sleep(500);
+    const typing = await evaluate(s, `document.activeElement?.closest('#terms') ? 'the terminal' : document.activeElement?.tagName.toLowerCase() || 'nothing'`);
+    check('a-page-from-the-top-strip-leaves-the-shell-alone', typing !== 'the terminal', `the keys go to ${typing}`);
   } finally {
     await stop(s);
     site.close();
