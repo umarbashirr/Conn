@@ -842,7 +842,10 @@ export function runCommand(name, arg) {
     case 'newTerminal': return newTerminalTab();
     case 'runInTerminal': return newTerminalTab(arg);
     case 'rail': return toggleRail();
-    case 'drawer': return toggleRight('console');
+    case 'drawer':
+      if (arg === true) return showRight('console');
+      if (arg === false) return hideSlot('bottom');
+      return toggleRight('console');
     case 'theme': return toggleTheme();
     // Both live in the React half, which registers them on window.connChat.
     case 'settings': return window.connChat?.settings?.(arg);

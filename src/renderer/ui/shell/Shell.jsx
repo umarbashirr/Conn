@@ -164,7 +164,7 @@ function AddTab({ slot }) {
           // only ever the one, so it lands you on it; for a preview or a shell
           // it means another, which is what the toolbar button cannot ask for.
           return (
-            <DropdownMenuItem key={kind} onSelect={() => runCommand(adds || command)}>
+            <DropdownMenuItem key={kind} onSelect={() => (adds ? runCommand(adds) : runCommand(command, true))}>
               <Icon />
               {label}
             </DropdownMenuItem>
