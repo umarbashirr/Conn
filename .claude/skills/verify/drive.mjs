@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../../..');
 const FIXTURE = path.join(HERE, 'fixtures', 'shop');
-// Evidence lives apart from the session dirs, which stop deletes.
-const SHOTS = process.env.CONN_VERIFY_SHOTS || path.join(os.tmpdir(), 'conn-shots');
+// Evidence lives apart from the session dirs, which stop deletes, and from the app's own /tmp/conn-shots-<uid>.
+const SHOTS = process.env.CONN_VERIFY_SHOTS || path.join(os.tmpdir(), 'verify-evidence');
 const J = JSON.stringify;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -130,6 +130,7 @@ const save = (s) => fs.writeFileSync(path.join(s.dir, 'session.json'), J(s));
 
 export async function boot({ root = ROOT, xvfb = false } = {}) {
   if (!fs.existsSync(path.join(root, 'build', 'renderer', 'index.html'))) throw new Error('no renderer build: run `npx vite build` first');
+  const began = Date.now();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-'));
   const s = { dir, root, home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata') };
   fs.mkdirSync(path.join(s.home, '.conn'), { recursive: true });
@@ -152,21 +153,23 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   const [cmd, argv] = xvfb ? ['xvfb-run', ['-a', '-s', '-screen 0 1600x1000x24', electron, ...args]] : [electron, args];
   const env = { ...process.env, HOME: s.home, CONN_CWD: s.project };
   delete env.ELECTRON_RUN_AS_NODE;
-  const errFile = path.join(dir, 'app.err');
-  const child = spawn(cmd, argv, { detached: true, stdio: ['ignore', fs.openSync(path.join(dir, 'app.log'), 'w'), fs.openSync(errFile, 'w')], env });
+  // One file for both streams, since xvfb-run folds stderr into stdout.
+  const logFile = path.join(dir, 'app.log');
+  const log = fs.openSync(logFile, 'w');
+  const child = spawn(cmd, argv, { detached: true, stdio: ['ignore', log, log], env });
   child.unref();
   s.pid = child.pid;
   save(s);
   let exited = null;
   child.once('exit', (code) => { exited = code ?? 'a signal'; });
   const alive = () => {
-    if (exited !== null) throw new Error(`Electron exited with ${exited} before it was ready:\n${read(errFile).slice(-1500)}`);
+    if (exited !== null) throw new Error(`Electron exited with ${exited} before it was ready:\n${read(logFile).slice(-1500)}`);
   };
 
   try {
-    s.inspect = Number(await until(() => { alive(); return /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(read(errFile))?.[1]; }, 30000));
+    s.inspect = Number(await until(() => { alive(); return /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(read(logFile))?.[1]; }, 30000));
     s.cdp = Number(await until(() => { alive(); return read(path.join(s.userData, 'DevToolsActivePort')).split('\n')[0]; }, 30000));
-    if (!s.inspect || !s.cdp) throw new Error(`Electron never printed its ports:\n${read(errFile).slice(-1500)}`);
+    if (!s.inspect || !s.cdp) throw new Error(`Electron never printed its ports:\n${read(logFile).slice(-1500)}`);
     save(s);
     const ready = await until(() => { alive(); return page(s, (c) => c.run('!!window.connChat')).catch(() => false); }, 45000);
     if (!ready) throw new Error('the chat never mounted');
@@ -178,6 +181,7 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
     await stop(s).catch(() => {});
     throw e;
   }
+  s.bootMs = Date.now() - began;
   return s;
 }
 
@@ -453,7 +457,7 @@ const stdin = async () => { let t = ''; for await (const c of process.stdin) t +
 const COMMANDS = {
   async boot({ flags }) {
     const s = await boot({ xvfb: !!flags.xvfb, ...(flags.root && { root: path.resolve(flags.root) }) });
-    console.log(`ready inspect=${s.inspect} cdp=${s.cdp}\nsession ${s.dir}\nproject ${s.project}`);
+    console.log(`ready inspect=${s.inspect} cdp=${s.cdp} boot=${s.bootMs}ms\nsession ${s.dir}\nproject ${s.project}`);
   },
   async doctor({ s }) {
     const rows = await doctor(s);
@@ -507,7 +511,7 @@ const COMMANDS = {
 async function smoke({ flags }) {
   const s = await boot({ xvfb: !!flags.xvfb });
   try {
-    console.log(`ready inspect=${s.inspect} cdp=${s.cdp}`);
+    console.log(`ready inspect=${s.inspect} cdp=${s.cdp} boot=${s.bootMs}ms`);
     console.log(`png ${await shot(s, flags.out || path.join(SHOTS, `smoke-${path.basename(s.dir)}.png`))}`);
   } finally {
     await stop(s);
