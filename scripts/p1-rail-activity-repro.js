@@ -137,10 +137,11 @@ async function main() {
     const clear = await evaluate(s, `(() => {
       const row = document.querySelector('[data-sidebar="menu-button"][title=${J(FIRST)}]');
       const fade = row.parentElement.querySelector('.pointer-events-none').getBoundingClientRect();
+      const actions = [...row.parentElement.querySelectorAll('[data-sidebar="menu-action"]')].map((a) => a.querySelector('svg').getBoundingClientRect().bottom);
       const chip = [...row.querySelectorAll('[data-slot="badge"]')].find((b) => b.textContent.trim() === 'Review').getBoundingClientRect();
-      return { fadeBottom: fade.bottom, chipTop: chip.top };
+      return { fadeBottom: fade.bottom, actionsBottom: Math.max(...actions), chipTop: chip.top };
     })()`);
-    check('review-chip-sits-clear-of-the-hover-fade', clear.fadeBottom <= clear.chipTop + 1, J(clear));
+    check('review-chip-sits-clear-of-the-hover-fade-and-icons', clear.fadeBottom <= clear.chipTop + 1 && clear.actionsBottom <= clear.chipTop + 1, J(clear));
     await shot(s, SHOT('waiting'));
 
     await click(s, `css=[data-sidebar="menu-button"][title=${J(FIRST)}]`);
