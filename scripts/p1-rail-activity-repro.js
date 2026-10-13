@@ -1,15 +1,4 @@
 'use strict';
-/* The rail says what each chat is doing, driven in the real app. Two chats
-   run on a stand-in agent that is answered from the main process, so one stays
-   on screen while the other works in the background. Its row has to read the
-   call in flight and name the element a click points at, then ask for Review
-   while a permission waits, then take a dot and a toast when its turn ends, and
-   lose the dot once it is opened. A chat that finishes under the person's eyes
-   gets neither. The sync payload keeps every field it had.
-
-   Boots through the verify skill, which hands out its own debug ports, so this
-   needs no port lock. Needs a built renderer: `npx vite build` first.
-   Screenshots land in the temp directory. */
 const os = require('os');
 const path = require('path');
 const { pathToFileURL } = require('url');

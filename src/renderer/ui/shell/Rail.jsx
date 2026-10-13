@@ -92,8 +92,6 @@ const LINE_TONE = {
   finished: 'text-muted-foreground',
 };
 
-// In pixels too: two lines and their padding come to 40px, and h-10 at this
-// root is 32.5.
 const TALL = 'h-[40px] items-start py-1';
 
 function Row({ chat, current, onDelete, onRename }) {
@@ -102,7 +100,6 @@ function Row({ chat, current, onDelete, onRename }) {
   const pinned = isPinned(chat);
   const badge = railBadge(chat);
   const working = badge?.tone === 'busy';
-  // Only an open chat reports what it is doing, so a chat read from disk has none.
   const activity = chat.activity ?? IDLE;
   const tall = activity.state !== 'idle';
 
@@ -116,8 +113,6 @@ function Row({ chat, current, onDelete, onRename }) {
             data-activity={activity.state}
             className={cn(ROW, tall && TALL)}
             onClick={() => window.connChat?.open(chat)}>
-            {/* One title line tall, so on a two-line row the glyph sits beside
-                the title rather than between the lines. */}
             <span className="flex h-lh w-3.5 shrink-0 items-center justify-center">
               {working ? (
                 <LoaderCircleIcon className="size-3.5 animate-spin text-[hsl(var(--success))]" />
@@ -143,8 +138,6 @@ function Row({ chat, current, onDelete, onRename }) {
                 </span>
               )}
             </span>
-            {/* On two lines the age stays on the title line and the chip drops
-                beside the line that explains it. */}
             <span className={cn('flex shrink-0', tall ? 'flex-col-reverse items-end gap-px' : 'items-center gap-2')}>
               {badge && (
                 <Badge
@@ -154,7 +147,7 @@ function Row({ chat, current, onDelete, onRename }) {
                     badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
                     badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
                   )}>
-                  {badge.tone === 'wait' ? 'Review' : badge.label}
+                  {badge.label}
                 </Badge>
               )}
               <span className="text-[11px] text-muted-foreground">{relative(chat.at)}</span>
@@ -738,8 +731,6 @@ export default function Rail() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Places you visit now and then, not where work starts, so they wait
-          at the foot and leave the top of the rail to the chats. */}
       <SidebarFooter data-slot="rail-foot" className="gap-0 border-t px-2 py-1.5">
         <SidebarMenu className="gap-px">
           <SidebarMenuItem>

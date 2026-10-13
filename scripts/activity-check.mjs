@@ -1,7 +1,3 @@
-/* What a chat is doing, read from its transcript under plain node. The rail,
-   the status bar and the pane pill all take their line from activityOf, so each
-   state has a transcript here, a click names the element a snapshot gave it,
-   and a long transcript costs well under a frame. */
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import './renderer-esm.mjs';
@@ -160,6 +156,11 @@ is(
   activityOf([user(), snapshot('- button "Reset" [ref=e13]'), snapshot(), tool('browser_click', { target: 'e13' })], true, true),
   { state: 'working', line: 'Clicking Apply', target: 'browser' },
   'the newest snapshot names the ref, under the bare tool name too',
+);
+is(
+  activityOf([user(), done('mcp__conn__browser_snapshot', {}, SNAPSHOT), tool('mcp__conn__browser_click', { target: 'e13' })], true, true),
+  { state: 'working', line: 'Clicking Apply', target: 'browser' },
+  'a snapshot and a click under the codex prefix pair up as well',
 );
 is(
   activityOf([user(), snapshot('- button "Say \\"hi\\"" [ref=e13]'), tool('mcp__preview__browser_click', { target: 'e13' })], true, true),
