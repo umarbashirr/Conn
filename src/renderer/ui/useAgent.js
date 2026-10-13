@@ -3,7 +3,7 @@ import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { activityOf } from '@/lib/activity';
+import { chatActivity } from '@/lib/activity';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
@@ -706,7 +706,7 @@ export function useAgent() {
         busy: c.busy,
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
-        activity: activityOf(c.items, c.busy, !c.endedUnseen),
+        activity: chatActivity(c.items, c.busy, !c.endedUnseen),
       })),
     });
   }, [chats, activeKey]);
