@@ -111,9 +111,7 @@ const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   title: 'New chat',
   items: [],
   busy: false,
-  // A turn ended here while another chat was on screen. Cleared once this one
-  // is opened, and the rail draws it as the dot on a finished chat.
-  unseen: false,
+  endedUnseen: false,
   // When the turn on this chat started, so the header can count it. Per chat,
   // because the fleet runs several at once and switching chats mid-turn must
   // not hand the other one's clock to this one.
@@ -493,7 +491,7 @@ export function useAgent() {
         edit(chat, (c) => ({
           ...c,
           busy: false,
-          unseen: away,
+          endedUnseen: away,
           usage: account(c.usage, msg),
           // A blocking agent cannot outlive the turn that was waiting on it. If
           // its notification went missing, the turn ending says the same thing,
@@ -705,18 +703,14 @@ export function useAgent() {
         busy: c.busy,
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
-        // The chat on screen has been seen by definition. Its flag is cleared
-        // by the effect below, one render later than this reads it.
-        activity: activityOf(c.items, c.busy, !c.unseen || c.key === activeKey),
+        activity: activityOf(c.items, c.busy, !c.endedUnseen),
       })),
     });
   }, [chats, activeKey]);
 
-  // Opening a chat is how a finished turn gets seen, whichever way it was
-  // opened: the rail, the toast, a deleted neighbour handing over the screen.
   useEffect(() => {
-    if (!chats.some((c) => c.key === activeKey && c.unseen)) return;
-    setChats((cur) => cur.map((c) => (c.key === activeKey && c.unseen ? { ...c, unseen: false } : c)));
+    if (!chats.some((c) => c.key === activeKey && c.endedUnseen)) return;
+    setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false } : c)));
   }, [activeKey, chats]);
 
   const sendTo = useCallback(async (key, text, images = []) => {

@@ -39,8 +39,7 @@ export function subagentsIn(items, out = []) {
 }
 
 // Nothing on the wire carries a status string, so the newest step is the
-// closest thing to one: "Reading agent-row.jsx" rather than a timer. A browser
-// call with no verb here reads as the name its row shows, never its plumbing.
+// closest thing to one: "Reading agent-row.jsx" rather than a timer.
 const DOING = {
   Read: 'Reading',
   NotebookRead: 'Reading',

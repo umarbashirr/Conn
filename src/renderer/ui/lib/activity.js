@@ -1,6 +1,3 @@
-// What a chat is doing right now, in one line a glance can read. The rail, the
-// status bar and the pane pill all draw this, so none of them works out for
-// itself whether a chat is stuck on a permission or only thinking.
 import { bucketOf, toolLabel, toolName, toolSummary, toolText } from './tools.js';
 import { doingTool, isLive, nameOf } from './subagents.js';
 
@@ -31,25 +28,19 @@ const WANTS = {
   WebFetch: 'fetch',
 };
 
-// These browser calls point at an element by a ref the page handed out, and
-// the ref says nothing to the person reading the line.
 const AT_ELEMENT = new Set(['browser_click', 'browser_hover', 'browser_highlight']);
 const ELSEWHERE = 'in the page';
 const REF = /^e\d+$/;
 
 const isAsk = (it) => it.kind === 'perm' && !it.decided;
 const isLiveAgent = (it) => it.kind === 'agent' && isLive(it);
+const isTurnEdge = (it) => it.kind === 'user' || it.kind === 'note';
+const isSnapshot = (it) => it.kind === 'tool' && it.output != null && it.name.endsWith('browser_snapshot');
 
-// The snapshot is a list of `- role "name" [ref=eN]` lines, the name a JSON
-// string. Every spelling the call arrives under ends the same way, which is
-// cheaper to test than toolLabel across a long transcript. Only the newest
-// answer counts: a ref belongs to the page that gave it
-// out, and a click names whatever the last look at that page called it.
 function elementName(items, before, ref) {
   for (let i = before - 1; i >= 0; i--) {
-    const it = items[i];
-    if (it.kind !== 'tool' || it.output == null || !it.name.endsWith('browser_snapshot')) continue;
-    const hit = new RegExp(`^\\s*- \\S+ ("(?:[^"\\\\]|\\\\.)*") \\[ref=${ref}\\]`, 'm').exec(toolText(it.output));
+    if (!isSnapshot(items[i])) continue;
+    const hit = new RegExp(`^\\s*- \\S+ ("(?:[^"\\\\]|\\\\.)*") \\[ref=${ref}\\]`, 'm').exec(toolText(items[i].output));
     return hit ? JSON.parse(hit[1]) : null;
   }
   return null;
@@ -72,14 +63,10 @@ function wants(items, at) {
   ].filter(Boolean).join(' ');
 }
 
-// The newest call or line of prose the turn has started and not finished, as an
-// index, or -1. Walking back stops at the message or note that opened or closed
-// the turn. A stopped turn leaves its call in flight for good, and that is not
-// what the next turn is doing.
 function stepIn(items) {
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
-    if (it.kind === 'user' || it.kind === 'note') return -1;
+    if (isTurnEdge(it)) return -1;
     if (it.kind === 'tool' && it.state === 'input-available') return i;
     if (it.kind === 'assistant' && it.streaming) return i;
   }
