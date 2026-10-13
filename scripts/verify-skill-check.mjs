@@ -1,7 +1,15 @@
+/* The verify skill, run for real. Two instances boot at once on throwaway
+   HOMEs, one on the screen and one under Xvfb, and must not share a port or a
+   data dir. Each must paint a window the skill can photograph, and say, perm
+   and click must reach the app and its main process. `sessions` lists what
+   was booted, and stop refuses any folder a boot did not make. After stop no
+   process may still name either instance's folder, by command line,
+   environment or working directory. Needs a built renderer: `npx vite build`
+   first. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { boot, click, decided, evaluate, perm, say, shot, stop } from '../.claude/skills/verify/drive.mjs';
+import { boot, click, decided, evaluate, perm, say, sessions as listed, shot, stop } from '../.claude/skills/verify/drive.mjs';
 
 const failures = [];
 const check = (name, ok, detail) => {
@@ -15,6 +23,10 @@ const isPng = (file) => {
   return bytes.length > 1000 && bytes.subarray(0, 8).equals(PNG);
 };
 
+const refuses = async (s) => {
+  try { await stop(s); return false; } catch (e) { return /refusing/.test(e.message); }
+};
+
 const holders = (dir) => fs.readdirSync('/proc')
   .filter((pid) => /^\d+$/.test(pid))
   .filter((pid) => ['cmdline', 'environ'].some((file) => {
@@ -26,6 +38,7 @@ const holders = (dir) => fs.readdirSync('/proc')
 async function main() {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-check-'));
   const sessions = [];
+  const decoys = [];
   try {
     const booted = await Promise.allSettled([boot(), boot({ xvfb: true })]);
     sessions.push(...booted.filter((r) => r.status === 'fulfilled').map((r) => r.value));
@@ -58,7 +71,21 @@ async function main() {
     check('click-allow-reaches-main', (await decided(a, 'p1')) === 'allow', JSON.stringify(await decided(a)));
     check('the-other-instance-heard-nothing', (await decided(b)).length === 0, JSON.stringify(await decided(b)));
 
+    check('sessions-lists-both-instances', [a, b].every((s) => listed().some((l) => l.dir === s.dir)), JSON.stringify(listed().map((l) => l.dir)));
+
+    const decoy = (name) => { const dir = fs.mkdtempSync(path.join(os.tmpdir(), name)); decoys.push(dir); return dir; };
+    const shaped = (dir, over = {}) => ({ dir, home: path.join(dir, 'home'), userData: path.join(dir, 'userdata'), project: path.join(dir, 'shop'), pid: 0, ...over });
+    const notASession = decoy('not-a-session-');
+    const outer = decoy('conn-verify-outer-');
+    const nested = path.join(outer, 'conn-verify-inner');
+    fs.mkdirSync(nested);
+    const forged = decoy('conn-verify-forged-');
+    check('stop-refuses-a-folder-not-named-conn-verify', await refuses(shaped(notASession)) && fs.existsSync(notASession), notASession);
+    check('stop-refuses-a-folder-not-directly-under-tmp', await refuses(shaped(nested)) && fs.existsSync(nested), nested);
+    check('stop-refuses-a-session-whose-home-is-elsewhere', await refuses(shaped(forged, { home: `${forged}-elsewhere/home` })) && fs.existsSync(forged), forged);
+
     for (const s of [a, b]) await stop(s);
+    check('sessions-no-longer-lists-them', [a, b].every((s) => !listed().some((l) => l.dir === s.dir)), JSON.stringify(listed().map((l) => l.dir)));
     for (const s of [a, b]) {
       check(`no-process-holds-${path.basename(s.dir)}`, holders(s.dir).length === 0, holders(s.dir).join(','));
       check(`session-dir-removed-${path.basename(s.dir)}`, !fs.existsSync(s.dir), s.dir);
@@ -66,6 +93,7 @@ async function main() {
     sessions.length = 0;
   } finally {
     for (const s of sessions) await stop(s).catch(() => {});
+    for (const dir of decoys) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
     fs.rmSync(out, { recursive: true, force: true, maxRetries: 5 });
   }
 

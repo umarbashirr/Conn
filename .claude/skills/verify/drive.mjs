@@ -105,11 +105,32 @@ export const evaluate = (s, expression, { main: inMain = false, awaitPromise = f
   ? main(s, (c) => c.run(`(() => { ${mainPrefix(s)} return (${expression}); })()`, awaitPromise))
   : page(s, (c) => c.run(expression, awaitPromise)));
 
+function assertMadeByBoot(s) {
+  const dir = s?.dir;
+  const madeByBoot = typeof dir === 'string' && path.resolve(dir) === dir
+    && path.dirname(dir) === path.resolve(os.tmpdir()) && path.basename(dir).startsWith('conn-verify-')
+    && s.home === path.join(dir, 'home') && s.userData === path.join(dir, 'userdata') && s.project === path.join(dir, 'shop');
+  if (!madeByBoot) throw new Error(`refusing to touch ${dir}: a session is a conn-verify-* folder directly under ${os.tmpdir()}`);
+}
+
 export const load = (dir) => {
   const file = path.join(dir, 'session.json');
   if (!fs.existsSync(file)) throw new Error(`no session at ${dir}; was it stopped?`);
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assertMadeByBoot(s);
+  return s;
 };
+
+export function sessions() {
+  const tmp = path.resolve(os.tmpdir());
+  return fs.readdirSync(tmp).filter((name) => name.startsWith('conn-verify-')).flatMap((name) => {
+    try {
+      const s = JSON.parse(read(path.join(tmp, name, 'session.json')));
+      assertMadeByBoot(s);
+      return s.driver === HERE ? [{ ...s, running: heldBy(s).length > 0 }] : [];
+    } catch { return []; }
+  });
+}
 
 const standIn = `(() => {
   const { ipcMain } = electron;
@@ -134,7 +155,7 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   if (!fs.existsSync(path.join(root, 'build', 'renderer', 'index.html'))) throw new Error('no renderer build: run `npx vite build` first');
   const began = Date.now();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-'));
-  const s = { dir, root, home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata') };
+  const s = { dir, root, driver: HERE, startedAt: new Date().toISOString(), home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata') };
   fs.mkdirSync(path.join(s.home, '.conn'), { recursive: true });
   fs.cpSync(FIXTURE, s.project, { recursive: true });
   const git = (...args) => execFileSync('git', ['-c', 'user.name=verify', '-c', 'user.email=verify@conn.invalid', '-c', 'commit.gpgsign=false', ...args],
@@ -185,6 +206,7 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
 }
 
 export async function stop(s) {
+  assertMadeByBoot(s);
   const tryKill = (pid, sig) => { try { process.kill(pid, sig); } catch {} };
   const ownsGroup = () => heldBy(s).some((p) => statOf(p).pgrp === s.pid);
   const signal = (sig) => {
@@ -491,6 +513,11 @@ const COMMANDS = {
     console.log(typeof v === 'string' ? v : J(v, null, 2));
   },
   async stop({ s }) { await stop(s); console.log('stopped'); },
+  async sessions() {
+    const found = sessions();
+    for (const s of found) console.log(`session ${s.dir} started ${s.startedAt} inspect=${s.inspect} cdp=${s.cdp} ${s.running ? 'running' : 'nothing running'}`);
+    if (!found.length) console.log('no sessions from this checkout');
+  },
 };
 
 async function smoke({ flags }) {
@@ -509,7 +536,7 @@ async function cli(argv) {
   if (a.flags.smoke || !name) return smoke(a);
   if (!COMMANDS[name]) throw new Error(`unknown command ${name}; try: ${Object.keys(COMMANDS).join(' ')}`);
   const dir = a.flags.session || process.env.CONN_VERIFY_SESSION;
-  if (name !== 'boot') {
+  if (!['boot', 'sessions'].includes(name)) {
     if (dir) a.s = load(path.resolve(dir));
     else if (name !== 'doctor') throw new Error('name the instance with --session <dir>, the path boot printed');
   }

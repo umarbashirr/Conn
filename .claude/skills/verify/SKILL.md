@@ -9,6 +9,8 @@ description: Boot Conn, the Electron app that puts a terminal, an agent chat and
 
 All commands run from the repo root as `node .claude/skills/verify/drive.mjs <command>`.
 
+This skill runs on Linux only. `stop`, `doctor` and `sessions` read `/proc` to find an instance's processes, and nothing here has been tried on macOS or Windows.
+
 ## Launch
 
 You need two things first.
@@ -30,7 +32,7 @@ session /tmp/conn-verify-Qrbzw6
 project /tmp/conn-verify-Qrbzw6/shop
 ```
 
-Copy the `session` path. Every other command needs it as `--session <path>`. Shell variables do not survive between your tool calls, so type the path each time. Never use a session path that your own `boot` did not print, because it belongs to another agent.
+Copy the `session` path. Every other command needs it as `--session <path>`. Shell variables do not survive between your tool calls, so type the path each time. Use only a session path that your own `boot` printed, or that `sessions` listed for your checkout. Any other folder belongs to another agent.
 
 The instance has one open project, `shop`, a copy of `fixtures/shop` that is also a committed git repo. The window is 1440 by 900. Boot options:
 
@@ -56,7 +58,7 @@ Pass the instance with `--session <session>` on each command below.
 | `say <text>` | Shows an assistant reply. Use `-` to read the text from stdin. `--stream <ms>` types it out in chunks, `--size <chars>` sets the chunk size, `--open` leaves the turn running. |
 | `perm [tool]` | Announces a tool call and asks permission for it, like the agent does. The tool is `Edit`, `Write` or `Bash`. `--input <json>`, `--id <id>`, `--agent <json>` and `--bare` (no call row) adjust it. Prints the permission id. |
 | `decided [id]` | With an id, prints the decision the app sent back (`allow`, `always` or `deny`) and exits 1 if there is none after 3 seconds. Without one, prints every decision. |
-| `invoke <tool> [json]` | Calls one browser tool as the agent would, for example `invoke navigate '{"url":"http://localhost:3000/"}'`. Tools include `navigate`, `snapshot`, `text`, `click`, `fill`, `press`, `evaluate`, `screenshot`, `waitFor`, `console`, `network`, `state` and `tabs`. `--actor <json>` acts as a subagent. |
+| `invoke <tool> [json]` | Calls one browser tool as the agent would. The second argument is one JSON object of the tool's arguments, and it is left out when the tool takes none. See Browser tools. `--actor <json>` acts as a subagent. |
 | `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
@@ -64,11 +66,51 @@ Pass the instance with `--session <session>` on each command below.
 | `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`nativeView`), and the `#paneslot` rectangle (`paneslot`). `match` is true when `ipc` is within 1 px of `paneslot`, and `nativeViewMatch` says the same of `nativeView`. Exits 1 unless `match` is true. |
 | `record` | Records the window for `--seconds <n>` (default 10) to `--out <file.mp4>`. |
 | `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. Use it for read-only checks. |
+| `sessions` | Lists the instances this checkout's driver booted, with each one's path, start time, ports, and whether a process still runs. It needs no `--session`. |
 | `stop` | Ends the instance. See Cleanup. |
 
 `click`, `key`, `type`, `say` and `perm` return after the page has drawn two frames, so a `shot` right after one shows its result. When the result needs longer, such as the Changes list refreshing from git, poll the page with `js` until it appears, then shoot.
 
 The first `say`, `perm` or `invoke` has no chat to talk to, so it types `Hello` into the composer and sends it, which starts one. Pass `--prompt <text>` to `say` to send something else. After that, these commands talk to the newest chat.
+
+### Browser tools
+
+`invoke` drives the page inside the browser pane. Each tool takes one JSON object. A `?` marks an argument you can leave out. These are the shapes in `src/main/tools.js`, lines 6 to 34, and that file wins if the two disagree.
+
+| Tool | Arguments | Does |
+| --- | --- | --- |
+| `navigate` | `{"url": "http://localhost:3000/"}` | Loads the URL. A bare port such as `"3000"` is expanded. |
+| `snapshot` | `{"max"?: 2000}` | Prints an outline of the page. Each element has a handle such as `[ref=e3]`. |
+| `click` | `{"target": "e3", "button"?, "clickCount"?, "modifiers"?}` | A real mouse click. The target is a ref from `snapshot`, written `e3`, or a CSS selector. |
+| `fill` | `{"target": "e2", "value": "SAVE10"}` | Sets an input's value and fires `input` and `change`. |
+| `type` | `{"text": "SAVE10", "target"?, "delay"?}` | Real keystrokes, into `target` when given. |
+| `press` | `{"key": "Enter"}` | A key or chord, such as `ctrl+a`. |
+| `waitFor` | `{"selector"?: "#message.ok", "ms"?, "networkIdle"?: true, "timeout"?: 3000}` | Waits for a selector, a delay, or a quiet network. |
+| `text`, `html` | `{"max"?: 300}` | The visible text, or the raw HTML. |
+| `evaluate` | `{"code": "document.title"}` | Runs JavaScript in the page inside the pane. `js` runs in Conn's own window instead. |
+| `screenshot` | `{"fullPage"?, "target"?, "name"?}` | Saves a PNG of the page and returns its path. |
+| `hover`, `scrollTo`, `highlight` | `{"target": "e3"}` | Acts on one element. |
+| `select` | `{"target": "e4", "value": "red"}` | Picks an option in a `<select>`. |
+| `scroll` | `{"dy"?: 400, "dx"?}` | Scrolls by pixels. |
+| `back`, `forward`, `reload`, `state`, `devtools`, `clearViewport` | `{}` | Needs no arguments. |
+| `setViewport` | `{"width": 390, "height": 844}` | Emulates a screen size. |
+| `console` | `{"level"?, "limit"?}` | The page's console messages. |
+| `network` | `{"limit"?}` | Failed requests since the last navigation. |
+| `preview` | `{"open"?: true}` | Shows or hides the browser pane. |
+| `tabs`, `tabNew`, `tabSelect`, `tabClose` | `{}`, `{"url"?}`, `{"tab": "<id from tabs>"}`, `{"tab"?}` | Lists, opens, drives and closes this chat's tabs. |
+
+Run these against the shop page, with the URL the terminal printed.
+
+```
+node .claude/skills/verify/drive.mjs invoke --session <session> navigate '{"url":"http://localhost:44773/"}'
+node .claude/skills/verify/drive.mjs invoke --session <session> snapshot
+node .claude/skills/verify/drive.mjs invoke --session <session> fill '{"target":"e2","value":"SAVE10"}'
+node .claude/skills/verify/drive.mjs invoke --session <session> click '{"target":"e3"}'
+node .claude/skills/verify/drive.mjs invoke --session <session> waitFor '{"selector":"#message.ok","timeout":3000}'
+node .claude/skills/verify/drive.mjs invoke --session <session> text
+```
+
+The snapshot lists `- textbox "Coupon code" [ref=e2]` and `- button "Apply" [ref=e3]`, and the last command prints the page with `SAVE10 applied: $4.00 off`. Refs are dropped when the page navigates. A stale ref prints an error that says to take a fresh snapshot, and `invoke` exits 1.
 
 ### Reaching things
 
@@ -100,7 +142,7 @@ node .claude/skills/verify/drive.mjs type --session <session> "node server.mjs" 
 node .claude/skills/verify/drive.mjs js --session <session> "document.querySelector('#terms .xterm-rows').innerText"
 ```
 
-The terminal opens in the project folder, so the relative path works. The last command prints what the terminal shows, including the URL. Pass that URL to `invoke navigate`, then use `invoke fill`, `invoke click` and `invoke text` to use the page.
+The terminal opens in the project folder, so the relative path works. The last command prints what the terminal shows, including the URL. Pass that URL to `invoke navigate`, then use the tools above.
 
 ### A reply and a permission, end to end
 
@@ -154,9 +196,9 @@ A process counts as a straggler only when the session's folders name it.
 - It inherited `HOME=<session>/home`.
 - Its working directory is inside the session.
 
-It never matches on a program name, and it never signals the shell or tool that ran `stop`, even when that shell stands in the project folder. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
+`stop` refuses a session folder that is not a `conn-verify-*` folder directly under the temp dir, or whose state file names a home or user-data dir other than its own. It signals nothing and deletes nothing in that case. It never matches on a program name, and it never signals the shell or tool that ran `stop`, even when that shell stands in the project folder. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
 
-If you lost the session path, find your instance by the `--user-data-dir=/tmp/conn-verify-` argument in `ps`. Stop only the processes you started.
+If you lost the session path, run `node .claude/skills/verify/drive.mjs sessions`. It lists only the instances whose state file this checkout's driver wrote, so it never shows another checkout's lanes. If another agent shares your checkout, the start time tells your instances apart. Stop the ones you booted. Do not look for sessions in `ps` or under `/tmp`.
 
 ## Gotchas
 
@@ -165,5 +207,5 @@ If you lost the session path, find your instance by the `--user-data-dir=/tmp/co
 - `click` takes the first visible match, exact text before partial. If another element sits on top of the point, it prints a warning and the click lands on that element, as it would for a person.
 - Boot turns off Chromium's throttling of covered and background windows, so instances that overlap on one screen still paint and tick.
 - Ports come from the OS (`--inspect=0` and `--remote-debugging-port=0`). Read them from the `boot` output. They are in `<session>/session.json` as `inspect` and `cdp`, and the app's own log is `<session>/app.log`.
-- The module exports the same commands, so a script can `import { boot, say, perm, invoke, click, key, type, shot, bounds, record, stop } from './drive.mjs'`. `boot()` returns the session object and every other function takes it first.
+- The module exports the same commands, so a script can `import { boot, say, perm, invoke, click, key, type, shot, bounds, record, stop, sessions } from './drive.mjs'`. `boot()` returns the session object and every other function takes it first.
 - When the checkout is a worktree, edits to `src/main` need a fresh `boot`. Edits to `src/renderer` need `npx vite build` and a fresh `boot`.
