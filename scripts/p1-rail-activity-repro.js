@@ -125,6 +125,11 @@ async function main() {
     check('click-names-the-element', !!(await rowIs(FIRST, { line: 'Clicking Apply' })), J(await row(FIRST)));
     await shot(s, SHOT('click'));
     await emitTo(0, 'message', back('c1', 'clicked'));
+    await emitTo(0, 'message', call('n1', 'mcp__preview__browser_navigate', { url: 'http://localhost:5173/cart' }));
+    await emitTo(0, 'message', back('n1', 'opened'));
+    await emitTo(0, 'message', call('c3', 'mcp__preview__browser_click', { target: 'e13' }));
+    check('click-after-navigation-reads-no-stale-name', !!(await rowIs(FIRST, { line: 'Clicking in the page' })), J(await row(FIRST)));
+    await emitTo(0, 'message', back('c3', 'clicked'));
     await emitTo(0, 'message', call('c2', 'mcp__preview__browser_click', { target: 'e99' }));
     check('click-without-a-name-falls-back', !!(await rowIs(FIRST, { line: 'Clicking in the page' })), J(await row(FIRST)));
     await emitTo(0, 'message', back('c2', 'clicked'));
