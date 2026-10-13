@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-/* Boots Conn on a throwaway HOME and drives it the way a person does: real
-   mouse and key events over CDP, and fake agent events pushed into the main
-   process over the Node inspector. Import it for the functions or run it for
-   the CLI. SKILL.md has the recipe. */
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
@@ -13,13 +9,10 @@ import { fileURLToPath } from 'node:url';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '../../..');
 const FIXTURE = path.join(HERE, 'fixtures', 'shop');
-// Evidence lives apart from the session dirs, which stop deletes, and from the app's own /tmp/conn-shots-<uid>.
 const SHOTS = process.env.CONN_VERIFY_SHOTS || path.join(os.tmpdir(), 'verify-evidence');
 const J = JSON.stringify;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/* Polls until fn returns something truthy and hands it back, or returns the
-   last falsy answer once ms is up. fn may throw to give up early. */
 async function until(fn, ms) {
   const end = Date.now() + ms;
   let last;
@@ -35,36 +28,33 @@ const read = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { r
 
 const link = (file) => { try { return fs.readlinkSync(file); } catch { return ''; } };
 
-// Fields of /proc/<pid>/stat after the command name: state, ppid, pgrp.
-const statOf = (pid) => { const t = read(`/proc/${pid}/stat`); return t.slice(t.lastIndexOf(')') + 2).split(' '); };
+const statOf = (pid) => {
+  const t = read(`/proc/${pid}/stat`);
+  const [state, ppid, pgrp] = t.slice(t.lastIndexOf(')') + 2).split(' ');
+  return { state, ppid: Number(ppid), pgrp: Number(pgrp) };
+};
 
-// The processes between this one and init. They may stand in the session's folders, and stop must never signal them.
 const ancestors = () => {
   const seen = new Set([process.pid]);
-  for (let p = process.ppid; p > 1 && !seen.has(p); p = Number(statOf(p)[1])) seen.add(p);
+  for (let p = process.ppid; p > 1 && !seen.has(p); p = statOf(p).ppid) seen.add(p);
   return seen;
 };
 
-/* The processes this session started, and nobody else's. Electron and its
-   helpers carry the session's --user-data-dir, and have no environment to
-   read, because Chromium overwrites it when it sets the process title. Every
-   other process, such as the provider agents the app detaches into groups of
-   their own, or the git fetch that Codex starts and that outlives the app,
-   has the HOME it inherited, a path into the home on its command line, or its
-   working directory inside the session. All of those are folders this session
-   made. */
+/* Electron and its helpers carry the session's --user-data-dir, and have no
+   environment to read, because Chromium overwrites it when it sets the process
+   title. */
+const marks = (s) => [
+  (p) => read(`/proc/${p}/cmdline`).includes(`--user-data-dir=${s.userData}`),
+  (p) => read(`/proc/${p}/cmdline`).includes(`${s.home}/`),
+  (p) => `\0${read(`/proc/${p}/environ`)}`.includes(`\0HOME=${s.home}\0`),
+  (p) => { const cwd = link(`/proc/${p}/cwd`); return cwd === s.dir || cwd.startsWith(`${s.dir}/`); },
+];
+
 export const heldBy = (s) => {
   const mine = ancestors();
-  const inside = (p) => p === s.dir || p.startsWith(`${s.dir}/`);
-  return fs.readdirSync('/proc').filter((p) => {
-    if (!/^\d+$/.test(p) || mine.has(Number(p))) return false;
-    const cmd = read(`/proc/${p}/cmdline`);
-    return cmd.includes(`--user-data-dir=${s.userData}`) || cmd.includes(`${s.home}/`)
-      || `\0${read(`/proc/${p}/environ`)}`.includes(`\0HOME=${s.home}\0`) || inside(link(`/proc/${p}/cwd`));
-  });
+  const named = marks(s);
+  return fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p) && !mine.has(Number(p)) && named.some((mark) => mark(p)));
 };
-
-// ------------------------------------------------------------------ CDP
 
 async function cdp(url) {
   const ws = new WebSocket(url);
@@ -85,8 +75,8 @@ async function cdp(url) {
     waiting.set(id, { ok, fail });
     ws.send(J({ id, method, params }));
   });
-  const run = async (expression, wait = false) => {
-    const res = await send('Runtime.evaluate', { expression, awaitPromise: wait, returnByValue: true })
+  const run = async (expression, awaitPromise = false) => {
+    const res = await send('Runtime.evaluate', { expression, awaitPromise, returnByValue: true })
       .catch((e) => { throw new Error(`${e.message}, evaluating ...${expression.replace(/\s+/g, ' ').slice(-120)}`); });
     if (res.exceptionDetails) throw new Error(res.exceptionDetails.exception?.description || res.exceptionDetails.text);
     return res.result.value;
@@ -109,15 +99,11 @@ async function using(open, fn) {
 const page = (s, fn) => using(connect(s.cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)), fn);
 const main = (s, fn) => using(connect(s.inspect, (t) => t.type === 'node'), fn);
 
-/* Main-process code gets `req`, which requires from src/main/index.js, and
-   `electron`. Pass wait for an expression that returns a promise. Asking the
-   inspector to await a value that is not one failed with "Promise was
-   collected" on about half of the boots that ran in parallel. */
 const mainPrefix = (s) => `const req = process.getBuiltinModule('module').createRequire(${J(path.join(s.root, 'src/main/index.js'))}); const electron = req('electron');`;
 
-export const evaluate = (s, expression, { main: inMain = false, wait = false } = {}) => (inMain
-  ? main(s, (c) => c.run(`(() => { ${mainPrefix(s)} return (${expression}); })()`, wait))
-  : page(s, (c) => c.run(expression, wait)));
+export const evaluate = (s, expression, { main: inMain = false, awaitPromise = false } = {}) => (inMain
+  ? main(s, (c) => c.run(`(() => { ${mainPrefix(s)} return (${expression}); })()`, awaitPromise))
+  : page(s, (c) => c.run(expression, awaitPromise)));
 
 export const load = (dir) => {
   const file = path.join(dir, 'session.json');
@@ -125,12 +111,6 @@ export const load = (dir) => {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 };
 
-// ----------------------------------------------------------------- boot
-
-/* Stands in for the agent. The app still runs its own ensureAgent, so a chat
-   starts the way it does for a person; only the CLI behind it is gone. say and
-   perm emit on the newest session, and the answers to a permission land in
-   __decided instead of reaching a model. */
 const standIn = `(() => {
   const { ipcMain } = electron;
   const { AgentSession } = req('./agent');
@@ -169,13 +149,11 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   const electron = createRequire(path.join(root, 'package.json'))('electron');
   const args = [
     '--inspect=0', root, '--remote-debugging-port=0', `--user-data-dir=${s.userData}`, '--no-sandbox',
-    // Lanes share a screen, so a window behind another must still paint and tick.
     '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling',
   ];
   const [cmd, argv] = xvfb ? ['xvfb-run', ['-a', '-s', '-screen 0 1600x1000x24', electron, ...args]] : [electron, args];
   const env = { ...process.env, HOME: s.home, CONN_CWD: s.project };
   delete env.ELECTRON_RUN_AS_NODE;
-  // One file for both streams, since xvfb-run folds stderr into stdout.
   const logFile = path.join(dir, 'app.log');
   const log = fs.openSync(logFile, 'w');
   const child = spawn(cmd, argv, { detached: true, stdio: ['ignore', log, log], env });
@@ -206,21 +184,12 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   return s;
 }
 
-/* Ends what this session started and nothing else. Electron goes first, as the
-   process group boot made, so its helpers and a terminal's jobs go with it.
-   Then whatever still names this session's folders is signalled by pid, since
-   the app launches provider agents into groups of their own and a Codex git
-   fetch that outlives it. Asked to exit, then forced. The group is signalled
-   only while a process the session owns is in it, so a recycled pid is left
-   alone. */
 export async function stop(s) {
+  const tryKill = (pid, sig) => { try { process.kill(pid, sig); } catch {} };
+  const ownsGroup = () => heldBy(s).some((p) => statOf(p).pgrp === s.pid);
   const signal = (sig) => {
-    if (heldBy(s).some((p) => Number(statOf(p)[2]) === s.pid)) {
-      try { process.kill(-s.pid, sig); } catch { /* the group emptied between the scan and the signal */ }
-    }
-    for (const pid of heldBy(s)) {
-      try { process.kill(Number(pid), sig); } catch { /* gone between the scan and the signal */ }
-    }
+    if (ownsGroup()) tryKill(-s.pid, sig);
+    for (const pid of heldBy(s)) tryKill(Number(pid), sig);
   };
   for (const [sig, wait] of [['SIGTERM', 4000], ['SIGKILL', 3000]]) {
     if (!heldBy(s).length) break;
@@ -253,19 +222,15 @@ export async function doctor(s) {
   return rows;
 }
 
-// ---------------------------------------------------------------- agent
-
 const INIT = { type: 'system', subtype: 'init', session_id: '7a7a7a7a-0000-4000-8000-000000000001', model: 'claude-haiku-4-5' };
 const RESULT = { type: 'result', subtype: 'success', duration_ms: 1200 };
 const assistant = (content) => ({ type: 'assistant', parent_tool_use_id: null, message: { role: 'assistant', content } });
 const delta = (event) => ({ type: 'stream_event', event });
 const emit = (c, event, payload) => c.run(`globalThis.__agent.emit(${J(event)}, ${J(payload)})`);
 
-// Main's send has crossed to the renderer, and React has drawn two frames from it, when this returns.
-const settle = (s) => evaluate(s, 'new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 100))', { wait: true });
+const untilDrawn = (s) => evaluate(s, 'new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 100))', { awaitPromise: true });
 
-// A chat only exists once a message is sent, so the first say, perm or invoke sends one through the composer.
-async function turn(s, prompt = 'Hello') {
+async function ensureChat(s, prompt = 'Hello') {
   if (await evaluate(s, '!!globalThis.__agent', { main: true })) return;
   await evaluate(s, `document.querySelector('#agent-root [contenteditable="true"]').focus()`);
   await type(s, prompt);
@@ -274,23 +239,24 @@ async function turn(s, prompt = 'Hello') {
   await main(s, (c) => emit(c, 'message', INIT));
 }
 
+async function streamThenWholeBlock(c, text, { every, size }) {
+  await emit(c, 'message', delta({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
+  for (const chunk of text.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g')) || []) {
+    await sleep(every);
+    await emit(c, 'message', delta({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunk } }));
+  }
+  await emit(c, 'message', assistant([{ type: 'text', text }]));
+  await emit(c, 'message', delta({ type: 'content_block_stop', index: 0 }));
+}
+
 export async function say(s, text, { stream = 0, size = 40, prompt, open = false } = {}) {
-  await turn(s, prompt);
+  await ensureChat(s, prompt);
   await main(s, async (c) => {
-    if (stream) {
-      await emit(c, 'message', delta({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
-      for (const chunk of text.match(new RegExp(`[\\s\\S]{1,${size}}`, 'g')) || []) {
-        await sleep(stream);
-        await emit(c, 'message', delta({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: chunk } }));
-      }
-    }
-    // The SDK sends the whole block while its stream is still open, and the
-    // panel skips text it already drew from deltas only in that window.
-    await emit(c, 'message', assistant([{ type: 'text', text }]));
-    if (stream) await emit(c, 'message', delta({ type: 'content_block_stop', index: 0 }));
+    if (stream) await streamThenWholeBlock(c, text, { every: stream, size });
+    else await emit(c, 'message', assistant([{ type: 'text', text }]));
     if (!open) await emit(c, 'message', RESULT);
   });
-  await settle(s);
+  await untilDrawn(s);
 }
 
 const SAMPLE_INPUT = (s) => ({
@@ -299,19 +265,17 @@ const SAMPLE_INPUT = (s) => ({
   Bash: { command: 'npm test' },
 });
 
-/* Announces the call the card is for, so the card pairs with a row the way it
-   does for a real agent, then asks. bare skips the announcement. */
-export async function perm(s, { id = `p${Date.now().toString(36)}`, tool = 'Edit', input, forId, agent = null, bare = false } = {}) {
-  await turn(s);
+export async function perm(s, { id = `p${Date.now().toString(36)}`, tool = 'Edit', input, forId, agent = null, announce = true } = {}) {
+  await ensureChat(s);
   input ??= SAMPLE_INPUT(s)[tool] ?? {};
   await main(s, async (c) => {
-    if (!bare && !forId) {
+    if (announce && !forId) {
       forId = `call-${id}`;
       await emit(c, 'message', assistant([{ type: 'tool_use', id: forId, name: tool, input }]));
     }
     await emit(c, 'permission', { id, tool, input, forId, agent });
   });
-  await settle(s);
+  await untilDrawn(s);
   return id;
 }
 
@@ -323,11 +287,9 @@ export async function decided(s, id) {
 }
 
 export async function invoke(s, tool, args = {}, actor = { id: 'main', label: 'the main thread' }) {
-  await turn(s);
+  await ensureChat(s);
   return main(s, (c) => c.run(`globalThis.__agent.invoke(${J(tool)}, ${J(args)}, ${J(actor)})`, true));
 }
-
-// ---------------------------------------------------------------- input
 
 const KEYS = {
   enter: ['Enter', 'Enter', 13], escape: ['Escape', 'Escape', 27], esc: ['Escape', 'Escape', 27], tab: ['Tab', 'Tab', 9],
@@ -339,7 +301,6 @@ const KEYS = {
 };
 const MODS = { alt: 1, ctrl: 2, control: 2, cmdorctrl: 2, meta: 4, cmd: 4, shift: 8 };
 
-// "Ctrl+Shift+B" to the fields Input.dispatchKeyEvent takes. CmdOrCtrl is Ctrl, since Conn on Linux is the target.
 function chord(spec) {
   const names = spec.split('+');
   const last = names.pop().toLowerCase();
@@ -359,24 +320,22 @@ function chord(spec) {
   return { key, code, windowsVirtualKeyCode, modifiers, ...(printable && { text: key }) };
 }
 
-// Input commands return once the panel has drawn what the input caused, so a shot right after one is not of the old screen.
 export async function key(s, spec) {
   const e = chord(spec);
   await page(s, async (c) => {
     await c.send('Input.dispatchKeyEvent', { type: 'keyDown', ...e });
     await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...e, text: undefined });
   });
-  await settle(s);
+  await untilDrawn(s);
 }
 
 export async function type(s, text, { enter = false } = {}) {
   await page(s, (c) => c.send('Input.insertText', { text }));
   if (enter) await key(s, 'Enter');
-  else await settle(s);
+  else await untilDrawn(s);
 }
 
-// Runs in the page. A bare name matches a button, link, tab or menu item by its text, aria-label or title.
-function locate(spec) {
+function locateInPage(spec) {
   if (spec.at) return { x: spec.at[0], y: spec.at[1] };
   const shown = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
   const names = (el) => [el.getAttribute('aria-label'), el.title, el.textContent].map((t) => (t || '').replace(/\s+/g, ' ').trim());
@@ -401,17 +360,14 @@ const targetOf = (t) => {
   return at ? { at: [Number(at[1]), Number(at[2])] } : { text: t };
 };
 
-// A click right after say or perm lands before the panel has drawn its target, so it waits for it.
 export const click = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
-  const hit = await until(() => c.run(`(${locate})(${J(targetOf(target))})`), wait);
+  const hit = await until(() => c.run(`(${locateInPage})(${J(targetOf(target))})`), wait);
   if (!hit) throw new Error(`nothing to click for ${target}`);
   const events = [['mouseMoved', { button: 'none', buttons: 0 }], ['mousePressed', { button: 'left', buttons: 1, clickCount: 1 }], ['mouseReleased', { button: 'left', buttons: 0, clickCount: 1 }]];
   for (const [type, rest] of events) await c.send('Input.dispatchMouseEvent', { type, x: hit.x, y: hit.y, ...rest });
   await sleep(250);
   return hit;
 });
-
-// ------------------------------------------------------------- evidence
 
 /* The preview is a native view over the window. Page.captureScreenshot leaves
    it out, so a picture of the window shows its slot and not the page in it. */
@@ -427,17 +383,15 @@ export const shot = (s, out = path.join(SHOTS, `${path.basename(s.dir)}-${Date.n
   return out;
 });
 
-/* ipc is the last box the renderer sent main, view is where the native preview
-   sits, and paneslot is the element they are both meant to cover. */
 export async function bounds(s, { wait = 1500 } = {}) {
   const close = (a, b) => !!a && !!b && ['x', 'y', 'width', 'height'].every((k) => Math.abs(a[k] - b[k]) <= 1);
   const look = async () => {
     const ipc = await evaluate(s, 'globalThis.__bounds.at(-1) ?? null', { main: true });
     const there = await evaluate(s, `(async () => {
       const r = document.querySelector('#paneslot')?.getBoundingClientRect();
-      return { paneslot: r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null, view: await window.conn.browser.action('bounds') };
-    })()`, { wait: true });
-    return { ipc, ...there, match: close(ipc, there.paneslot), viewMatch: close(there.view, there.paneslot) };
+      return { paneslot: r ? { x: r.x, y: r.y, width: r.width, height: r.height } : null, nativeView: await window.conn.browser.action('bounds') };
+    })()`, { awaitPromise: true });
+    return { ipc, ...there, match: close(ipc, there.paneslot), nativeViewMatch: close(there.nativeView, there.paneslot) };
   };
   let now = await look();
   const end = Date.now() + wait;
@@ -445,8 +399,7 @@ export async function bounds(s, { wait = 1500 } = {}) {
   return now;
 }
 
-/* Frames arrive only when the page changes, so the newest one is written to
-   ffmpeg on a fixed clock. That makes the video as long as the recording. */
+/* Frames arrive only when the page changes. */
 export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.basename(s.dir)}.mp4`), fps = 10 } = {}) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   const ffmpeg = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'mjpeg', '-i', '-',
@@ -468,8 +421,6 @@ export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.b
   if (await closed) throw new Error('ffmpeg failed to write the video');
   return out;
 }
-
-// ------------------------------------------------------------------ CLI
 
 const BOOLEAN = new Set(['smoke', 'xvfb', 'open', 'bare', 'main', 'enter']);
 
@@ -506,7 +457,7 @@ const COMMANDS = {
   },
   async perm({ s, pos, flags }) {
     const id = await perm(s, {
-      id: flags.id, tool: pos[1] ?? flags.tool, forId: flags.for, bare: !!flags.bare,
+      id: flags.id, tool: pos[1] ?? flags.tool, forId: flags.for, announce: !flags.bare,
       input: flags.input && JSON.parse(flags.input), agent: flags.agent ? JSON.parse(flags.agent) : null,
     });
     console.log(id);
@@ -535,9 +486,8 @@ const COMMANDS = {
   async record({ s, flags }) {
     console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out }));
   },
-  // Not named eval, which some agent sandboxes refuse to run as a command word.
   async js({ s, pos, flags }) {
-    const v = await evaluate(s, pos[1], { main: !!flags.main, wait: true });
+    const v = await evaluate(s, pos[1], { main: !!flags.main, awaitPromise: true });
     console.log(typeof v === 'string' ? v : J(v, null, 2));
   },
   async stop({ s }) { await stop(s); console.log('stopped'); },

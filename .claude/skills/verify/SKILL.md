@@ -61,7 +61,7 @@ Pass the instance with `--session <session>` on each command below.
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
 | `shot` | Saves a PNG of the window and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element. |
-| `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`view`), and the `#paneslot` rectangle (`paneslot`). Exits 1 unless `ipc` is within 1 px of `paneslot`. |
+| `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`nativeView`), and the `#paneslot` rectangle (`paneslot`). `match` is true when `ipc` is within 1 px of `paneslot`, and `nativeViewMatch` says the same of `nativeView`. Exits 1 unless `match` is true. |
 | `record` | Records the window for `--seconds <n>` (default 10) to `--out <file.mp4>`. |
 | `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. Use it for read-only checks. |
 | `stop` | Ends the instance. See Cleanup. |

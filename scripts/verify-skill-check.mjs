@@ -1,8 +1,3 @@
-/* The verify skill, run for real. Two instances boot at once on throwaway
-   HOMEs and must not share a port or a data dir, each must paint a window the
-   skill can photograph, and the skill's say, perm and click must reach the
-   app and its main process. After stop no process may still hold either
-   instance's user-data-dir. Needs a built renderer: `npx vite build` first. */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,10 +15,6 @@ const isPng = (file) => {
   return bytes.length > 1000 && bytes.subarray(0, 8).equals(PNG);
 };
 
-/* A process belongs to an instance when its command line or its environment
-   names the instance's directory, or it stands in it. Chromium's helpers carry
-   --user-data-dir, the provider agents the app detaches carry only the HOME
-   they inherited, and a Codex git fetch can be told apart by its cwd. */
 const holders = (dir) => fs.readdirSync('/proc')
   .filter((pid) => /^\d+$/.test(pid))
   .filter((pid) => ['cmdline', 'environ'].some((file) => {
@@ -36,7 +27,7 @@ async function main() {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-check-'));
   const sessions = [];
   try {
-    const booted = await Promise.allSettled([boot(), boot()]);
+    const booted = await Promise.allSettled([boot(), boot({ xvfb: true })]);
     sessions.push(...booted.filter((r) => r.status === 'fulfilled').map((r) => r.value));
     const failed = booted.find((r) => r.status === 'rejected');
     if (failed) throw failed.reason;
