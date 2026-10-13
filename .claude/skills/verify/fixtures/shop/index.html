@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shop cart</title>
+  <style>
+    body { font: 16px/1.5 system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem; color: #1b1b1f; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: .5rem 0; border-bottom: 1px solid #ddd; text-align: left; }
+    td:last-child, th:last-child { text-align: right; }
+    form { display: flex; gap: .5rem; margin: 1.5rem 0 .5rem; }
+    input { flex: 1; padding: .5rem; font: inherit; }
+    button { padding: .5rem 1rem; font: inherit; cursor: pointer; }
+    #message { min-height: 1.5rem; margin: 0; }
+    #message.ok { color: #137333; }
+    #message.bad { color: #b3261e; }
+    #total { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>Your cart</h1>
+  <table>
+    <thead><tr><th>Item</th><th>Price</th></tr></thead>
+    <tbody>
+      <tr><td>Canvas tote</td><td>$24.00</td></tr>
+      <tr><td>Enamel mug</td><td>$16.00</td></tr>
+    </tbody>
+    <tfoot><tr><td>Total</td><td id="total">$40.00</td></tr></tfoot>
+  </table>
+
+  <form id="coupon-form">
+    <input id="coupon" name="coupon" placeholder="Coupon code" autocomplete="off" aria-label="Coupon code">
+    <button id="apply" type="submit">Apply</button>
+  </form>
+  <p id="message" role="status"></p>
+
+  <script>
+    const SUBTOTAL = 40;
+    const form = document.querySelector('#coupon-form');
+    const message = document.querySelector('#message');
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const code = form.coupon.value.trim().toUpperCase();
+      const discount = code === 'SAVE10' ? SUBTOTAL * 0.1 : 0;
+      document.querySelector('#total').textContent = `$${(SUBTOTAL - discount).toFixed(2)}`;
+      message.className = discount ? 'ok' : 'bad';
+      message.textContent = discount ? 'SAVE10 applied: $4.00 off' : `"${code}" is not a coupon`;
+    });
+  </script>
+</body>
+</html>

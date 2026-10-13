@@ -20,18 +20,24 @@ const isPng = (file) => {
   return bytes.length > 1000 && bytes.subarray(0, 8).equals(PNG);
 };
 
+/* A process belongs to an instance when its command line or its environment
+   names the instance's directory. Chromium's helpers carry --user-data-dir, and
+   the provider agents the app detaches carry only the HOME they inherited. */
 const holders = (dir) => fs.readdirSync('/proc')
   .filter((pid) => /^\d+$/.test(pid))
-  .filter((pid) => {
-    try { return fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(dir); } catch { return false; }
-  });
+  .filter((pid) => ['cmdline', 'environ'].some((file) => {
+    try { return fs.readFileSync(`/proc/${pid}/${file}`, 'utf8').includes(dir); } catch { return false; }
+  }));
 
 async function main() {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-check-'));
   const sessions = [];
   try {
-    const [a, b] = await Promise.all([boot(), boot()]);
-    sessions.push(a, b);
+    const booted = await Promise.allSettled([boot(), boot()]);
+    sessions.push(...booted.filter((r) => r.status === 'fulfilled').map((r) => r.value));
+    const failed = booted.find((r) => r.status === 'rejected');
+    if (failed) throw failed.reason;
+    const [a, b] = sessions;
 
     check('inspector-ports-differ', a.inspect > 0 && b.inspect > 0 && a.inspect !== b.inspect, `${a.inspect} ${b.inspect}`);
     check('cdp-ports-differ', a.cdp > 0 && b.cdp > 0 && a.cdp !== b.cdp, `${a.cdp} ${b.cdp}`);
