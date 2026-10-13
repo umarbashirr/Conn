@@ -195,7 +195,7 @@ const click = (target) => tool('mcp__preview__browser_click', { target });
 
 const LONG = {
   thinking: { items: [user(), ...filler(1999)], busy: true, seen: true, want: { state: 'working', line: 'Thinking', target: null } },
-  click: { items: [user(), bigSnapshot, ...filler(1990), click('e21')], busy: true, seen: true, want: { state: 'working', line: 'Clicking Item 1', target: 'browser' } },
+  click: { items: [user(), bigSnapshot, ...filler(1997), click('e21')], busy: true, seen: true, want: { state: 'working', line: 'Clicking Item 1', target: 'browser' } },
   waiting: { items: [user(), ...filler(1998), perm('Edit', { file_path: '/repo/src/cart.js' })], busy: true, seen: true, want: { state: 'waiting', line: 'Wants to edit src/cart.js' } },
   finished: { items: [user(), ...filler(1998), ended()], busy: false, seen: false, want: { state: 'finished', line: 'Finished' } },
 };
