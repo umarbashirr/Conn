@@ -163,7 +163,7 @@
   // White fill on a dark outline, which is the one combination that stays
   // legible whatever the page underneath is doing. The tip is the origin, so
   // translating by the hit point puts it exactly where the click lands.
-  const ARROW = '<svg viewBox="0 0 20 22" style="all:initial;display:block;width:20px;height:22px">'
+  const ARROW = '<svg viewBox="0 0 20 22" style="all:initial;pointer-events:none;display:block;width:20px;height:22px">'
     + '<path d="M2 1.6 2 17.4 6.3 13.5 9 19.7 12 18.4 9.3 12.3 15.2 12.1Z"'
     + ' style="fill:#fff;stroke:#171b26;stroke-width:1.4;stroke-linejoin:round"/></svg>';
   let cursorFade = null;
