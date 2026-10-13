@@ -95,6 +95,8 @@ async function main() {
       await key(s, 'Enter');
     };
 
+    await click(s, 'Later', { wait: 4000 }).catch(() => {});
+
     await send(FIRST);
     await until(async () => (await evaluate(s, 'globalThis.__agents.length', { main: true })) === 1);
     await emitTo(0, 'message', INIT);
@@ -125,6 +127,7 @@ async function main() {
     await emitTo(0, 'message', back('s1', '- textbox "Coupon code" [ref=e12]\n- button "Apply" [ref=e13]'));
     await emitTo(0, 'message', call('c1', 'mcp__preview__browser_click', { target: 'e13' }));
     check('click-names-the-element', !!(await rowIs(FIRST, { line: 'Clicking Apply' })), J(await row(FIRST)));
+    await shot(s, SHOT('click'));
     await emitTo(0, 'message', back('c1', 'clicked'));
     await emitTo(0, 'message', call('c2', 'mcp__preview__browser_click', { target: 'e99' }));
     check('click-without-a-name-falls-back', !!(await rowIs(FIRST, { line: 'Clicking in the page' })), J(await row(FIRST)));
@@ -158,11 +161,13 @@ async function main() {
     const finished = await rowIs(FIRST, { activity: 'finished', line: 'Finished', dot: true, chips: [], spinner: false });
     check('finished-row-takes-a-dot', !!finished, J(await row(FIRST)));
     check('other-row-stays-quiet', !!(await rowIs(SECOND, { activity: 'idle', dot: false })), J(await row(SECOND)));
+    await sleep(500);
     await shot(s, SHOT('finished'));
 
     await click(s, 'Open');
     check('open-brings-the-chat-forward', !!(await rowIs(FIRST, { activity: 'idle', dot: false, line: null })), J(await row(FIRST)));
     check('toast-goes-with-the-click', await until(async () => !(await toasts()).length), J(await toasts()));
+    await shot(s, SHOT('opened'));
     const shown = await evaluate(s, `document.querySelector('[data-sidebar="menu-button"][data-active="true"]')?.title`);
     check('the-opened-chat-is-the-one-on-screen', shown === FIRST, J(shown));
 
