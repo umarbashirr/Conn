@@ -726,9 +726,10 @@ function LogRow({ row }) {
   );
 }
 
-/* One preview's console and network, with the switch between the two. Drawn
+/* One preview's console and network, with the switch between the two. Held
    once per preview like the toolbars, so where you had scrolled a tab's log
-   is still there when you come back to that tab. */
+   is still there when you come back to that tab, and drawn only while it is
+   the one on screen, so a page that logs in a loop repaints nothing hidden. */
 function Drawer({ tab, showing }) {
   const s = useBrowser(tab);
   const body = useRef(null);
@@ -737,17 +738,18 @@ function Drawer({ tab, showing }) {
 
   useEffect(() => {
     const el = body.current;
+    if (!el) return undefined;
     const onScroll = () => {
       seat.current.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
       seat.current.top = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [showing]);
 
   useEffect(() => {
     const el = body.current;
-    if (!showing) return;
+    if (!el) return;
     el.scrollTop = seat.current.stick ? el.scrollHeight : seat.current.top;
   }, [showing, rows.length, s.drawerTab]);
 
@@ -757,10 +759,12 @@ function Drawer({ tab, showing }) {
     if (showing && s.drawerTab === 'network') pickLogs('network', tab);
   }, [showing]);
 
+  if (!showing) return null;
+
   const errors = consoleErrors(tab);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" hidden={!showing || undefined}>
+    <div className="flex min-h-0 flex-1 flex-col">
       <Tabs value={s.drawerTab} onValueChange={(v) => pickLogs(v, tab)} className="min-h-0 flex-1 gap-0">
         <div className="flex items-center gap-2 border-b px-2 py-1">
           <TabsList className="h-7 bg-transparent p-0">
