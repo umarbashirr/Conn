@@ -374,9 +374,8 @@ function reconcileShells() {
 // because a hidden xterm goes on reading its shell.
 const shownShell = () => shells.get(shownIn(state.focused, 'bottom')?.id) || null;
 
-// Answers whether a shell has just come on screen, which is a shell you are
-// about to type into. What was painted last is the only record of that: the
-// store has moved on by the time anyone asks.
+// Answers whether a shell has just come on screen. What was painted last is
+// the only record of that: the store has moved on by the time anyone asks.
 let painted = null;
 
 function paintShells() {
@@ -621,6 +620,7 @@ function heldTab(dir, kind) {
    is the tab on screen, and a second caller would have it read the whole tree
    twice on every switch. */
 let showing = null;
+let paintedFor = null;
 
 function syncRight() {
   const dir = state.focused;
@@ -634,7 +634,13 @@ function syncRight() {
     showing = kind;
     if (kind === 'files') window.connFiles?.activate();
   }
-  if (paintShells()) requestAnimationFrame(() => { resizeActive(); focusShell(); });
+  // A shell that comes on screen in the chat you are in is one you asked for.
+  // One that comes with a chat you moved to is that chat's shell being shown,
+  // under a page more often than not, and the keys stay where they were.
+  const panel = `${dir}\n${activeKey() || ''}`;
+  const asked = panel === paintedFor;
+  paintedFor = panel;
+  if (paintShells()) requestAnimationFrame(() => { resizeActive(); if (asked) focusShell(); });
   syncPreview();
 }
 
