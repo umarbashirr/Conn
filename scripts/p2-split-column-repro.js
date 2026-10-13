@@ -7,10 +7,9 @@
    under the slot's edge. Opens a page and a terminal, drags the handle between
    them to three heights with real mouse events, and reads both boxes after
    each. Then drags the terminal shut and brings it back with the keyboard.
-   Last, the Console tab that took the place of the drawer under the page. Its
-   network list is fetched when asked for, so the tab coming back on screen
-   has to ask again, as the drawer opening did. And the bottom strip's menu,
-   which must leave the window where it was.
+   Last, the Console tab in the bottom slot, whose network list is fetched when
+   asked for, so the tab coming back on screen has to ask again, and the
+   bottom strip's menu, which must leave the window where it was.
 
    Boots through the verify skill, so the ports come from the OS and no lock
    is needed. Needs a built renderer: `npx vite build` first. */

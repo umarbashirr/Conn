@@ -551,7 +551,7 @@ function syncPreview() {
 const TOAST_ROOM = 344;
 
 function syncBounds() {
-  // The tree and the diff sit where the pane would be, so a tab that is not a
+  // The canvas sits where the pane would be, so a top slot that is not on a
   // preview parks the pane the same way a modal does.
   if (previewParked || !previewInBox()) {
     // Park it just outside the window instead of hiding it. A hidden view stops
@@ -670,8 +670,8 @@ function showRight(kind) {
 /* A preview the person asked for outright, from the plus on the strip. The
    toolbar button means "show me the preview" and goes back to the one you were
    reading; this means "another one", which is the whole reason a folder can
-   hold several. Nothing else in the column can be opened twice, so nothing else
-   needs this. */
+   hold several. A terminal has newTerminalTab for the same, and nothing else in
+   the column can be opened twice. */
 function newPreview() {
   const dir = state.focused;
   if (!openTab(dir, 'browser')) return;
@@ -762,8 +762,8 @@ function setPreviewFull(on) {
   const next = on === undefined ? !state.previewFull : !!on;
   if (next === state.previewFull) return;
   setLayout({ previewFull: next });
-  // Full width with nothing in the strips is a blank half window, so a folder
-  // that has never opened the column gets a preview to fill it.
+  // Full width with both slots shut is a blank half window, so it brings back
+  // the tab the column was last on, or a preview when there was none.
   if (next && !state.rightOpen) {
     const dir = state.focused;
     showRight(activeIn(dir, 'top')?.kind || activeIn(dir, 'bottom')?.kind || 'browser');

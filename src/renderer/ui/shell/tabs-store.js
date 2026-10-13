@@ -6,8 +6,8 @@
    go with a page: a terminal, the file tree, the diff, the agents and the
    console. Each slot has its own active tab and its own answer to whether it
    is up, so a terminal can run under the page it is building. A panel can
-   have as many previews and shells as it has things to run, and one of each
-   tool, because a second of either would draw the same folder twice.
+   have as many previews and shells as it has things to run, and one of
+   everything else, because a second would only draw the same thing twice.
 
    A panel belongs to a chat in a folder. Two chats in one project are two
    pieces of work, and a preview opened for one of them showing up beside the
@@ -27,7 +27,6 @@ import { layout, OPEN_KEY, setLayout, subscribe as subscribeLayout } from './lay
 export const SLOTS = ['top', 'bottom'];
 export const KINDS = ['browser', 'canvas', 'terminal', 'files', 'changes', 'agents', 'console'];
 
-// Where each kind draws. The browser and the canvas are pages; the rest are tools.
 export const SLOT_OF = {
   browser: 'top', canvas: 'top',
   terminal: 'bottom', files: 'bottom', changes: 'bottom', agents: 'bottom', console: 'bottom',
@@ -87,8 +86,8 @@ function panelFor(dir, chat = chatIn(dir)) {
 
 const isFront = (panel) => panel === panelOf(front.dir);
 
-// The layout says which slots are up and how tall, and it says it for the
-// panel in front. A panel behind keeps its own answer until it comes forward.
+// The layout says which slots are up, and it says it for the panel in front.
+// A panel behind keeps its own answer until it comes forward.
 function setOpen(panel, slot, open) {
   panel.slots[slot].open = open;
   if (isFront(panel)) setLayout({ [OPEN_KEY[slot]]: open });
@@ -127,10 +126,8 @@ export function showPanel(dir, chat, { remember = true } = {}) {
 // column in yet, which is most chats most of the time.
 export const tabsOf = (dir) => panelOf(dir)?.tabs || [];
 
-// One slot's share of the strip, in strip order.
 export const tabsIn = (dir, slot) => tabsOf(dir).filter((t) => SLOT_OF[t.kind] === slot);
 
-// The tab a slot is on, whether or not the slot is up.
 export function activeIn(dir, slot) {
   const panel = panelOf(dir);
   if (!panel) return null;

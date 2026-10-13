@@ -21,9 +21,7 @@ export const layout = {
   changesCount: 0,
 };
 
-// The column is up when either slot is. Read-only on purpose: a writer that
-// still says rightOpen throws instead of silently doing nothing, so a missed
-// caller shows itself.
+// The column is up when either slot is.
 Object.defineProperty(layout, 'rightOpen', { get: () => layout.topOpen || layout.bottomOpen, enumerable: true });
 
 export const OPEN_KEY = { top: 'topOpen', bottom: 'bottomOpen' };

@@ -1,9 +1,7 @@
 /* The window's layout. Three nested resizable groups: the rail beside the
    content, the chat beside the right column, and inside the column the pages
-   above the tools. The top slot holds the previews and the canvas as tabs; the
-   bottom slot holds the terminals, the file tree, the diff, the agents and the
-   console. Each slot opens and shuts on its own, so a terminal can run under
-   the page it is building.
+   above the tools. Each slot opens and shuts on its own, so a terminal can run
+   under the page it is building.
 
    The splitters used to be 1px divs with a mousemove handler that wrote inline
    widths. react-resizable-panels owns them now.
@@ -115,7 +113,7 @@ function useCollapse(ref, open) {
    toolbar names, which is the one the keyboard page can change. */
 export const VIEW_KINDS = {
   // `adds` is what the strip's plus runs when the kind can be opened more than
-  // once. Only a preview and a terminal can.
+  // once.
   browser: { icon: GlobeIcon, label: 'Browser', command: 'preview', adds: 'newPreview', bind: 'preview', title: 'Preview browser' },
   canvas: { icon: PaletteIcon, label: 'Canvas', command: 'canvas', bind: 'canvas', title: 'Design canvas' },
   terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
@@ -133,10 +131,10 @@ const labelOf = (tab) => {
   return VIEW_KINDS[tab.kind].label;
 };
 
-/* Starting one. The tools and the canvas may already be open in this folder,
-   in which case the store hands back the one that is there, so every kind is
-   offered every time rather than the menu guessing which are spent. Each strip
-   offers only the kinds that draw in its own slot. */
+/* Starting one. Files, Changes, Agents, Canvas and the Console may already be
+   open in this folder, in which case the store hands back the one that is
+   there, so every kind is offered every time rather than the menu guessing
+   which are spent. */
 function AddTab({ slot }) {
   const [open, setOpen] = useState(false);
   usePaneCover(open);
@@ -177,10 +175,9 @@ function AddTab({ slot }) {
   );
 }
 
-/* The strip along the top of a slot: in the top slot a tab per preview plus the
-   canvas, in the bottom slot the terminals, the file tree, the diff, the agents
-   and the console. It draws the row of the chat on screen in the focused
-   folder, and switching chats or folders swaps it for that one's own.
+/* The strip along the top of a slot. It draws the row of the chat on screen in
+   the focused folder, and switching chats or folders swaps it for that one's
+   own.
 
    Clicking only moves the store. The pages behind the preview tabs are native
    views main holds, and app.js reconciles those against the store, so nothing
