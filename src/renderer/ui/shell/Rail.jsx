@@ -93,6 +93,7 @@ const LINE_TONE = {
 };
 
 const TALL = 'h-[40px] items-start py-1';
+const TALL_ACTION = 'peer-data-[size=default]/menu-button:top-0.5';
 
 function Row({ chat, current, onDelete, onRename }) {
   const done = isDone(chat);
@@ -102,6 +103,9 @@ function Row({ chat, current, onDelete, onRename }) {
   const working = badge?.tone === 'busy';
   const activity = chat.activity ?? IDLE;
   const tall = activity.state !== 'idle';
+  // The spinner and the line already say working, so only waiting and a count
+  // of agents earn a chip beside the line.
+  const chip = badge && (badge.tone === 'wait' || chat.agents > 0);
 
   return (
     <ContextMenu>
@@ -131,34 +135,39 @@ function Row({ chat, current, onDelete, onRename }) {
               )}
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate">{chat.title}</span>
+              <span className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{relative(chat.at)}</span>
+              </span>
               {tall && (
-                <span data-slot="activity-line" className={cn('truncate text-[11px] font-normal', LINE_TONE[activity.state])}>
-                  {activity.line}
+                <span className="flex items-center gap-2">
+                  <span data-slot="activity-line" className={cn('min-w-0 flex-1 truncate text-[11px] font-normal', LINE_TONE[activity.state])}>
+                    {activity.line}
+                  </span>
+                  {chip && (
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'shrink-0 px-1.5 py-0 text-[10px]',
+                        badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+                        badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
+                      )}>
+                      {badge.label}
+                    </Badge>
+                  )}
                 </span>
               )}
-            </span>
-            <span className={cn('flex shrink-0', tall ? 'flex-col-reverse items-end gap-px' : 'items-center gap-2')}>
-              {badge && (
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'px-1.5 py-0 text-[10px]',
-                    badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
-                    badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
-                  )}>
-                  {badge.label}
-                </Badge>
-              )}
-              <span className="text-[11px] text-muted-foreground">{relative(chat.at)}</span>
             </span>
           </SidebarMenuButton>
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-y-0.5 right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-55% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100" />
+            className={cn(
+              'pointer-events-none absolute right-0 w-28 rounded-r-md bg-gradient-to-l from-sidebar-accent from-55% to-transparent opacity-0 transition-opacity group-focus-within/menu-item:opacity-100 group-hover/menu-item:opacity-100',
+              tall ? 'top-0.5 h-[18px]' : 'inset-y-0.5',
+            )} />
           <SidebarMenuAction
             showOnHover
-            className={saved ? 'right-14' : 'right-7'}
+            className={cn(saved ? 'right-14' : 'right-7', tall && TALL_ACTION)}
             title={pinned ? 'Unpin' : 'Pin'}
             aria-label={`${pinned ? 'Unpin' : 'Pin'} ${chat.title}`}
             onClick={(e) => { e.stopPropagation(); pinChat(chat, !pinned); }}>
@@ -167,7 +176,7 @@ function Row({ chat, current, onDelete, onRename }) {
           {saved && (
             <SidebarMenuAction
               showOnHover
-              className="right-7 hover:text-[hsl(var(--success))]"
+              className={cn('right-7 hover:text-[hsl(var(--success))]', tall && TALL_ACTION)}
               title={done ? 'Move back to the list' : 'Mark completed'}
               aria-label={`${done ? 'Move back' : 'Mark completed'}: ${chat.title}`}
               onClick={(e) => { e.stopPropagation(); markDone(chat, !done); }}>
@@ -176,7 +185,7 @@ function Row({ chat, current, onDelete, onRename }) {
           )}
           <SidebarMenuAction
             showOnHover
-            className="hover:text-destructive"
+            className={cn('hover:text-destructive', tall && TALL_ACTION)}
             title="Delete chat"
             aria-label={`Delete ${chat.title}`}
             onClick={(e) => { e.stopPropagation(); onDelete(chat); }}>
