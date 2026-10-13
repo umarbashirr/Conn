@@ -122,6 +122,10 @@ export function showPanel(dir, chat, { remember = true } = {}) {
   changed();
 }
 
+// The panel in front, as a key that moves only when showPanel moves it. The
+// rail can name the next chat a moment before that.
+export const frontKey = () => `${front.dir}\n${front.chat}`;
+
 // What the column is drawing. An empty list is a chat nobody has opened the
 // column in yet, which is most chats most of the time.
 export const tabsOf = (dir) => panelOf(dir)?.tabs || [];

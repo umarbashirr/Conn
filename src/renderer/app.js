@@ -7,7 +7,7 @@ import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
 import { pickElement, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
 import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
-  activateTab, activeIn, chatOfTab, dropChat, dropProject as dropTabs, everyTab, openTab,
+  activateTab, activeIn, chatOfTab, dropChat, dropProject as dropTabs, everyTab, frontKey, openTab,
   projectDirs, revealTab, setTabTitle, shownIn, showPanel, SLOT_OF, SLOTS, subscribeTabs, tabsOf,
 } from './ui/shell/tabs-store.js';
 import { activeKey, activeProject, liveKeys, subscribeRail } from './ui/shell/rail-store.js';
@@ -639,7 +639,7 @@ function syncRight() {
   // A shell that comes on screen in the chat you are in is one you asked for.
   // One that comes with a chat you moved to is that chat's shell being shown,
   // under a page more often than not, and the keys stay where they were.
-  const panel = `${dir}\n${activeKey() || ''}`;
+  const panel = frontKey();
   const asked = panel === paintedFor;
   paintedFor = panel;
   if (paintShells()) requestAnimationFrame(() => { resizeActive(); if (asked) focusShell(); });
