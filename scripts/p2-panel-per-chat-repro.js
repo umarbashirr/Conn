@@ -114,7 +114,10 @@ const panel = (page) => page.evaluate(() => {
   // panel is what gets measured.
   const right = document.querySelector('section#right')?.parentElement;
   const open = !!right && right.getBoundingClientRect().width > 0;
-  const tabs = [...document.querySelectorAll('section#right [data-strip] [role="tab"]')].map((t) => t.textContent.trim());
+  // A terminal tab takes its shell's name once the pty is up, so it is known
+  // by its icon.
+  const tabs = [...document.querySelectorAll('section#right [data-strip] [role="tab"]')]
+    .map((t) => (t.querySelector('.lucide-square-terminal') ? 'Terminal' : t.textContent.trim()));
   const shells = document.querySelectorAll('#terms .term-host').length;
   return { open, tabs, shells };
 });
@@ -190,7 +193,7 @@ async function main() {
 
     await openChat(page, two);
     p = await panel(page);
-    check('chat-two-same-folder-starts-shut-again', !p.open, show(p));
+    check('chat-two-untouched-by-files-in-chat-one', p.open && p.tabs.join() === 'Files', show(p));
 
     await chord(page, 'G');
     p = await panel(page);
