@@ -126,8 +126,8 @@ async function main() {
     const MAIN = { id: 'main', label: 'the main thread' };
     const SUB = { id: 'task-research-1', label: 'Research competitor pricing', type: 'general-purpose' };
     const strip = () => page.evaluate(() => ({
-      tabs: [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim()),
-      front: document.querySelector('section#right [role="tab"][aria-selected="true"]')?.textContent.trim() || null,
+      tabs: [...document.querySelectorAll('section#right [data-strip="top"] [role="tab"]')].map((t) => t.textContent.trim()),
+      front: document.querySelector('section#right [data-strip="top"] [role="tab"][aria-selected="true"]')?.textContent.trim() || null,
     }));
 
     await invoke('navigate', { url: at('app') }, MAIN);

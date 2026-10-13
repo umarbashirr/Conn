@@ -131,8 +131,8 @@ async function showChat(page, key) {
 }
 
 // The tabs drawn in the column of the chat on screen, and the one it is on.
-const stripTabs = (page) => page.evaluate(() => [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim()));
-const activeStripTab = (page) => page.evaluate(() => document.querySelector('section#right [role="tab"][data-state="active"]')?.textContent.trim() ?? null);
+const stripTabs = (page) => page.evaluate(() => [...document.querySelectorAll('section#right [data-strip="top"] [role="tab"]')].map((t) => t.textContent.trim()));
+const activeStripTab = (page) => page.evaluate(() => document.querySelector('section#right [data-strip="top"] [role="tab"][data-state="active"]')?.textContent.trim() ?? null);
 
 // A raw bridge call, the way a terminal's conn CLI makes it: the chat's token
 // and folder, and whatever extra headers the caller adds.
@@ -252,7 +252,7 @@ async function main() {
       const aStrip = await until(async () => { const s = await stripTabs(page); return s.includes('app') && !s.includes('docs') ? s : null; }, 5000);
       check('chat-a-strip-matches', JSON.stringify((aStrip || []).filter((t) => /app|docs|research/.test(t))) === JSON.stringify(['app']), `chat A strip: ${JSON.stringify(aStrip)}`);
 
-      await page.evaluate(() => document.querySelector('section#right [role="tab"] [role="button"][aria-label="Close app"]')
+      await page.evaluate(() => document.querySelector('section#right [data-strip="top"] [role="tab"] [role="button"][aria-label="Close app"]')
         ?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true })));
       const emptied = await until(async () => ((await A.call('browser_tabs'))?.tabs || []).length === 0, 5000);
       const again = await A.call('browser_navigate', { url: at('again') }).then(() => null, (e) => e.message);

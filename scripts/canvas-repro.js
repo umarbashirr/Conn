@@ -293,7 +293,7 @@ async function main() {
 
     await page.evaluate(() => window.connChat.design());
     const tabs = await until(page, () => {
-      const t = [...document.querySelectorAll('section#right [role="tab"]')].map((x) => x.textContent.trim());
+      const t = [...document.querySelectorAll('section#right [data-strip="top"] [role="tab"]')].map((x) => x.textContent.trim());
       return t.includes('Canvas') && t;
     });
     check('canvas-tab-opens', Array.isArray(tabs), `tabs=${tabs}`);

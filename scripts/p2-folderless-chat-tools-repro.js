@@ -128,7 +128,7 @@ async function main() {
       const body = await res.json().catch(() => ({}));
       check('folderless-navigate-ok', res.ok && !body.error, `${res.status} ${JSON.stringify(body)}`);
       const tabs = await until(() => page.evaluate(() => {
-        const list = [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim());
+        const list = [...document.querySelectorAll('section#right [data-strip="top"] [role="tab"]')].map((t) => t.textContent.trim());
         return list.length ? list : null;
       }), 5000);
       check('folderless-preview-tab-in-its-column', !!tabs?.length, 'no tab drawn in the chat on screen');

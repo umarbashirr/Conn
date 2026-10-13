@@ -114,7 +114,7 @@ const panel = (page) => page.evaluate(() => {
   // panel is what gets measured.
   const right = document.querySelector('section#right')?.parentElement;
   const open = !!right && right.getBoundingClientRect().width > 0;
-  const tabs = [...document.querySelectorAll('section#right [role="tab"]')].map((t) => t.textContent.trim());
+  const tabs = [...document.querySelectorAll('section#right [data-strip] [role="tab"]')].map((t) => t.textContent.trim());
   const shells = document.querySelectorAll('#terms .term-host').length;
   return { open, tabs, shells };
 });

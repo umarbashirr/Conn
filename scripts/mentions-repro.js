@@ -191,7 +191,7 @@ async function app(base) {
       return '';
     };
     const showing = () => until(page, () => {
-      const active = document.querySelector('section#right [role="tab"][data-state="active"]');
+      const active = document.querySelector('section#right [data-strip="top"] [role="tab"][data-state="active"]');
       if (!active || !document.querySelector('section#right')?.offsetParent) return null;
       if (active.title === 'Canvas') return 'canvas';
       if (document.querySelector('#url')?.offsetParent) return 'browser';
