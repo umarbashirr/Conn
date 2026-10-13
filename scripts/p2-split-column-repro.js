@@ -9,7 +9,8 @@
    each. Then drags the terminal shut and brings it back with the keyboard.
    Last, the Console tab that took the place of the drawer under the page. Its
    network list is fetched when asked for, so the tab coming back on screen
-   has to ask again, as the drawer opening did.
+   has to ask again, as the drawer opening did. And the bottom strip's menu,
+   which must leave the window where it was.
 
    Boots through the verify skill, so the ports come from the OS and no lock
    is needed. Needs a built renderer: `npx vite build` first. */
@@ -130,6 +131,19 @@ async function main() {
       seen = await consoleText();
     }
     check('the-network-list-is-fetched-again-when-the-tab-comes-back', /127\.0\.0\.1:1\/refused/.test(seen), seen.slice(0, 200));
+
+    /* The bottom strip's plus is the first menu that opens low in the column.
+       The window is a frame the native page is placed in by window
+       coordinates, so nothing a menu focuses may scroll it, not even by the
+       half pixel the status bar runs past the window's foot. */
+    await click(s, 'css=section#right [data-strip="bottom"] button[title="Open another tab"]');
+    await sleep(400);
+    const scrolled = await evaluate(s, `document.body.scrollTop + document.documentElement.scrollTop`);
+    await key(s, 'Escape');
+    await sleep(300);
+    const after = await bounds(s);
+    check('the-bottom-menu-leaves-the-window-unscrolled', scrolled === 0, `scrolled by ${scrolled}px`);
+    check('bounds-follow-paneslot-after-the-bottom-menu', after.match, JSON.stringify({ ipc: after.ipc, paneslot: after.paneslot }));
   } finally {
     await stop(s);
     site.close();
