@@ -34,7 +34,7 @@ Copy the `session` path. Every other command needs it as `--session <path>`. She
 
 The instance has one open project, `shop`, a copy of `fixtures/shop` that is also a committed git repo. The window is 1440 by 900. Boot options:
 
-- `--xvfb` runs the window on a hidden X display, so nothing appears on the person's screen. Rendering is in software. Use it when you run many instances.
+- `--xvfb` runs the window on a hidden X display, so nothing appears on the person's screen. Rendering is in software, and screenshots look the same as from a normal boot. Use it when you run many instances.
 - `--root <checkout>` boots a different checkout, such as a trunk worktree, with this same driver.
 
 For a one-shot check, `node .claude/skills/verify/drive.mjs --smoke` boots, saves a screenshot of the empty chat, stops, and prints the `ready` line and `png <path>`.
@@ -60,11 +60,13 @@ Pass the instance with `--session <session>` on each command below.
 | `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
-| `shot` | Saves a PNG of the window. `--out <file>` names it, `--css <selector>` crops to one element. |
+| `shot` | Saves a PNG of the window and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element. |
 | `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`view`), and the `#paneslot` rectangle (`paneslot`). Exits 1 unless `ipc` is within 1 px of `paneslot`. |
 | `record` | Records the window for `--seconds <n>` (default 10) to `--out <file.mp4>`. |
 | `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. Use it for read-only checks. |
 | `stop` | Ends the instance. See Cleanup. |
+
+`click`, `key`, `type`, `say` and `perm` return after the page has drawn two frames, so a `shot` right after one shows its result. When the result needs longer, such as the Changes list refreshing from git, poll the page with `js` until it appears, then shoot.
 
 The first `say`, `perm` or `invoke` has no chat to talk to, so it types `Hello` into the composer and sends it, which starts one. Pass `--prompt <text>` to `say` to send something else. After that, these commands talk to the newest chat.
 
@@ -139,9 +141,18 @@ The frames come from the page's screencast and are written to `ffmpeg` on a fixe
 node .claude/skills/verify/drive.mjs stop --session <session>
 ```
 
-Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay.
+Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay. It prints `stopped` and exits 0. If a process survives SIGKILL it exits 1 and names the process ids, and the session folder stays.
 
-`stop` finds processes by two marks. Electron and its helpers carry `--user-data-dir=<session>/userdata` on the command line. Everything else the app starts, such as provider agents and the terminals' shells, inherited `HOME=<session>/home`. That covers agents the app detaches into their own process groups, which a group kill would miss. It never matches on a program name. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
+`stop` works in two steps. It first signals the whole process group that `boot` started, `SIGTERM` and then `SIGKILL`, so Electron, its helpers and a terminal's jobs go together. It then looks for stragglers and signals them by pid. The app launches provider agents into process groups of their own, and Codex starts a `git fetch` at startup that can outlive the app and keep a debug port bound, so a group kill alone misses them.
+
+A process counts as a straggler only when the session's folders name it.
+
+- `--user-data-dir=<session>/userdata` is on its command line, which marks Electron and its helpers.
+- Its command line has a path under `<session>/home/`.
+- It inherited `HOME=<session>/home`.
+- Its working directory is inside the session.
+
+It never matches on a program name, and it never signals the shell or tool that ran `stop`, even when that shell stands in the project folder. Do not run `pkill` or `killall`, because the person who owns this machine runs Conn too.
 
 If you lost the session path, find your instance by the `--user-data-dir=/tmp/conn-verify-` argument in `ps`. Stop only the processes you started.
 

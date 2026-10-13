@@ -21,13 +21,16 @@ const isPng = (file) => {
 };
 
 /* A process belongs to an instance when its command line or its environment
-   names the instance's directory. Chromium's helpers carry --user-data-dir, and
-   the provider agents the app detaches carry only the HOME they inherited. */
+   names the instance's directory, or it stands in it. Chromium's helpers carry
+   --user-data-dir, the provider agents the app detaches carry only the HOME
+   they inherited, and a Codex git fetch can be told apart by its cwd. */
 const holders = (dir) => fs.readdirSync('/proc')
   .filter((pid) => /^\d+$/.test(pid))
   .filter((pid) => ['cmdline', 'environ'].some((file) => {
     try { return fs.readFileSync(`/proc/${pid}/${file}`, 'utf8').includes(dir); } catch { return false; }
-  }));
+  }) || (() => {
+    try { return fs.readlinkSync(`/proc/${pid}/cwd`).startsWith(dir); } catch { return false; }
+  })());
 
 async function main() {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-check-'));

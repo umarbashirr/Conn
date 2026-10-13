@@ -33,14 +33,36 @@ async function until(fn, ms) {
 
 const read = (file) => { try { return fs.readFileSync(file, 'utf8'); } catch { return ''; } };
 
+const link = (file) => { try { return fs.readlinkSync(file); } catch { return ''; } };
+
+// Fields of /proc/<pid>/stat after the command name: state, ppid, pgrp.
+const statOf = (pid) => { const t = read(`/proc/${pid}/stat`); return t.slice(t.lastIndexOf(')') + 2).split(' '); };
+
+// The processes between this one and init. They may stand in the session's folders, and stop must never signal them.
+const ancestors = () => {
+  const seen = new Set([process.pid]);
+  for (let p = process.ppid; p > 1 && !seen.has(p); p = Number(statOf(p)[1])) seen.add(p);
+  return seen;
+};
+
 /* The processes this session started, and nobody else's. Electron and its
    helpers carry the session's --user-data-dir, and have no environment to
    read, because Chromium overwrites it when it sets the process title. Every
    other process, such as the provider agents the app detaches into groups of
-   their own, has only the HOME it inherited, which is a directory this session
-   made. A group signal would miss the second kind. */
-export const heldBy = (s) => fs.readdirSync('/proc').filter((p) => /^\d+$/.test(p)
-  && (read(`/proc/${p}/cmdline`).includes(`--user-data-dir=${s.userData}`) || `\0${read(`/proc/${p}/environ`)}`.includes(`\0HOME=${s.home}\0`)));
+   their own, or the git fetch that Codex starts and that outlives the app,
+   has the HOME it inherited, a path into the home on its command line, or its
+   working directory inside the session. All of those are folders this session
+   made. */
+export const heldBy = (s) => {
+  const mine = ancestors();
+  const inside = (p) => p === s.dir || p.startsWith(`${s.dir}/`);
+  return fs.readdirSync('/proc').filter((p) => {
+    if (!/^\d+$/.test(p) || mine.has(Number(p))) return false;
+    const cmd = read(`/proc/${p}/cmdline`);
+    return cmd.includes(`--user-data-dir=${s.userData}`) || cmd.includes(`${s.home}/`)
+      || `\0${read(`/proc/${p}/environ`)}`.includes(`\0HOME=${s.home}\0`) || inside(link(`/proc/${p}/cwd`));
+  });
+};
 
 // ------------------------------------------------------------------ CDP
 
@@ -185,20 +207,29 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   return s;
 }
 
-/* Ends what this session started and nothing else. The app launches provider
-   agents and a Codex plugin fetch that outlive it, so the processes found are
-   the ones whose HOME is this session's, asked to exit and then forced. */
+/* Ends what this session started and nothing else. Electron goes first, as the
+   process group boot made, so its helpers and a terminal's jobs go with it.
+   Then whatever still names this session's folders is signalled by pid, since
+   the app launches provider agents into groups of their own and a Codex git
+   fetch that outlives it. Asked to exit, then forced. The group is signalled
+   only while a process the session owns is in it, so a recycled pid is left
+   alone. */
 export async function stop(s) {
-  for (const [signal, wait] of [['SIGTERM', 5000], ['SIGKILL', 3000]]) {
-    const pids = heldBy(s);
-    if (!pids.length) break;
-    for (const pid of pids) {
-      try { process.kill(Number(pid), signal); } catch { /* gone between the scan and the signal */ }
+  const signal = (sig) => {
+    if (heldBy(s).some((p) => Number(statOf(p)[2]) === s.pid)) {
+      try { process.kill(-s.pid, sig); } catch { /* the group emptied between the scan and the signal */ }
     }
+    for (const pid of heldBy(s)) {
+      try { process.kill(Number(pid), sig); } catch { /* gone between the scan and the signal */ }
+    }
+  };
+  for (const [sig, wait] of [['SIGTERM', 4000], ['SIGKILL', 3000]]) {
+    if (!heldBy(s).length) break;
+    signal(sig);
     await until(() => !heldBy(s).length, wait);
   }
   const left = heldBy(s);
-  if (left.length) throw new Error(`still running on ${s.home} after SIGKILL: ${left.join(' ')}`);
+  if (left.length) throw new Error(`still running on ${s.dir} after SIGKILL: ${left.join(' ')}`);
   fs.rmSync(s.dir, { recursive: true, force: true, maxRetries: 5 });
 }
 
@@ -329,15 +360,20 @@ function chord(spec) {
   return { key, code, windowsVirtualKeyCode, modifiers, ...(printable && { text: key }) };
 }
 
-export const key = (s, spec) => page(s, async (c) => {
+// Input commands return once the panel has drawn what the input caused, so a shot right after one is not of the old screen.
+export async function key(s, spec) {
   const e = chord(spec);
-  await c.send('Input.dispatchKeyEvent', { type: 'keyDown', ...e });
-  await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...e, text: undefined });
-});
+  await page(s, async (c) => {
+    await c.send('Input.dispatchKeyEvent', { type: 'keyDown', ...e });
+    await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...e, text: undefined });
+  });
+  await settle(s);
+}
 
 export async function type(s, text, { enter = false } = {}) {
   await page(s, (c) => c.send('Input.insertText', { text }));
   if (enter) await key(s, 'Enter');
+  else await settle(s);
 }
 
 // Runs in the page. A bare name matches a button, link, tab or menu item by its text, aria-label or title.
