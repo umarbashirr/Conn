@@ -7,6 +7,9 @@
    under the slot's edge. Opens a page and a terminal, drags the handle between
    them to three heights with real mouse events, and reads both boxes after
    each. Then drags the terminal shut and brings it back with the keyboard.
+   Last, the Console tab that took the place of the drawer under the page. Its
+   network list is fetched when asked for, so the tab coming back on screen
+   has to ask again, as the drawer opening did.
 
    Boots through the verify skill, so the ports come from the OS and no lock
    is needed. Needs a built renderer: `npx vite build` first. */
@@ -46,7 +49,7 @@ const fills = (grid) => !!grid && grid.rows === Math.max(1, Math.floor(grid.box 
 const gridOf = (g) => (g.grid ? `${g.grid.rows} rows of ${g.grid.cell.toFixed(1)}px in a ${Math.round(g.grid.box)}px box` : 'no terminal');
 
 async function main() {
-  const { boot, bounds, drag, evaluate, invoke, key, stop, type } = await import('../.claude/skills/verify/drive.mjs');
+  const { boot, bounds, click, drag, evaluate, invoke, key, stop, type } = await import('../.claude/skills/verify/drive.mjs');
 
   const site = http.createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
@@ -111,6 +114,22 @@ async function main() {
       check('the-terminal-fills-its-box-when-it-comes-back', fills(g.grid), gridOf(g));
       check('bounds-follow-paneslot-when-it-comes-back', b.match, JSON.stringify({ ipc: b.ipc, paneslot: b.paneslot }));
     }
+
+    const consoleText = () => evaluate(s, `document.querySelector('#console-view')?.innerText || ''`);
+    await key(s, 'Ctrl+Shift+J');
+    await click(s, 'network');
+    await sleep(300);
+    check('the-console-tab-opens-below-on-network', /no network entries/.test(await consoleText()), (await consoleText()).slice(0, 200));
+    await key(s, 'Ctrl+Shift+J');
+    await invoke(s, 'evaluate', { code: `fetch('http://127.0.0.1:1/refused').catch(() => 0)` });
+    await sleep(500);
+    await key(s, 'Ctrl+Shift+J');
+    let seen = '';
+    for (let i = 0; i < 20 && !/127\.0\.0\.1:1\/refused/.test(seen); i += 1) {
+      await sleep(150);
+      seen = await consoleText();
+    }
+    check('the-network-list-is-fetched-again-when-the-tab-comes-back', /127\.0\.0\.1:1\/refused/.test(seen), seen.slice(0, 200));
   } finally {
     await stop(s);
     site.close();
