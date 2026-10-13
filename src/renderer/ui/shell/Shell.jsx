@@ -338,21 +338,22 @@ export default function Shell() {
             <ResizableHandle className={(full || !rightOpen) ? 'pointer-events-none opacity-0' : undefined} />
             <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
               <section id="right" data-full={full || undefined}>
-                {/* A drag that pushes a slot past its minimum collapses it, and
-                    nothing else tells the store. Only a person's drag can do
-                    that, so only a person's release is passed on, and it puts
-                    the slot away the way a key press would, so a collapsed
-                    page parks instead of going 0x0 and a shell that comes
-                    back takes the keys. The handle is disabled while a slot
-                    is shut, so a release can only ever close a slot, never
-                    open an empty one. */}
+                {/* The panels collapse a slot when a drag pushes it past half
+                    its minimum, or when the column is too short for both,
+                    and nothing else tells the store. Each collapse puts the
+                    slot away the way a key press would, so a collapsed page
+                    parks instead of going 0x0 and a shell that comes back
+                    takes the keys. The layout effect above only ever zeroes a
+                    slot that is already shut, and hideSlot leaves those be.
+                    Only a person's drag moves the split worth coming back
+                    to. The handle is disabled while a slot is shut, so no
+                    drag opens an empty one. */}
                 <ResizablePanelGroup
                   orientation="vertical"
                   groupRef={slots}
                   onLayoutChange={relayoutNow}
                   onLayoutChanged={(sizes, { isUserInteraction }) => {
-                    if (!isUserInteraction) return;
-                    if (sizes['right-top'] > 0 && sizes['right-bottom'] > 0) split.current = sizes['right-top'];
+                    if (isUserInteraction && sizes['right-top'] > 0 && sizes['right-bottom'] > 0) split.current = sizes['right-top'];
                     for (const slot of SLOTS) if (sizes[`right-${slot}`] === 0) hideSlot(slot);
                   }}>
                   {/* Clipped, because a slot collapsed to no height still has a
