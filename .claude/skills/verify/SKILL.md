@@ -88,7 +88,7 @@ The first `say`, `perm` or `invoke` has no chat to talk to, so it types `Hello` 
 
 Chords the window menu owns, such as `Ctrl+,`, `Ctrl+O`, `Ctrl+Shift+F` and zoom, never reach the page, so `key` cannot press them. Click the menu or the toolbar button instead.
 
-Changes lists only uncommitted edits. The project starts clean, so edit a file in the `project` folder first, for example change `<h1>Your cart</h1>` to `<h1>Your basket</h1>` in `index.html`. Then press `Ctrl+Shift+G`.
+Changes lists only uncommitted edits. The project starts clean, so edit a file in the `project` folder first, for example change `<h1>Your cart</h1>` to `<h1>Your basket</h1>` in `index.html`. Then press `Ctrl+Shift+G`. The right column is `section#right`, so `js "document.querySelector('section#right').innerText"` prints the list, and it holds `index.html` once the diff is up.
 
 ### The shop fixture
 
@@ -141,7 +141,9 @@ The frames come from the page's screencast and are written to `ffmpeg` on a fixe
 node .claude/skills/verify/drive.mjs stop --session <session>
 ```
 
-Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay. It prints `stopped` and exits 0. If a process survives SIGKILL it exits 1 and names the process ids, and the session folder stays.
+It prints `stopped` and exits 0 when the instance is gone. If a process survives `SIGKILL` it exits 1 and names the process ids, and the session folder stays.
+
+Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay.
 
 `stop` works in two steps. It first signals the whole process group that `boot` started, `SIGTERM` and then `SIGKILL`, so Electron, its helpers and a terminal's jobs go together. It then looks for stragglers and signals them by pid. The app launches provider agents into process groups of their own, and Codex starts a `git fetch` at startup that can outlive the app and keep a debug port bound, so a group kill alone misses them.
 
@@ -158,7 +160,7 @@ If you lost the session path, find your instance by the `--user-data-dir=/tmp/co
 
 ## Gotchas
 
-- A toast such as "Codex is out, Update, Later" can appear a few seconds after boot, depending on which CLIs the machine has. Run `click Later` before a screenshot that has to look clean.
+- A toast such as "Codex is out, Update, Later" can appear a few seconds after boot, depending on which CLIs the machine has. Run `click Later` before any screenshot you keep as evidence, because the toast covers the top right of the window.
 - `perm` records the answer in the main process. Nothing runs the tool, so an allowed `Edit` does not change the file.
 - `click` takes the first visible match, exact text before partial. If another element sits on top of the point, it prints a warning and the click lands on that element, as it would for a person.
 - Boot turns off Chromium's throttling of covered and background windows, so instances that overlap on one screen still paint and tick.
