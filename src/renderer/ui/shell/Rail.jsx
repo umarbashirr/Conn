@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { railBadge } from './chat-attention.js';
+import { IDLE } from '@/lib/activity';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
@@ -32,6 +33,7 @@ import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupAction,
   SidebarGroupContent,
@@ -80,8 +82,19 @@ const SUB = 'mx-0 ml-4 border-l-0 px-0 pr-0';
 // The root font is 13px, so text-xs comes out under 10px. Sizes here are pixels.
 const ROW = 'h-7 text-[12px]';
 const NAV = `${ROW} text-sidebar-foreground/80 [&>svg]:size-3.5`;
+const FOOT = 'h-[26px] text-[12px] text-sidebar-foreground/60 [&>svg]:size-3.5';
 const GROUP_LABEL = 'h-7 font-normal text-[11px] text-muted-foreground';
 const GROUP_ACTION = 'top-3 text-sidebar-foreground/60 hover:text-sidebar-foreground [&>svg]:size-3.5';
+
+const LINE_TONE = {
+  working: 'text-[hsl(var(--success))]/85',
+  waiting: 'text-amber-700/85 dark:text-amber-500/85',
+  finished: 'text-muted-foreground',
+};
+
+// In pixels too: two lines and their padding come to 40px, and h-10 at this
+// root is 32.5.
+const TALL = 'h-[40px] items-start py-1';
 
 function Row({ chat, current, onDelete, onRename }) {
   const done = isDone(chat);
@@ -89,6 +102,9 @@ function Row({ chat, current, onDelete, onRename }) {
   const pinned = isPinned(chat);
   const badge = railBadge(chat);
   const working = badge?.tone === 'busy';
+  // Only an open chat reports what it is doing, so a chat read from disk has none.
+  const activity = chat.activity ?? IDLE;
+  const tall = activity.state !== 'idle';
 
   return (
     <ContextMenu>
@@ -97,33 +113,51 @@ function Row({ chat, current, onDelete, onRename }) {
           <SidebarMenuButton
             isActive={current}
             title={chat.title}
-            className={ROW}
+            data-activity={activity.state}
+            className={cn(ROW, tall && TALL)}
             onClick={() => window.connChat?.open(chat)}>
-            {working ? (
-              <LoaderCircleIcon className="size-3.5! animate-spin text-[hsl(var(--success))]" />
-            ) : pinned ? (
-              <PinIcon className="size-3.5! text-muted-foreground" />
-            ) : done ? (
-              <CircleCheckIcon className="size-3.5! text-muted-foreground" />
-            ) : (
-              <span
-                aria-hidden
-                className={cn('mx-1 size-1.5 shrink-0 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
-            )}
-            <span className="truncate">{chat.title}</span>
-            {badge && (
-              <Badge
-                variant="secondary"
-                className={cn(
-                  'ml-auto shrink-0 px-1.5 py-0 text-[10px]',
-                  badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
-                  badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
-                )}>
-                {badge.label}
-              </Badge>
-            )}
-            <span className={`shrink-0 text-[11px] text-muted-foreground ${badge ? '' : 'ml-auto'}`}>
-              {relative(chat.at)}
+            {/* One title line tall, so on a two-line row the glyph sits beside
+                the title rather than between the lines. */}
+            <span className="flex h-lh w-3.5 shrink-0 items-center justify-center">
+              {working ? (
+                <LoaderCircleIcon className="size-3.5 animate-spin text-[hsl(var(--success))]" />
+              ) : activity.state === 'finished' ? (
+                <span data-slot="finished-dot" aria-hidden className="size-2 rounded-full bg-[hsl(var(--token-conn))]" />
+              ) : activity.state === 'waiting' ? (
+                <span aria-hidden className="size-2 rounded-full bg-amber-500" />
+              ) : pinned ? (
+                <PinIcon className="size-3.5 text-muted-foreground" />
+              ) : done ? (
+                <CircleCheckIcon className="size-3.5 text-muted-foreground" />
+              ) : (
+                <span
+                  aria-hidden
+                  className={cn('size-1.5 rounded-full', current ? 'bg-sidebar-foreground' : 'bg-sidebar-foreground/30')} />
+              )}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate">{chat.title}</span>
+              {tall && (
+                <span data-slot="activity-line" className={cn('truncate text-[11px] font-normal', LINE_TONE[activity.state])}>
+                  {activity.line}
+                </span>
+              )}
+            </span>
+            {/* On two lines the age stays on the title line and the chip drops
+                beside the line that explains it. */}
+            <span className={cn('flex shrink-0', tall ? 'flex-col-reverse items-end gap-px' : 'items-center gap-2')}>
+              {badge && (
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    'px-1.5 py-0 text-[10px]',
+                    badge.tone === 'wait' && 'bg-amber-500/15 text-amber-700 dark:text-amber-500',
+                    badge.tone === 'busy' && 'bg-[hsl(var(--success))]/15 text-[hsl(var(--success))]',
+                  )}>
+                  {badge.tone === 'wait' ? 'Review' : badge.label}
+                </Badge>
+              )}
+              <span className="text-[11px] text-muted-foreground">{relative(chat.at)}</span>
             </span>
           </SidebarMenuButton>
           <div
@@ -669,20 +703,6 @@ export default function Rail() {
               <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
-            {/* Skills, agents and MCP servers for this folder, and the app's
-                settings, on a page in the chat's place. */}
-            <SidebarMenuButton className={NAV} title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
-              <BlocksIcon />
-              <span>Customize</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton className={NAV} title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
-              <GaugeIcon />
-              <span>Usage</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
 
@@ -717,6 +737,27 @@ export default function Rail() {
           )}
         </SidebarGroup>
       </SidebarContent>
+
+      {/* Places you visit now and then, not where work starts, so they wait
+          at the foot and leave the top of the rail to the chats. */}
+      <SidebarFooter data-slot="rail-foot" className="gap-0 border-t px-2 py-1.5">
+        <SidebarMenu className="gap-px">
+          <SidebarMenuItem>
+            {/* Skills, agents and MCP servers for this folder, and the app's
+                settings, on a page in the chat's place. */}
+            <SidebarMenuButton className={FOOT} title="Skills, MCP servers and settings" onClick={() => window.connChat?.customize()}>
+              <BlocksIcon />
+              <span>Customize</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton className={FOOT} title="Tokens, cost and plan limits for every chat and agent" onClick={() => window.connChat?.usage()}>
+              <GaugeIcon />
+              <span>Usage</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
 
       <NewChatDialog open={starting} onOpenChange={setStarting} />
       <ConfirmRemove folder={leaving} onCancel={() => setLeaving(null)} onConfirm={removeFolder} />
