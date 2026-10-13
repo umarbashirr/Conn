@@ -52,8 +52,9 @@ import {
   subscribeChanges,
   summary,
 } from './changes-store';
+import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
-import { activeKind, subscribeTabs } from './tabs-store';
+import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 const DANGER_BUTTON = 'size-7 rounded-md text-destructive';
@@ -73,11 +74,12 @@ function useChanges() {
    are both showing their diff has to come out unchanged. */
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
+  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offFocus(); };
+  return () => { offTabs(); offLayout(); offFocus(); };
 };
 
-const onTop = () => activeKind(project.focused) === 'changes';
+const onTop = () => shownIn(project.focused, SLOT_OF.changes)?.kind === 'changes';
 
 // --------------------------------------------------------------- file list
 
@@ -403,9 +405,8 @@ function Nothing() {
 
 export default function ChangesView() {
   const s = useChanges();
-  const { rightOpen, previewFull } = useLayout();
-  const top = useSyncExternalStore(subscribeTop, onTop, onTop);
-  const showing = rightOpen && top;
+  const { previewFull } = useLayout();
+  const showing = useSyncExternalStore(subscribeTop, onTop, onTop);
   const count = changesCount();
 
   // The number on the Changes tab in the toolbar comes from here.

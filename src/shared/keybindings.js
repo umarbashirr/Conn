@@ -41,7 +41,7 @@ const BINDINGS = [
   { id: 'agents', command: 'agents', label: 'Subagents', category: 'View', keys: '', owner: 'renderer', scope: 'app', steal: true },
   { id: 'canvas', command: 'canvas', label: 'Design canvas', category: 'View', keys: '', owner: 'renderer', scope: 'app', steal: true },
   { id: 'previewFull', command: 'previewFull', label: 'Right pane at full width', category: 'View', keys: 'CmdOrCtrl+Shift+F', owner: 'menu', scope: 'menu', steal: false },
-  { id: 'drawer', command: 'drawer', label: 'Console and network', category: 'View', keys: 'CmdOrCtrl+Shift+J', owner: 'renderer', scope: 'app', steal: true },
+  { id: 'drawer', command: 'drawer', label: 'Console', category: 'View', keys: 'CmdOrCtrl+Shift+J', owner: 'renderer', scope: 'app', steal: true },
   { id: 'theme', command: 'theme', label: 'Light or dark', category: 'View', keys: '', owner: 'renderer', scope: 'app', steal: true },
   { id: 'appearance', command: 'appearance', label: 'Theme and appearance', category: 'View', keys: '', owner: 'renderer', scope: 'app', steal: true },
 

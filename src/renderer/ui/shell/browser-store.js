@@ -17,8 +17,8 @@
    what they say still lands here: a build error a tab logged while you were
    reading another one is in its console when you click over to it. */
 'use strict';
-import { act, layout, setLayout, subscribe as subscribeLayout } from './layout-store.js';
-import { activateTab, activeTab, chatOfTab, everyTab, openTab, previewTabs, removeTab, setTabTitle, subscribeTabs } from './tabs-store.js';
+import { act, setLayout, subscribe as subscribeLayout } from './layout-store.js';
+import { activateTab, activeIn, chatOfTab, everyTab, openTab, previewTabs, removeTab, setTabTitle, shownIn, subscribeTabs } from './tabs-store.js';
 import { toast } from './toast.jsx';
 
 const blank = () => ({
@@ -38,7 +38,7 @@ const blank = () => ({
   favicon: '',
   console: [],
   network: [],
-  drawerOpen: false,
+  // Which of the two the Console tab is reading for this preview.
   drawerTab: 'console',
   viewport: '',
   // The frame's scale, pinned while a handle is being dragged. Refitting on
@@ -130,20 +130,19 @@ export const consoleErrors = (tab = current) => previewOf(tab).console.filter((c
 // ------------------------------------------------------- which one is where
 
 /* The preview in the box. There is one box and one native view allowed in it,
-   so this is the focused folder's active tab and only when that tab is a
-   preview at all. Everything else main parks offscreen, where it goes on
-   loading. */
+   so this is the tab the focused folder's top slot is drawing and only when
+   that tab is a preview at all. Everything else main parks offscreen, where it
+   goes on loading. */
 export function onScreen() {
-  if (!layout.rightOpen) return null;
-  const tab = activeTab(focusedDir);
+  const tab = shownIn(focusedDir, 'top');
   return tab?.kind === 'browser' ? tab.id : null;
 }
 
-/* The preview the address bar, the drawer key and the status bar speak for. It
-   outlives what is in the box: reading a folder's diff does not make its
-   preview stop being the page that folder is on. */
-function currentOf(dir) {
-  const tab = activeTab(dir);
+/* The preview the address bar, the Console tab and the status bar speak for. It
+   outlives what is in the box: reading a folder's canvas, or putting the top
+   slot away, does not make its preview stop being the page that folder is on. */
+export function currentOf(dir) {
+  const tab = activeIn(dir, 'top');
   if (tab?.kind === 'browser') return tab.id;
 
   const open = previewTabs(dir);
@@ -209,14 +208,14 @@ function syncPreview() {
   bumpGuest();
 }
 
-/* Bring a preview forward: its folder's strip goes to it and the column opens.
-   A folder you are not looking at does not get to do this, so its errors and
-   its loads wait for you rather than pulling the column off the folder in
+/* Bring a preview forward: its folder's strip goes to it and the top slot
+   opens. A folder you are not looking at does not get to do this, so its errors
+   and its loads wait for you rather than pulling the column off the folder in
    front. */
 function reveal(tab) {
   if (!tab || !previewTabs(focusedDir).includes(tab)) return;
   activateTab(focusedDir, tab);
-  if (!layout.rightOpen) setLayout({ rightOpen: true });
+  setLayout({ topOpen: true });
   syncPreview();
 }
 
@@ -258,44 +257,45 @@ export async function navigateTab(url, tab) {
 // can click belongs to.
 export const go = (action, tab) => window.conn.browser.action(action, undefined, tab);
 
-// ------------------------------------------------------------------ drawer
+// ----------------------------------------------------------------- console
 
-/* The single way in: the tab strip, Ctrl+Shift+J, the menu and Show Details on
-   a failed load all land here. They each used to open the drawer their own way,
-   and the three orderings disagreed about when the pane got remeasured. */
+/* A page's console and network live in the Console tab of the bottom slot,
+   and this is the way in from the page's own chrome: the error count in the
+   toolbar and Network on a failed load. Both bring the page up on top and the
+   Console tab up below, so the two are on screen together. The chord and the
+   menu go through app.js instead, which opens the tab without naming a page. */
+export function showDrawer(which, tab = current) {
+  if (!tab) return;
+  reveal(tab);
+  act('showConsole');
+  return pickLogs(which, tab);
+}
+
 let fetchSeq = 0;
 
-export async function showDrawer(which, tab = current) {
+// Which log the Console tab reads for this preview. The tab's own console and
+// network switch comes here directly, so flipping between the two moves
+// nothing else on screen.
+export async function pickLogs(which, tab = current) {
   if (!tab) return;
   const b = recordOf(tab);
-  reveal(tab);
   b.drawerTab = which || b.drawerTab;
-  b.drawerOpen = true;
   // The rows still in the body belong to whatever was open last, and they would
   // sit there in plain sight while the fetch is out.
   if (b.drawerTab === 'network') b.network = [];
   changed();
 
-  // Stamped on every open, not only the ones that fetch, so clicking straight
+  // Stamped on every pick, not only the ones that fetch, so clicking straight
   // over to the console retires a network fetch that is still out instead of
   // letting it land behind the tab that replaced it.
   const seq = ++fetchSeq;
   if (b.drawerTab !== 'network') return;
 
   const rows = await window.conn.browser.action('network', undefined, tab).catch(() => []);
-  if (seq !== fetchSeq || !b.drawerOpen) return;
+  if (seq !== fetchSeq) return;
   b.network = Array.isArray(rows) ? rows : [];
   changed();
 }
-
-export function hideDrawer(tab = current) {
-  const b = previewOf(tab);
-  if (!b.drawerOpen) return;
-  b.drawerOpen = false;
-  changed();
-}
-
-export const toggleDrawer = () => (browserState.drawerOpen ? hideDrawer() : showDrawer());
 
 export function clearLogs(tab = current) {
   const b = previewOf(tab);

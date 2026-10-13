@@ -1,5 +1,6 @@
-/* The preview browser: an address bar, the slot the native view is flown into,
-   and the console/network drawer under it.
+/* The preview browser: an address bar and the slot the native view is flown
+   into. Its console and network are the Console tab of the bottom slot, drawn
+   from here as well because they are a frame around the same record.
 
    #paneslot is deliberately empty. The page is a separate web contents that the
    window paints on top of this document at whatever bounds that div reports, so
@@ -16,8 +17,8 @@
 
    There is still only one hole. Bounds are measured and watched off #paneslot
    by id, and a native view can only be in one place, so the frames stack around
-   a single slot that outlives all of them: toolbars above it, drawers below,
-   and the one that is showing gives the hole its height.
+   a single slot that outlives all of them: toolbars above it, and the one that
+   is showing gives the hole its height.
 
    Empty and error Stages paint inside the hole. The guest is hidden for those
    states (see guestWanted in browser-store), otherwise Chromium's blank page
@@ -74,14 +75,15 @@ import {
   askAboutError,
   clearLogs,
   consoleErrors,
+  currentOf,
   getBrowserVersion,
   go,
-  hideDrawer,
   localServers,
   navigateTab,
   onScreen,
   parseViewport,
   pickElement,
+  pickLogs,
   previewOf,
   previews,
   recentUrls,
@@ -99,7 +101,8 @@ import {
   VIEWPORTS,
 } from './browser-store';
 import { warmPane } from './pane-cover';
-import { useLayout, usePaneCover } from './Shell';
+import { useFocusedDir, useLayout, usePaneCover } from './Shell';
+import { getTabsVersion, shownIn, subscribeTabs } from './tabs-store';
 
 const VIEWPORT_ICON = {
   scan: ScanIcon,
@@ -705,7 +708,7 @@ function Stage({ tab, showing }) {
   return s.live ? <DeviceFrame tab={tab} showing={showing} /> : <Placeholder tab={tab} />;
 }
 
-// ------------------------------------------------------------------ drawer
+// ----------------------------------------------------------------- console
 
 function LogRow({ row }) {
   const level = row.level || (row.kind === 'failed' ? 'error' : '') || row.kind || '';
@@ -723,6 +726,9 @@ function LogRow({ row }) {
   );
 }
 
+/* One preview's console and network, with the switch between the two. Drawn
+   once per preview like the toolbars, so where you had scrolled a tab's log
+   is still there when you come back to that tab. */
 function Drawer({ tab, showing }) {
   const s = useBrowser(tab);
   const body = useRef(null);
@@ -731,28 +737,25 @@ function Drawer({ tab, showing }) {
 
   useEffect(() => {
     const el = body.current;
-    if (!el) return undefined;
     const onScroll = () => {
       seat.current.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
       seat.current.top = el.scrollTop;
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [s.drawerOpen]);
+  }, []);
 
   useEffect(() => {
     const el = body.current;
-    if (!el || !showing) return;
+    if (!showing) return;
     el.scrollTop = seat.current.stick ? el.scrollHeight : seat.current.top;
   }, [showing, rows.length, s.drawerTab]);
-
-  if (!s.drawerOpen) return null;
 
   const errors = consoleErrors(tab);
 
   return (
-    <div className="flex h-[220px] shrink-0 flex-col border-t" hidden={!showing || undefined}>
-      <Tabs value={s.drawerTab} onValueChange={(v) => showDrawer(v, tab)} className="min-h-0 flex-1 gap-0">
+    <div className="flex min-h-0 flex-1 flex-col" hidden={!showing || undefined}>
+      <Tabs value={s.drawerTab} onValueChange={(v) => pickLogs(v, tab)} className="min-h-0 flex-1 gap-0">
         <div className="flex items-center gap-2 border-b px-2 py-1">
           <TabsList className="h-7 bg-transparent p-0">
             <TabsTrigger value="console" className="gap-1.5 text-xs">
@@ -780,15 +783,6 @@ function Drawer({ tab, showing }) {
             onClick={() => clearLogs(tab)}>
             clear
           </Button>
-          <Tip label="Close drawer (Ctrl+Shift+J)" side="bottom">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={ICON_BUTTON}
-              onClick={() => hideDrawer(tab)}>
-              <ChevronDownIcon />
-            </Button>
-          </Tip>
         </div>
 
         <ScrollArea className="min-h-0 flex-1" viewportRef={body}>
@@ -797,6 +791,26 @@ function Drawer({ tab, showing }) {
             : rows.slice(-300).map((row, i) => <LogRow key={`${i}-${row.url || row.message}`} row={row} />)}
         </ScrollArea>
       </Tabs>
+    </div>
+  );
+}
+
+/* The Console tab in the bottom slot. It speaks for the preview the focused
+   folder is on, the same one the address bar speaks for, which can be a page
+   whose top slot is shut: the log of a page you put away is still worth
+   reading. */
+export function ConsoleView() {
+  useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
+  useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
+  useLayout();
+  const dir = useFocusedDir();
+  const up = shownIn(dir, 'bottom')?.kind === 'console';
+  const current = currentOf(dir);
+
+  return (
+    <div id="console-view" className="flex h-full min-h-0 flex-col" hidden={!up || undefined}>
+      {previews().map(({ tab }) => <Drawer key={tab} tab={tab} showing={up && tab === current} />)}
+      {!current && <div className="p-3 text-xs text-muted-foreground">No preview in this chat</div>}
     </div>
   );
 }
@@ -916,8 +930,6 @@ export default function BrowserView() {
         <div id="paneslot" className="absolute inset-0" />
         {open.map(({ tab }) => <Stage key={tab} tab={tab} showing={tab === shown} />)}
       </div>
-
-      {open.map(({ tab }) => <Drawer key={tab} tab={tab} showing={tab === shown} />)}
     </div>
   );
 }

@@ -20,16 +20,17 @@ import { cn } from '@/lib/utils';
 import { Items } from '../App';
 import { onProject, project } from '../../project.js';
 import { agentsState, getAgentsVersion, selectAgent, subscribeAgents } from './agents-store';
-import { useLayout } from './Shell';
-import { activeKind, subscribeTabs } from './tabs-store';
+import { subscribe as subscribeLayout } from './layout-store';
+import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
 // Whether this tab is the one on screen, asked the way FilesView asks.
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
+  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offFocus(); };
+  return () => { offTabs(); offLayout(); offFocus(); };
 };
-const onTop = () => activeKind(project.focused) === 'agents';
+const onTop = () => shownIn(project.focused, SLOT_OF.agents)?.kind === 'agents';
 
 function AgentList({ agents, current }) {
   return (
@@ -91,9 +92,7 @@ function AgentDetail({ item, agent }) {
 
 export default function AgentsView() {
   useSyncExternalStore(subscribeAgents, getAgentsVersion, getAgentsVersion);
-  const { rightOpen } = useLayout();
-  const top = useSyncExternalStore(subscribeTop, onTop, onTop);
-  const showing = rightOpen && top;
+  const showing = useSyncExternalStore(subscribeTop, onTop, onTop);
 
   const { agent, agents, selected } = agentsState();
   const current = agents.find((a) => a.id === selected) || agents[agents.length - 1] || null;

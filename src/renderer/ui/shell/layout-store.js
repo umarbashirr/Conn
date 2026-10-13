@@ -9,15 +9,24 @@
 
 export const layout = {
   railOpen: true,
-  // Whether the right column is on screen. What is in it is a strip of tabs,
-  // and which tabs those are belongs to the focused folder, so it lives in
-  // tabs-store.js rather than here.
-  rightOpen: false,
+  // The right column is two slots, the pages on top and the tools underneath,
+  // and each has its own answer to whether it is on screen. What is in them is
+  // a strip of tabs each, and which tabs those are belongs to the focused
+  // folder, so it lives in tabs-store.js rather than here.
+  topOpen: false,
+  bottomOpen: false,
   previewFull: false,
   // How many files git has not been told about yet. changes-store.js counts
   // them and the toolbar's Changes tab wears the number.
   changesCount: 0,
 };
+
+// The column is up when either slot is. Read-only on purpose: a writer that
+// still says rightOpen throws instead of silently doing nothing, so a missed
+// caller shows itself.
+Object.defineProperty(layout, 'rightOpen', { get: () => layout.topOpen || layout.bottomOpen, enumerable: true });
+
+export const OPEN_KEY = { top: 'topOpen', bottom: 'bottomOpen' };
 
 const listeners = new Set();
 

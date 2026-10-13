@@ -64,8 +64,9 @@ import {
   visibleRows,
   wrapsLines,
 } from './files-store';
+import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
-import { activeKind, subscribeTabs } from './tabs-store';
+import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
@@ -77,19 +78,21 @@ function useFiles() {
   return filesState;
 }
 
-/* Whether the tree is the thing on screen. Two stores answer that between them:
-   the strip says which tab is active in a folder, and focus says which folder to
-   ask. A folder holds one tree at most, so the kind of its active tab is the
-   whole question. */
+/* Whether the tree is the thing on screen. Three stores answer that between
+   them: the strip says which tab the bottom slot is on in a folder, the layout
+   says whether that slot is up, and focus says which folder to ask. A folder
+   holds one tree at most, so the kind the slot is drawing is the whole
+   question. */
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
+  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offFocus(); };
+  return () => { offTabs(); offLayout(); offFocus(); };
 };
 
 // A boolean rather than the tabs version, so opening a preview somewhere else
 // in the strip does not redraw the tree.
-const onTop = () => activeKind(project.focused) === 'files';
+const onTop = () => shownIn(project.focused, SLOT_OF.files)?.kind === 'files';
 
 // ----------------------------------------------------------------- labels
 
@@ -516,7 +519,6 @@ function FilesBar() {
 
 export default function FilesView() {
   const s = useFiles();
-  const { rightOpen } = useLayout();
   const top = useSyncExternalStore(subscribeTop, onTop, onTop);
 
   // Hidden rather than unmounted, the way it always was. The folders you
@@ -526,7 +528,7 @@ export default function FilesView() {
     <div
       id="files-view"
       className="flex h-full min-h-0 flex-col"
-      hidden={!(rightOpen && top) || undefined}>
+      hidden={!top || undefined}>
       <FilesBar />
 
       {s.view.path

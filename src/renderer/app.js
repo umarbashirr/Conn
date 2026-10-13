@@ -1,14 +1,14 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { layout, onRelayout, registerActions, setLayout } from './ui/shell/layout-store.js';
+import { layout, onRelayout, OPEN_KEY, registerActions, setLayout } from './ui/shell/layout-store.js';
 import { toast } from './ui/shell/toast.jsx';
 import { bridge, copyMcpCommand, loadBridge } from './ui/shell/bridge.js';
-import { pickElement, toggleDrawer, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
+import { pickElement, guestWanted, previewOf, parseViewport, frameBox } from './ui/shell/browser-store.js';
 import { isPaneCovered } from './ui/shell/pane-cover.js';
 import {
-  activateTab, activeKind, activeTab, chatOfTab, dropChat, dropProject as dropTabs, everyTab,
-  openTab, projectDirs, revealTab, setTabTitle, showPanel, subscribeTabs, tabsOf,
+  activateTab, activeIn, chatOfTab, dropChat, dropProject as dropTabs, everyTab, openTab,
+  projectDirs, revealTab, setTabTitle, shownIn, showPanel, SLOT_OF, SLOTS, subscribeTabs, tabsOf,
 } from './ui/shell/tabs-store.js';
 import { activeKey, activeProject, liveKeys, subscribeRail } from './ui/shell/rail-store.js';
 import { DEFAULT_SCHEME, isScheme } from './ui/lib/themes.js';
@@ -40,7 +40,7 @@ const shells = new Map(); // terminal tab id -> { tabId, dir, id, term, fit, hos
 // Which panels are up is React's to render, so it lives in the layout store and
 // these are a read-only view of it. Anything in here that wants a panel open
 // calls setLayout; assigning to one of these throws, which is the point.
-for (const key of ['railOpen', 'rightOpen', 'previewFull']) {
+for (const key of ['railOpen', 'rightOpen', 'topOpen', 'bottomOpen', 'previewFull']) {
   Object.defineProperty(state, key, { get: () => layout[key], enumerable: true });
 }
 
@@ -51,6 +51,7 @@ onRelayout(() => { resizeActive(); syncPreview(); });
 // What the stores cannot do for themselves without importing this file back.
 registerActions({
   openPreview: () => openPreview(),
+  showConsole: () => showRight('console'),
   toast,
   syncGuestVisibility,
   syncPreviewBounds: () => syncBounds(),
@@ -368,10 +369,10 @@ function reconcileShells() {
   for (const shell of [...shells.values()]) if (!wanted.has(shell.tabId)) disposeShell(shell);
 }
 
-// The shell on screen: the focused folder's active tab, when that tab is a
-// terminal and the column is up. The rest keep their host with nothing drawn,
+// The shell on screen: the tab the focused folder's bottom slot is drawing,
+// when that tab is a terminal. The rest keep their host with nothing drawn,
 // because a hidden xterm goes on reading its shell.
-const shownShell = () => (state.rightOpen ? shells.get(activeTab(state.focused)?.id) : null) || null;
+const shownShell = () => shells.get(shownIn(state.focused, 'bottom')?.id) || null;
 
 // Answers whether a shell has just come on screen, which is a shell you are
 // about to type into. What was painted last is the only record of that: the
@@ -520,13 +521,12 @@ const inWindowPixels = (b) => ({
   width: Math.round(b.width * zoom), height: Math.round(b.height * zoom),
 });
 
-/* The preview that belongs in the box: the focused folder's active tab, when
-   that tab is a preview and the column is on screen. Null the rest of the time,
-   since the tree and the diff draw HTML in that same slot, and the previews the
-   other folders are holding stay where they are. */
+/* The preview that belongs in the box: the tab the focused folder's top slot is
+   drawing, when that tab is a preview. Null the rest of the time, since the
+   canvas draws HTML in that same slot, and the previews the other folders are
+   holding stay where they are. */
 function previewInBox() {
-  if (!state.rightOpen) return null;
-  const tab = activeTab(state.focused);
+  const tab = shownIn(state.focused, 'top');
   return tab?.kind === 'browser' ? tab.id : null;
 }
 
@@ -589,11 +589,11 @@ function syncBounds() {
 
 // --------------------------------------------------------- right column
 
-/* The column holds a strip of tabs, each one a preview, the file tree or the
-   diff, and the tabs belong to a folder the way the shells do. rightOpen says
-   whether the strip is on screen and nothing more. The tabs go on existing
-   while it is shut, which is what lets a button put the column away and bring
-   the same page back. */
+/* The column holds two strips of tabs, the pages above the tools, and the tabs
+   belong to a folder the way the shells do. topOpen and bottomOpen say whether
+   each strip is on screen and nothing more. The tabs go on existing while a
+   slot is shut, which is what lets a button put the slot away and bring the
+   same page back. */
 
 /* The preview or the shell a folder comes back to. It can have several of
    each, and neither the toolbar button nor an agent says which one it means,
@@ -609,22 +609,25 @@ function heldTab(dir, kind) {
   return open.includes(last) ? last : open[open.length - 1];
 }
 
-/* Everything the column has to be told after a tab changes, focus moves or the
-   column opens and shuts: which view is reading, which preview is in the box,
+/* Everything the column has to be told after a tab changes, focus moves or a
+   slot opens and shuts: which view is reading, which preview is in the box,
    and where the box is.
 
-   The kind on screen is kept so the tree is told when it arrives and not on
-   every bump the store makes. The diff is not told anything from here at all:
-   ChangesView turns its own store on and off from whether it is the active tab,
-   and a second caller would have it read the whole tree twice on every switch. */
+   The kind the bottom slot is showing is kept so the tree is told when it
+   arrives and not on every bump the store makes. The diff is not told anything
+   from here at all: ChangesView turns its own store on and off from whether it
+   is the tab on screen, and a second caller would have it read the whole tree
+   twice on every switch. */
 let showing = null;
 
 function syncRight() {
   const dir = state.focused;
   reconcileShells();
-  const tab = state.rightOpen ? activeTab(dir) : null;
-  if (HELD.includes(tab?.kind)) lastSeen.set(`${tab.kind}:${dir}`, tab.id);
-  const kind = tab?.kind || null;
+  for (const slot of SLOTS) {
+    const tab = shownIn(dir, slot);
+    if (HELD.includes(tab?.kind)) lastSeen.set(`${tab.kind}:${dir}`, tab.id);
+  }
+  const kind = shownIn(dir, 'bottom')?.kind || null;
   if (kind !== showing) {
     showing = kind;
     if (kind === 'files') window.connFiles?.activate();
@@ -638,15 +641,16 @@ function syncRight() {
 // rather than each of the callers.
 subscribeTabs(syncRight);
 
-/* Open the column on a tab of this kind and go to it. A folder has one tree and
-   one diff, so those land back on the tab it already had. The preview is the
-   odd one out: the button does not name one, so it returns to the last preview
-   read in this folder and mints a new one only when there is none. */
+/* Open this kind's slot on a tab of it and go to it. A folder has one tree and
+   one diff, so those land back on the tab it already had. The preview and the
+   terminal are the odd ones out: the button does not name one, so it returns
+   to the last one read in this folder and mints a new one only when there is
+   none. */
 function showRight(kind) {
   const dir = state.focused;
   const held = HELD.includes(kind) ? heldTab(dir, kind) : null;
   if (held) {
-    setLayout({ rightOpen: true });
+    setLayout({ [OPEN_KEY[SLOT_OF[kind]]]: true });
     activateTab(dir, held);
   } else if (!openTab(dir, kind)) return;
   syncRight();
@@ -666,17 +670,17 @@ function newPreview() {
   requestAnimationFrame(() => { syncBounds(); resizeActive(); });
 }
 
-/* Put the column away and leave the strip alone. A tab is a page you were
-   reading or a tree you expanded four folders deep, and none of that should go
-   because you wanted the chat wider for a minute. Closing a tab is the tab's
-   own business, and the store shuts the column itself when the last one goes,
-   so the two never have to be done together. */
-function hideRight() {
-  if (!state.rightOpen) return;
-  // Both panes hidden at once is a blank window, so putting the column away
+/* Put a slot away and leave its strip alone. A tab is a page you were reading
+   or a tree you expanded four folders deep, and none of that should go because
+   you wanted the chat wider for a minute. Closing a tab is the tab's own
+   business, and the store shuts the slot itself when the last one goes, so the
+   two never have to be done together. */
+function hideSlot(slot) {
+  if (!layout[OPEN_KEY[slot]]) return;
+  // Both panes hidden at once is a blank window, so putting the last slot away
   // gives the chat its half back first.
-  setPreviewFull(false);
-  setLayout({ rightOpen: false });
+  if (!SLOTS.some((other) => other !== slot && layout[OPEN_KEY[other]])) setPreviewFull(false);
+  setLayout({ [OPEN_KEY[slot]]: false });
   syncRight();
   requestAnimationFrame(resizeActive);
 }
@@ -688,9 +692,9 @@ let beforeFullPage = null;
 
 export function enterFullPage() {
   if (beforeFullPage) return;
-  beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
+  beforeFullPage = { railOpen: state.railOpen, topOpen: state.topOpen, bottomOpen: state.bottomOpen };
   setPreviewFull(false);
-  setLayout({ railOpen: false, rightOpen: false });
+  setLayout({ railOpen: false, topOpen: false, bottomOpen: false });
   syncRight();
 }
 
@@ -698,7 +702,11 @@ export function leaveFullPage() {
   const was = beforeFullPage;
   if (!was) return;
   beforeFullPage = null;
-  setLayout({ railOpen: was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
+  setLayout({
+    railOpen: was.railOpen,
+    topOpen: was.topOpen || state.topOpen,
+    bottomOpen: was.bottomOpen || state.bottomOpen,
+  });
   syncRight();
   requestAnimationFrame(() => { syncBounds(); resizeActive(); });
 }
@@ -721,22 +729,21 @@ function openPreview(focusUrl = false) {
   });
 }
 
-// Asked to hide the preview while the tree or the diff is showing, there is no
-// preview on screen to hide, so the column stays where it is.
+// Asked to hide the preview while the canvas is showing, there is no preview on
+// screen to hide, so the top slot stays where it is.
 function hidePreview() {
-  if (activeKind(state.focused) === 'browser') hideRight();
+  if (shownIn(state.focused, 'top')?.kind === 'browser') hideSlot('top');
 }
 
-/* Pressing a button whose tab is already the one showing puts the column away
+/* Pressing a button whose tab is already the one showing puts its slot away
    and leaves that tab in the strip, so the same page or the same diff is there
    on the next press. Pressed on any other tab it goes to that kind, which is
    the commoner thing to want and costs one press to undo. */
-const toggleRight = (kind) => (state.rightOpen && activeKind(state.focused) === kind ? hideRight() : showRight(kind));
-const togglePreview = () => (state.rightOpen && activeKind(state.focused) === 'browser' ? hideRight() : openPreview(true));
-const toggleFiles = () => toggleRight('files');
-const toggleChanges = () => toggleRight('changes');
-const toggleAgents = () => toggleRight('agents');
-const toggleCanvas = () => toggleRight('canvas');
+function toggleRight(kind) {
+  const slot = SLOT_OF[kind];
+  return shownIn(state.focused, slot)?.kind === kind ? hideSlot(slot) : showRight(kind);
+}
+const togglePreview = () => (shownIn(state.focused, 'top')?.kind === 'browser' ? hideSlot('top') : openPreview(true));
 
 // The right column at full width: the chat collapses to nothing and whichever
 // tab is showing takes the whole content column. The rail is deliberately left
@@ -746,9 +753,12 @@ function setPreviewFull(on) {
   const next = on === undefined ? !state.previewFull : !!on;
   if (next === state.previewFull) return;
   setLayout({ previewFull: next });
-  // Full width with nothing in the strip is a blank half window, so a folder
+  // Full width with nothing in the strips is a blank half window, so a folder
   // that has never opened the column gets a preview to fill it.
-  if (next) showRight(activeKind(state.focused) || 'browser');
+  if (next && !state.rightOpen) {
+    const dir = state.focused;
+    showRight(activeIn(dir, 'top')?.kind || activeIn(dir, 'bottom')?.kind || 'browser');
+  }
   requestAnimationFrame(() => { resizeActive(); syncBounds(); });
 }
 
@@ -805,21 +815,13 @@ export function runCommand(name, arg) {
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
     case 'files':
-      if (arg === true) return showRight('files');
-      if (arg === false) return hideRight();
-      return toggleFiles();
     case 'changes':
-      if (arg === true) return showRight('changes');
-      if (arg === false) return hideRight();
-      return toggleChanges();
     case 'agents':
-      if (arg === true) return showRight('agents');
-      if (arg === false) return hideRight();
-      return toggleAgents();
     case 'canvas':
-      if (arg === true) return showRight('canvas');
-      if (arg === false) return hideRight();
-      return toggleCanvas();
+    case 'terminal':
+      if (arg === true) return showRight(name);
+      if (arg === false) return hideSlot(SLOT_OF[name]);
+      return toggleRight(name);
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');
@@ -827,14 +829,10 @@ export function runCommand(name, arg) {
     case 'zoomIn': return stepZoom(1);
     case 'zoomOut': return stepZoom(-1);
     case 'zoomReset': return applyZoom(1);
-    case 'terminal':
-      if (arg === true) return showRight('terminal');
-      if (arg === false) return hideRight();
-      return toggleRight('terminal');
     case 'newTerminal': return newTerminalTab();
     case 'runInTerminal': return newTerminalTab(arg);
     case 'rail': return toggleRail();
-    case 'drawer': return toggleDrawer();
+    case 'drawer': return toggleRight('console');
     case 'theme': return toggleTheme();
     // Both live in the React half, which registers them on window.connChat.
     case 'settings': return window.connChat?.settings?.(arg);

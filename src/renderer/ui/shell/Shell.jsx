@@ -1,6 +1,9 @@
-/* The window's layout. Two nested resizable groups: the rail beside the
-   content, and the chat beside the right column, which holds the previews,
-   the terminals, the file tree and the diff as tabs.
+/* The window's layout. Three nested resizable groups: the rail beside the
+   content, the chat beside the right column, and inside the column the pages
+   above the tools. The top slot holds the previews and the canvas as tabs; the
+   bottom slot holds the terminals, the file tree, the diff, the agents and the
+   console. Each slot opens and shuts on its own, so a terminal can run under
+   the page it is building.
 
    The splitters used to be 1px divs with a mousemove handler that wrote inline
    widths. react-resizable-panels owns them now.
@@ -15,9 +18,19 @@
    Sizes are the ones the old CSS carried. In this version of the library a bare
    number means pixels and a bare string means percent, so "18" is 18% of the
    window and "180px" is the floor the rail used to have. */
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
-import { usePanelRef } from 'react-resizable-panels';
-import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useGroupRef, usePanelRef } from 'react-resizable-panels';
+import {
+  BotIcon,
+  FolderTreeIcon,
+  GitCompareIcon,
+  GlobeIcon,
+  PaletteIcon,
+  PlusIcon,
+  ScrollTextIcon,
+  SquareTerminalIcon,
+  XIcon,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -34,7 +47,7 @@ import { focusShell, runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
 import AgentsView from './AgentsView';
-import BrowserView from './BrowserView';
+import BrowserView, { ConsoleView } from './BrowserView';
 import CanvasView from './CanvasView';
 import ChangesView from './ChangesView';
 import FilesView from './FilesView';
@@ -47,13 +60,14 @@ import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-
 import { syncPaneCover, watchPaneOverlays } from './pane-cover';
 import {
   activateTab,
-  activeKind,
-  activeTab,
+  activeIn,
   closeTab,
   getTabsVersion,
   KINDS,
+  shownIn,
+  SLOT_OF,
   subscribeTabs,
-  tabsOf,
+  tabsIn,
 } from './tabs-store';
 
 export const useLayout = () => {
@@ -100,13 +114,14 @@ function useCollapse(ref, open) {
    toolbar names, which is the one the keyboard page can change. */
 export const VIEW_KINDS = {
   // `adds` is what the strip's plus runs when the kind can be opened more than
-  // once. Only a preview can.
+  // once. Only a preview and a terminal can.
   browser: { icon: GlobeIcon, label: 'Browser', command: 'preview', adds: 'newPreview', bind: 'preview', title: 'Preview browser' },
+  canvas: { icon: PaletteIcon, label: 'Canvas', command: 'canvas', bind: 'canvas', title: 'Design canvas' },
+  terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
   files: { icon: FolderTreeIcon, label: 'Files', command: 'files', bind: 'files', title: 'Project files' },
   changes: { icon: GitCompareIcon, label: 'Changes', command: 'changes', bind: 'changes', title: 'Uncommitted changes' },
-  terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
   agents: { icon: BotIcon, label: 'Agents', command: 'agents', title: "This chat's subagents" },
-  canvas: { icon: PaletteIcon, label: 'Canvas', command: 'canvas', bind: 'canvas', title: 'Design canvas' },
+  console: { icon: ScrollTextIcon, label: 'Console', command: 'drawer', bind: 'drawer', title: 'Console and network' },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
@@ -117,10 +132,11 @@ const labelOf = (tab) => {
   return VIEW_KINDS[tab.kind].label;
 };
 
-/* Starting one. Files, Changes, Agents and Canvas may already be open in this folder,
+/* Starting one. The tools and the canvas may already be open in this folder,
    in which case the store hands back the one that is there, so every kind is
-   offered every time rather than the menu guessing which are spent. */
-function AddTab() {
+   offered every time rather than the menu guessing which are spent. Each strip
+   offers only the kinds that draw in its own slot. */
+function AddTab({ slot }) {
   const [open, setOpen] = useState(false);
   usePaneCover(open);
 
@@ -139,7 +155,7 @@ function AddTab() {
           The shell that just came up cannot take it for itself: the menu holds
           focus until it has finished closing, and this is that moment. */}
       <DropdownMenuContent align="start" onCloseAutoFocus={(e) => { e.preventDefault(); focusShell(); }}>
-        {KINDS.map((kind) => {
+        {KINDS.filter((kind) => SLOT_OF[kind] === slot).map((kind) => {
           const { icon: Icon, label, command, adds } = VIEW_KINDS[kind];
           // The plus asks for another tab. For the tree and the diff there is
           // only ever the one, so it lands you on it; for a preview or a shell
@@ -156,8 +172,9 @@ function AddTab() {
   );
 }
 
-/* The strip along the top of the right column: a tab per preview, plus the file
-   tree and the diff. It draws the row of the chat on screen in the focused
+/* The strip along the top of a slot: in the top slot a tab per preview plus the
+   canvas, in the bottom slot the terminals, the file tree, the diff, the agents
+   and the console. It draws the row of the chat on screen in the focused
    folder, and switching chats or folders swaps it for that one's own.
 
    Clicking only moves the store. The pages behind the preview tabs are native
@@ -168,15 +185,16 @@ function AddTab() {
    empty as full. That matters more than it looks: the preview's bounds are read
    off the DOM below this, and a row that grew when the first tab arrived would
    leave the page laid out for the wrong box. */
-function TabStrip() {
+function TabStrip({ slot }) {
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
   const dir = useFocusedDir();
-  const tabs = tabsOf(dir);
-  const active = activeTab(dir);
+  const tabs = tabsIn(dir, slot);
+  const active = activeIn(dir, slot);
 
   return (
     <Tabs
+      data-strip={slot}
       value={active?.id || ''}
       onValueChange={(id) => activateTab(dir, id)}
       className="shrink-0 gap-0 border-b border-[var(--line)]">
@@ -211,11 +229,11 @@ function TabStrip() {
           );
         })}
 
-        <AddTab />
+        <AddTab slot={slot} />
 
-        {/* The column closes itself when the last tab goes, so an empty strip
-            means a chat that has never had one open. Say so, rather than
-            leaving a lone plus over a blank column. */}
+        {/* The slot closes itself when the last tab goes, so an empty strip
+            means a chat that has never had one open here. Say so, rather than
+            leaving a lone plus over a blank slot. */}
         {!tabs.length && <span className="px-1 text-xs text-muted-foreground">Nothing open in this chat</span>}
       </TabsList>
     </Tabs>
@@ -227,25 +245,43 @@ function TabStrip() {
    in here and says which one is showing. */
 function Terminals() {
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
-  const { rightOpen } = useLayout();
+  useLayout();
   const dir = useFocusedDir();
-  return <div id="terms" hidden={!(rightOpen && activeKind(dir) === 'terminal') || undefined} />;
+  return <div id="terms" hidden={shownIn(dir, 'bottom')?.kind !== 'terminal' || undefined} />;
 }
 
 // -------------------------------------------------------------------- window
 
 export default function Shell() {
-  const { railOpen, rightOpen } = useLayout();
+  const { railOpen, rightOpen, topOpen, bottomOpen } = useLayout();
   // There is nothing to go full width into until the right column is open.
   const full = layout.previewFull && rightOpen;
+  const both = topOpen && bottomOpen;
 
   const rail = usePanelRef();
   const agent = usePanelRef();
   const right = usePanelRef();
+  const slots = useGroupRef();
 
   useCollapse(rail, railOpen);
-  useCollapse(right, rightOpen);
+  // The chat before the column: putting the last slot away from full width
+  // brings the chat back and shuts the column in one commit, and the group
+  // refuses to collapse its last open panel, so the chat has to be up first.
   useCollapse(agent, !full);
+  useCollapse(right, rightOpen);
+
+  /* The split between the slots as the top slot's share, which is the one the
+     person last dragged to. The two slots are laid out from the flags outright
+     rather than collapsed and expanded one at a time: a collapsed panel
+     remembers the size it had when it went, and with the other slot shut that
+     size is the whole column, so expanding it would push the other slot out
+     again. With both shut the pair is hidden by the column and left alone. */
+  const split = useRef(60);
+  useLayoutEffect(() => {
+    if (!topOpen && !bottomOpen) return;
+    const share = topOpen ? (bottomOpen ? split.current : 100) : 0;
+    slots.current?.setLayout({ 'right-top': share, 'right-bottom': 100 - share });
+  }, [slots, topOpen, bottomOpen]);
 
   // A panel that has just opened or closed has moved every other panel with it,
   // and the preview's bounds are read off the DOM. Measure after the paint the
@@ -253,7 +289,7 @@ export default function Shell() {
   useEffect(() => {
     const id = requestAnimationFrame(relayoutNow);
     return () => cancelAnimationFrame(id);
-  }, [railOpen, rightOpen, full]);
+  }, [railOpen, topOpen, bottomOpen, full]);
 
   useEffect(() => watchPaneOverlays(), []);
 
@@ -298,13 +334,44 @@ export default function Shell() {
             <ResizableHandle className={(full || !rightOpen) ? 'pointer-events-none opacity-0' : undefined} />
             <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
               <section id="right" data-full={full || undefined}>
-                <TabStrip />
-                <BrowserView />
-                <FilesView />
-                <ChangesView />
-                <AgentsView />
-                <CanvasView />
-                <Terminals />
+                {/* A drag that pushes a slot past its minimum collapses it, and
+                    nothing else tells the store. Only a person's drag can do
+                    that, so only a person's release is mirrored, and a
+                    collapsed page parks instead of going 0x0. The handle is
+                    disabled while a slot is shut, so a release can only ever
+                    close a slot, never open an empty one. */}
+                <ResizablePanelGroup
+                  orientation="vertical"
+                  groupRef={slots}
+                  onLayoutChange={relayoutNow}
+                  onLayoutChanged={(sizes, { isUserInteraction }) => {
+                    if (!isUserInteraction) return;
+                    const top = sizes['right-top'];
+                    const bottom = sizes['right-bottom'];
+                    if (top > 0 && bottom > 0) split.current = top;
+                    setLayout({ topOpen: top > 0, bottomOpen: bottom > 0 });
+                  }}>
+                  {/* Clipped, because a slot collapsed to no height still has a
+                      strip that would otherwise draw over the other slot. */}
+                  <ResizablePanel id="right-top" collapsible minSize="120px">
+                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                      <TabStrip slot="top" />
+                      <BrowserView />
+                      <CanvasView />
+                    </div>
+                  </ResizablePanel>
+                  <ResizableHandle disabled={!both} className={both ? undefined : 'pointer-events-none opacity-0'} />
+                  <ResizablePanel id="right-bottom" collapsible minSize="100px">
+                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                      <TabStrip slot="bottom" />
+                      <Terminals />
+                      <FilesView />
+                      <ChangesView />
+                      <AgentsView />
+                      <ConsoleView />
+                    </div>
+                  </ResizablePanel>
+                </ResizablePanelGroup>
               </section>
             </ResizablePanel>
           </ResizablePanelGroup>

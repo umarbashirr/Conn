@@ -64,7 +64,7 @@ const GEOMETRY = `(() => {
     slot: box('#paneslot'),
     terms: box('#terms'),
     handle: box('section#right [data-slot="resizable-handle"][aria-orientation="horizontal"]'),
-    strips: document.querySelectorAll('section#right [role="tablist"]').length,
+    strips: document.querySelectorAll('section#right [data-strip] [role="tablist"]').length,
   };
 })()`;
 

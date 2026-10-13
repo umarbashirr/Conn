@@ -41,7 +41,7 @@ import {
   subscribeEditors,
 } from './editors-store';
 import { useFocusedDir, useLayout, usePaneCover, VIEW_KINDS } from './Shell';
-import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
+import { activeIn, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
 import { formatChord, keyOf } from '@/lib/keys';
 import { useSettings } from '../useSettings';
 
@@ -99,15 +99,15 @@ function Activity() {
    the page back: the next agent to ask waits for you instead.
 
    A lease guards one page and a folder can have several previews open, so this
-   speaks for the tab in the box and for nothing else. Two agents driving two
-   previews in the same folder is an ordinary thing now, and the one you cannot
-   see is not your problem. With the tree or the diff in front there is no page
+   speaks for the tab the top slot is on and for nothing else. Two agents
+   driving two previews in the same folder is an ordinary thing now, and the one
+   you cannot see is not your problem. With the canvas in front there is no page
    to take back, so there is nothing to say. */
 function Driver() {
   const [holder, setHolder] = useState(null);
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
   const dir = useFocusedDir();
-  const shown = activeTab(dir);
+  const shown = activeIn(dir, 'top');
   const tab = shown?.kind === 'browser' ? shown.id : null;
 
   useEffect(() => {

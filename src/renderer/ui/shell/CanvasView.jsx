@@ -52,8 +52,9 @@ import {
   setViewport,
   subscribeCanvas,
 } from './canvas-store';
+import { subscribe as subscribeLayout } from './layout-store';
 import { useLayout } from './Shell';
-import { activeKind, subscribeTabs } from './tabs-store';
+import { shownIn, SLOT_OF, subscribeTabs } from './tabs-store';
 
 const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 const DANGER_BUTTON = 'size-7 rounded-md text-destructive';
@@ -70,10 +71,11 @@ function useCanvas() {
 // Whether this tab is the one on screen, asked the way ChangesView asks.
 const subscribeTop = (fn) => {
   const offTabs = subscribeTabs(fn);
+  const offLayout = subscribeLayout(fn);
   const offFocus = onProject(fn);
-  return () => { offTabs(); offFocus(); };
+  return () => { offTabs(); offLayout(); offFocus(); };
 };
-const onTop = () => activeKind(project.focused) === 'canvas';
+const onTop = () => shownIn(project.focused, SLOT_OF.canvas)?.kind === 'canvas';
 
 const HOME = { x: 48, y: 48 + LABEL, zoom: 1 };
 const viewport = () => canvasState.viewport ?? HOME;
@@ -442,9 +444,8 @@ function Nothing({ canvas, legacy }) {
 
 export default function CanvasView() {
   const s = useCanvas();
-  const { rightOpen, previewFull } = useLayout();
-  const top = useSyncExternalStore(subscribeTop, onTop, onTop);
-  const showing = rightOpen && top;
+  const { previewFull } = useLayout();
+  const showing = useSyncExternalStore(subscribeTop, onTop, onTop);
   const boardRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 

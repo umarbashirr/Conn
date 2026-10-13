@@ -899,7 +899,6 @@ kbd {
 
 /* The page is a separate web contents the window paints on top of this
    document, so this div is the hole it is flown into and stays empty. */
-#stage { position: relative; flex: 1; min-height: 0; background: var(--bg); }
 #paneslot { position: absolute; inset: 0; }
 
 /* A menu opening over the pane would open behind it, so the page is
