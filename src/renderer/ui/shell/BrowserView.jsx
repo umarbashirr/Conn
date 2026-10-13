@@ -751,6 +751,12 @@ function Drawer({ tab, showing }) {
     el.scrollTop = seat.current.stick ? el.scrollHeight : seat.current.top;
   }, [showing, rows.length, s.drawerTab]);
 
+  // The network list is fetched when asked for, never sent, so coming back on
+  // screen asks again rather than show the list from the last time it was up.
+  useEffect(() => {
+    if (showing && s.drawerTab === 'network') pickLogs('network', tab);
+  }, [showing]);
+
   const errors = consoleErrors(tab);
 
   return (
