@@ -17,6 +17,12 @@ const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
 
+const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with an error' : 'is done'}`, null, [{
+  label: 'Open',
+  primary: true,
+  run: () => window.connChat?.open({ key: chat.key, id: chat.session, project: chat.project, title: chat.title }),
+}], { duration: 10000 });
+
 // A stopped turn's transcript. Its open permission cards are a deny and the
 // agents that were waiting on them are not waiting any more.
 function interrupted(items) {
@@ -508,15 +514,7 @@ export function useAgent() {
         }));
         window.connRail?.refresh();
         const finished = away && chatsRef.current.find((c) => c.key === chat);
-        if (finished) {
-          toast(`${finished.title} ${failed ? 'ended with an error' : 'is done'}`, null, [{
-            label: 'Open',
-            primary: true,
-            run: () => window.connChat?.open({
-              key: finished.key, id: finished.session, project: finished.project, title: finished.title,
-            }),
-          }], { duration: 10000 });
-        }
+        if (finished) toastEnd(finished, failed);
       }
     }));
 
@@ -560,11 +558,16 @@ export function useAgent() {
       patch(chat || activeRef.current, id, { decided: decision })) ?? (() => {}));
 
     offs.push(conn().agent.onError(({ chat, error }) => {
-      edit(chat || activeRef.current, (c) => ({
+      const key = chat || activeRef.current;
+      const away = key !== activeRef.current;
+      edit(key, (c) => ({
         ...c,
         busy: false,
-        items: [...c.items, { id: uid('e'), kind: 'note', error: true, text: `agent error: ${error}` }],
+        endedUnseen: away,
+        items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: `agent error: ${error}` }],
       }));
+      const finished = away && chatsRef.current.find((c) => c.key === key);
+      if (finished) toastEnd(finished, true);
     }));
 
     // A session ending is not the chat ending: a parked chat is stopped on
