@@ -120,6 +120,8 @@ async function main() {
 
     const consoleText = () => evaluate(s, `document.querySelector('#console-view')?.innerText || ''`);
     await key(s, 'Ctrl+Shift+J');
+    await sleep(300);
+    check('the-console-tab-shows-the-page-s-log', /split says hello/.test(await consoleText()), (await consoleText()).slice(0, 200));
     await click(s, 'network');
     await sleep(300);
     check('the-console-tab-opens-below-on-network', /no network entries/.test(await consoleText()), (await consoleText()).slice(0, 200));
@@ -147,6 +149,21 @@ async function main() {
     check('the-bottom-menu-leaves-the-window-unscrolled', scrolled === 0, `scrolled by ${scrolled}px`);
     check('bounds-follow-paneslot-after-the-bottom-menu', after.match, JSON.stringify({ ipc: after.ipc, paneslot: after.paneslot }));
 
+    // The plus asks for a tab. Asked for the one already on screen, it stays on it rather than putting the slot away.
+    const plus = 'css=section#right [data-strip="bottom"] button[title="Open another tab"]';
+    const files = `!!document.querySelector('#files-view') && !document.querySelector('#files-view').hidden`;
+    await click(s, plus);
+    await sleep(300);
+    await click(s, 'css=[role="menuitem"]:has(.lucide-folder-tree)');
+    await sleep(400);
+    const first = await evaluate(s, files);
+    await click(s, plus);
+    await sleep(300);
+    await click(s, 'css=[role="menuitem"]:has(.lucide-folder-tree)');
+    await sleep(400);
+    const again = await evaluate(s, files);
+    check('the-plus-on-a-tab-already-up-keeps-it-up', first && again, `files up after the first pick ${first}, after the second ${again}`);
+
     // A new page asked for from the top strip is where the next keys belong, not the shell under it.
     await click(s, 'css=section#right [data-strip="bottom"] [role="tab"]:has(.lucide-square-terminal)');
     await sleep(300);
@@ -158,7 +175,7 @@ async function main() {
     check('a-page-from-the-top-strip-leaves-the-shell-alone', typing !== 'the terminal', `the keys go to ${typing}`);
 
     // The column dragged shut leaves its shell at no width, which is not a size to fit the shell to.
-    const screenWidth = `parseFloat(document.querySelector('#terms .term-host.active .xterm-screen')?.style.width) || 0`;
+    const screenWidth = `parseFloat(document.querySelector('#terms .term-host .xterm-screen')?.style.width) || 0`;
     const wide = await evaluate(s, screenWidth);
     const column = await evaluate(s, `(() => {
       const handles = [...document.querySelectorAll('[data-slot="resizable-handle"][aria-orientation="vertical"]')].map((e) => e.getBoundingClientRect());
@@ -170,6 +187,13 @@ async function main() {
     const shut = await evaluate(s, `document.querySelector('section#right').parentElement.getBoundingClientRect().width`);
     const narrow = await evaluate(s, screenWidth);
     check('the-column-dragged-shut-does-not-squeeze-the-shell', shut < 2 && narrow > 100, `column ${shut}px wide, shell ${wide}px then ${narrow}px`);
+
+    // A column dragged shut is a column put away, so the key that brings the terminal up brings the column with it.
+    await key(s, 'Ctrl+`');
+    await sleep(500);
+    const back = await evaluate(s, `document.querySelector('section#right').parentElement.getBoundingClientRect().width`);
+    const up = await evaluate(s, `!document.querySelector('#terms').hidden`);
+    check('one-key-brings-back-a-column-dragged-shut', back > 300 && up, `column ${back}px wide, terminal ${up ? 'up' : 'away'}`);
   } finally {
     await stop(s);
     site.close();
