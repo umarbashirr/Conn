@@ -55,6 +55,7 @@ async function main() {
         chips: [...row.querySelectorAll('[data-slot="badge"]')].map((b) => b.textContent.trim()),
         dot: !!row.querySelector('[data-slot="finished-dot"]'),
         spinner: !!row.querySelector('svg.animate-spin'),
+        truncated: (() => { const l = row.querySelector('[data-slot="activity-line"]'); return l ? l.scrollWidth > l.clientWidth : null; })(),
       };
     })()`);
 
@@ -107,10 +108,16 @@ async function main() {
 
     await emitTo(0, 'message', call('r1', 'Read', { file_path: `${s.project}/src/cart.js` }));
     const working = await rowIs(FIRST, { activity: 'working', line: 'Reading src/cart.js' });
-    check('background-row-reads-the-call', !!working && working.spinner && working.chips.every((c) => c !== 'Review') && !working.dot, J(await row(FIRST)));
+    check('background-row-reads-the-call', !!working && working.spinner && !working.dot, J(await row(FIRST)));
+    check('working-row-has-no-badge-to-share-the-line', !!working && working.chips.length === 0, J(await row(FIRST)));
     check('active-row-shows-no-line', !!(await rowIs(SECOND, { activity: 'idle', line: null, dot: false })), J(await row(SECOND)));
     await shot(s, SHOT('working'));
 
+    await emitTo(0, 'message', call('r2', 'Read', { file_path: `${s.project}/index.html` }));
+    const long = await rowIs(FIRST, { line: 'Reading shop/index.html' });
+    check('long-file-name-fits-the-row', !!long && long.truncated === false, J(await row(FIRST)));
+    await shot(s, SHOT('long'));
+    await emitTo(0, 'message', back('r2', '40 lines'));
     await emitTo(0, 'message', back('r1', '12 lines'));
     await emitTo(0, 'message', call('s1', 'mcp__preview__browser_snapshot', {}));
     await emitTo(0, 'message', back('s1', '- textbox "Coupon code" [ref=e12]\n- button "Apply" [ref=e13]'));
@@ -127,6 +134,13 @@ async function main() {
     await emitTo(0, 'permission', { id: 'p1', tool: 'Edit', input, forId: 'e1' });
     const waiting = await rowIs(FIRST, { activity: 'waiting', line: 'Wants to edit src/cart.js', chips: ['Review'] });
     check('waiting-row-asks-for-review', !!waiting, J(await row(FIRST)));
+    const clear = await evaluate(s, `(() => {
+      const row = document.querySelector('[data-sidebar="menu-button"][title=${J(FIRST)}]');
+      const fade = row.parentElement.querySelector('.pointer-events-none').getBoundingClientRect();
+      const chip = [...row.querySelectorAll('[data-slot="badge"]')].find((b) => b.textContent.trim() === 'Review').getBoundingClientRect();
+      return { fadeBottom: fade.bottom, chipTop: chip.top };
+    })()`);
+    check('review-chip-sits-clear-of-the-hover-fade', clear.fadeBottom <= clear.chipTop + 1, J(clear));
     await shot(s, SHOT('waiting'));
 
     await click(s, `css=[data-sidebar="menu-button"][title=${J(FIRST)}]`);
@@ -141,7 +155,7 @@ async function main() {
     await click(s, 'Allow');
     check('allow-reaches-the-session', (await decided(s, 'p1')) === 'allow', 'no allow decision came back');
     await emitTo(0, 'message', back('e1', 'edited'));
-    check('answered-row-stops-waiting', !!(await rowIs(FIRST, { activity: 'working', chips: ['working'] })), J(await row(FIRST)));
+    check('answered-row-stops-waiting', !!(await rowIs(FIRST, { activity: 'working', chips: [] })), J(await row(FIRST)));
 
     await click(s, `css=[data-sidebar="menu-button"][title=${J(SECOND)}]`);
     await emitTo(0, 'message', RESULT);
