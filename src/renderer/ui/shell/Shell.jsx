@@ -154,8 +154,12 @@ function AddTab({ slot }) {
       </DropdownMenuTrigger>
       {/* Focus goes to whatever the menu opened rather than back to the plus.
           The shell that just came up cannot take it for itself: the menu holds
-          focus until it has finished closing, and this is that moment. */}
-      <DropdownMenuContent align="start" onCloseAutoFocus={(e) => { e.preventDefault(); focusShell(); }}>
+          focus until it has finished closing, and this is that moment. Only
+          the bottom strip opens shells; a page asked for from the top strip
+          is not a reason to type into the one under it. */}
+      <DropdownMenuContent
+        align="start"
+        onCloseAutoFocus={(e) => { e.preventDefault(); if (slot === 'bottom') focusShell(); }}>
         {KINDS.filter((kind) => SLOT_OF[kind] === slot).map((kind) => {
           const { icon: Icon, label, command, adds } = VIEW_KINDS[kind];
           // The plus asks for another tab. For the tree and the diff there is
