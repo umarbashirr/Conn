@@ -157,6 +157,20 @@ async function main() {
     await sleep(500);
     const typing = await evaluate(s, `document.activeElement?.closest('#terms') ? 'the terminal' : document.activeElement?.tagName.toLowerCase() || 'nothing'`);
     check('a-page-from-the-top-strip-leaves-the-shell-alone', typing !== 'the terminal', `the keys go to ${typing}`);
+
+    // The column dragged shut leaves its shell at no width, which is not a size to fit the shell to.
+    const screenWidth = `parseFloat(document.querySelector('#terms .term-host.active .xterm-screen')?.style.width) || 0`;
+    const wide = await evaluate(s, screenWidth);
+    const column = await evaluate(s, `(() => {
+      const handles = [...document.querySelectorAll('[data-slot="resizable-handle"][aria-orientation="vertical"]')].map((e) => e.getBoundingClientRect());
+      const r = handles.sort((a, b) => b.x - a.x)[0];
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`);
+    await drag(s, column.x, column.y, 1438, column.y);
+    await sleep(400);
+    const shut = await evaluate(s, `document.querySelector('section#right').parentElement.getBoundingClientRect().width`);
+    const narrow = await evaluate(s, screenWidth);
+    check('the-column-dragged-shut-does-not-squeeze-the-shell', shut < 2 && narrow > 100, `column ${shut}px wide, shell ${wide}px then ${narrow}px`);
   } finally {
     await stop(s);
     site.close();
