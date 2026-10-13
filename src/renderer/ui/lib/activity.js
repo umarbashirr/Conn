@@ -32,12 +32,17 @@ const AT_ELEMENT = new Set(['browser_click', 'browser_hover', 'browser_highlight
 const ELSEWHERE = 'in the page';
 const REF = /^e\d+$/;
 
-const isSnapshot = (it) => it.kind === 'tool' && it.output != null && it.name.endsWith('browser_snapshot');
+const PAGE_CHANGE = /browser_(navigate|back|forward|reload|tab_(select|new|close))$/;
+const changesPage = (it) => PAGE_CHANGE.test(it.name);
+const isSnapshot = (it) => it.output != null && it.name.endsWith('browser_snapshot');
 
 function elementName(items, before, ref) {
   for (let i = before - 1; i >= 0; i--) {
-    if (!isSnapshot(items[i])) continue;
-    const hit = new RegExp(`^\\s*- \\S+ ("(?:[^"\\\\]|\\\\.)*") \\[ref=${ref}\\]`, 'm').exec(toolText(items[i].output));
+    const it = items[i];
+    if (it.kind !== 'tool') continue;
+    if (changesPage(it)) return null;
+    if (!isSnapshot(it)) continue;
+    const hit = new RegExp(`^\\s*- \\S+ ("(?:[^"\\\\]|\\\\.)*") \\[ref=${ref}\\]`, 'm').exec(toolText(it.output));
     return hit ? JSON.parse(hit[1]) : null;
   }
   return null;
@@ -102,7 +107,7 @@ function scan(items) {
  * @param {boolean} seen Whether the person has opened the chat since its last turn ended.
  * @returns {Activity}
  */
-export function activityOf(items, busy, seen) {
+export function chatActivity(items, busy, seen) {
   const { ask, agent, step: at, edge } = scan(items);
   if (ask >= 0) return { state: 'waiting', line: wants(items, ask) };
 
