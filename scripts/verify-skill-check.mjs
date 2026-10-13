@@ -4,11 +4,14 @@
    and click must reach the app and its main process. With the preview open on
    the shop page, a shot and a recording must hold the page's pixels inside
    #paneslot, and a shot must not when the preview is hidden or left out.
-   `sessions` lists what was booted, and stop refuses any folder a boot did not
-   make, or a pid that does not lead this session's process group. After stop no
-   process may still name either instance's folder, by command line,
-   environment or working directory. Needs a built renderer: `npx vite build`
-   first. */
+   a view the app borrows to screenshot a background tab must not be drawn, and
+   a drag must move the column divider. `sessions` lists what was booted. stop
+   refuses a folder a boot did not make and a state file without a real pid, and
+   it skips the group kill when the group's leader does not name the session's
+   --user-data-dir. After stop no process may still name either instance's
+   folder, and an Xvfb instance's xvfb-run dir is gone. doctor must fail when
+   the renderer build is missing or older than its source. Needs a built
+   renderer: `npx vite build` first. */
 import { execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -16,9 +19,10 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boot, bounds, click, decided, evaluate, invoke, key, perm, record, say, sessions as listed, shot, stop } from '../.claude/skills/verify/drive.mjs';
+import { boot, bounds, click, decided, drag, evaluate, invoke, key, perm, record, say, sessions as listed, shot, stop } from '../.claude/skills/verify/drive.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
+const DRIVE = path.join(ROOT, '.claude', 'skills', 'verify', 'drive.mjs');
 const sharp = createRequire(path.join(ROOT, 'package.json'))('sharp');
 
 const failures = [];
@@ -43,6 +47,19 @@ const share = async (file, r, test) => {
 };
 const white = (r, g, b) => r > 235 && g > 235 && b > 235;
 const dark = (r, g, b) => r < 90 && g < 90 && b < 90;
+
+const doctorOf = (root) => {
+  try { return { status: 0, out: execFileSync('node', [DRIVE, 'doctor', '--root', root], { encoding: 'utf8', cwd: ROOT }) }; }
+  catch (e) { return { status: e.status, out: String(e.stdout) }; }
+};
+
+const authDirsOf = (s) => fs.readdirSync('/proc').filter((pid) => /^\d+$/.test(pid)).flatMap((pid) => {
+  try {
+    const cmd = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').replaceAll('\0', ' ');
+    const dir = /-auth (\S+)\/Xauthority/.exec(cmd)?.[1];
+    return dir && fs.readFileSync(`/proc/${pid}/environ`, 'utf8').includes(`HOME=${s.home}`) ? [dir] : [];
+  } catch { return []; }
+});
 
 const alive = (pid) => {
   try { return !fs.readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, '').startsWith('Z'); } catch { return false; }
@@ -131,6 +148,57 @@ async function main() {
     const length = Number(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', clip], { encoding: 'utf8' }));
     check('record-is-two-seconds-long', length > 1.8 && length < 2.2, length);
     check('record-paints-the-page-inside-the-paneslot', await share(frame, slot, white) > 0.8, await share(frame, slot, white));
+    const first = path.join(out, 'rec-first.png');
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', clip, '-vf', 'select=eq(n\\,0)', '-frames:v', '1', first]);
+    check('record-opens-with-the-page-already-drawn', await share(first, slot, white) > 0.8, await share(first, slot, white));
+
+    const SUB = { id: 'task-research-1', label: 'research', type: 'general-purpose' };
+    await invoke(a, 'navigate', { url: `http://127.0.0.1:${server.address().port}/` }, SUB);
+    await evaluate(a, `(() => {
+      const view = electron.BrowserWindow.getAllWindows()[0].contentView.children.find((v) => v.getBounds().x > 1440);
+      globalThis.__borrowed = { view, parked: view.getBounds() };
+      view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+      view.setVisible(true);
+      return true;
+    })()`, { main: true });
+    const boxes = await evaluate(a, 'globalThis.__previewBoxes()', { main: true });
+    check('only-the-view-the-shell-placed-counts-as-the-preview', boxes.length === 1 && Math.abs(boxes[0].x - slot.x) <= 1 && Math.abs(boxes[0].width - slot.width) <= 1, JSON.stringify(boxes));
+    let borrowed = null;
+    try { borrowed = await shot(a, path.join(out, 'borrowed.png')); } catch (e) { borrowed = e.message; }
+    await evaluate(a, '(() => { const { view, parked } = globalThis.__borrowed; view.setBounds(parked); view.setVisible(false); return true; })()', { main: true });
+    const painted = borrowed && fs.existsSync(borrowed);
+    check('shot-ignores-a-view-the-app-borrows-for-a-screenshot', painted && await share(borrowed, slot, white) > 0.8 && await share(borrowed, { x: 0, y: 0, width: 1, height: 1 }, white) === 0, borrowed);
+
+    const dividers = JSON.parse(await evaluate(a, `JSON.stringify([...document.querySelectorAll('[role="separator"]')].map((e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; }))`));
+    const divider = dividers.filter((d) => d.h > d.w).sort((p, q) => Math.abs(p.x - slot.x) - Math.abs(q.x - slot.x))[0];
+    await drag(a, Math.round(divider.x), Math.round(divider.y), Math.round(divider.x) - 120, Math.round(divider.y));
+    const widened = (await bounds(a)).paneslot;
+    check('drag-moves-the-column-divider', widened.width - slot.width > 80, `${slot.width} then ${widened.width}`);
+
+    const fakeRoot = (name, { build }) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), name));
+      decoys.push(dir);
+      fs.mkdirSync(path.join(dir, 'src', 'renderer'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), '{}');
+      fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(dir, 'node_modules'));
+      const source = path.join(dir, 'src', 'renderer', 'app.js');
+      fs.writeFileSync(source, '');
+      const now = Date.now() / 1000;
+      fs.utimesSync(source, now - 60, now - 60);
+      if (build) {
+        fs.mkdirSync(path.join(dir, 'build', 'renderer'), { recursive: true });
+        const built = path.join(dir, 'build', 'renderer', 'index.html');
+        fs.writeFileSync(built, '');
+        fs.utimesSync(built, now + build, now + build);
+      }
+      return dir;
+    };
+    const missing = doctorOf(fakeRoot('verify-doctor-missing-', {}));
+    const stale = doctorOf(fakeRoot('verify-doctor-stale-', { build: -120 }));
+    const fresh = doctorOf(fakeRoot('verify-doctor-fresh-', { build: 60 }));
+    check('doctor-fails-when-the-build-is-missing', missing.status === 1 && /FAIL renderer-built: build\/renderer is missing/.test(missing.out), JSON.stringify(missing));
+    check('doctor-fails-when-the-build-is-older-than-the-source', stale.status === 1 && /FAIL renderer-built: build\/renderer is older than src\/renderer\/app\.js/.test(stale.out), JSON.stringify(stale));
+    check('doctor-passes-a-current-build', fresh.status === 0 && /^ok +renderer-built/m.test(fresh.out), JSON.stringify(fresh));
 
     check('sessions-lists-both-instances', [a, b].every((s) => listed().some((l) => l.dir === s.dir)), JSON.stringify(listed().map((l) => l.dir)));
 
@@ -155,7 +223,10 @@ async function main() {
     await stop(shaped(guarded, { pid: leader.pid }));
     check('a-forged-pid-does-not-take-down-its-group', alive(bystander) && !alive(leader.pid), `bystander alive ${alive(bystander)}, leader alive ${alive(leader.pid)}`);
 
+    const authB = authDirsOf(b);
+    check('the-xvfb-instance-has-an-xvfb-run-dir', authB.length === 1 && fs.existsSync(authB[0]), JSON.stringify(authB));
     for (const s of [a, b]) await stop(s);
+    check('stop-removes-the-xvfb-run-dir', authB.length === 1 && !fs.existsSync(authB[0]), JSON.stringify(authB));
     check('sessions-no-longer-lists-them', [a, b].every((s) => !listed().some((l) => l.dir === s.dir)), JSON.stringify(listed().map((l) => l.dir)));
     for (const s of [a, b]) {
       check(`no-process-holds-${path.basename(s.dir)}`, holders(s.dir).length === 0, holders(s.dir).join(','));
@@ -166,7 +237,11 @@ async function main() {
     for (const s of sessions) await stop(s).catch(() => {});
     for (const pid of strays) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
     for (const server of servers) server.close();
-    for (const dir of decoys) fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    for (const dir of decoys) {
+      const link = path.join(dir, 'node_modules');
+      try { if (fs.lstatSync(link).isSymbolicLink()) fs.unlinkSync(link); } catch { /* not a fake root */ }
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    }
     fs.rmSync(out, { recursive: true, force: true, maxRetries: 5 });
   }
 

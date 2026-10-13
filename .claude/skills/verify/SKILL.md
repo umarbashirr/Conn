@@ -32,6 +32,8 @@ session /tmp/conn-verify-Qrbzw6
 project /tmp/conn-verify-Qrbzw6/shop
 ```
 
+A toast such as "Codex is out, Update, Later" can appear a few seconds after the window comes up, depending on which CLIs the machine has. It covers the top right of the window. Run `click Later` before any screenshot you keep as evidence.
+
 Copy the `session` path. Every other command needs it as `--session <path>`. Shell variables do not survive between your tool calls, so type the path each time. Use only a session path that your own `boot` printed, or that `sessions` listed for your checkout. Any other folder belongs to another agent.
 
 The instance has one open project, `shop`, a copy of `fixtures/shop` that is also a committed git repo. The window is 1440 by 900. Boot options:
@@ -47,7 +49,7 @@ For a one-shot check, `node .claude/skills/verify/drive.mjs --smoke` boots, save
 node .claude/skills/verify/drive.mjs doctor --session <session>
 ```
 
-It reads and changes nothing. It checks the build, Electron, a display, `ffmpeg`, `sharp`, that the instance's processes are running, that both ports answer, and that the chat window and the agent stand-in are installed. Run it first when something looks off. Without `--session` it checks only what boot needs.
+It reads and changes nothing. It prints one `ok` or `FAIL` line per check and exits 1 if any fails. It checks that `build/renderer` exists and is newer than every file under `src/renderer`, then Electron, a display, `ffmpeg`, `sharp`, that the instance's processes are running, that both ports answer, and that the chat window and the agent stand-in are installed. Run it first when something looks off. Without `--session` it checks only what boot needs, and `--root <checkout>` checks another checkout.
 
 ## Drive
 
@@ -60,6 +62,7 @@ Pass the instance with `--session <session>` on each command below.
 | `decided [id]` | With an id, prints the decision the app sent back (`allow`, `always` or `deny`) and exits 1 if there is none after 3 seconds. Without one, prints every decision. |
 | `invoke <tool> [json]` | Calls one browser tool as the agent would. The second argument is one JSON object of the tool's arguments, and it is left out when the tool takes none. See Browser tools. `--actor <json>` acts as a subagent. |
 | `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
+| `drag <x0> <y0> <x1> <y1>` | A real mouse drag. It presses at the first point, moves to the second in 20 steps, and releases, all as mouse events. Use it on dividers, for example `drag 944 450 824 450` pulls the column divider 120 px left. Find a divider with `js "[...document.querySelectorAll('[role=separator]')].map((e) => JSON.stringify(e.getBoundingClientRect()))"`. |
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
 | `shot` | Saves a PNG of the whole window as a person sees it, with the browser pane's page drawn in at its real bounds, and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element, `--no-preview` leaves the pane's page out. |
@@ -130,7 +133,11 @@ The snapshot lists `- textbox "Coupon code" [ref=e2]` and `- button "Apply" [ref
 
 Chords the window menu owns, such as `Ctrl+,`, `Ctrl+O`, `Ctrl+Shift+F` and zoom, never reach the page, so `key` cannot press them. Click the menu or the toolbar button instead.
 
-Changes lists only uncommitted edits. The project starts clean, so edit a file in the `project` folder first, for example change `<h1>Your cart</h1>` to `<h1>Your basket</h1>` in `index.html`. Then press `Ctrl+Shift+G`. The right column is `section#right`, so `js "document.querySelector('section#right').innerText"` prints the list, and it holds `index.html` once the diff is up.
+Changes lists only uncommitted edits. The project starts clean, so edit a file in the `project` folder first, for example change `<h1>Your cart</h1>` to `<h1>Your basket</h1>` in `index.html`. Then press `Ctrl+Shift+G`. The list takes up to about 2 seconds to fill from git, so wait for it before you shoot. The right column is `section#right`, and this `js` call polls it for 10 seconds and prints `true` once `index.html` is listed.
+
+```
+node .claude/skills/verify/drive.mjs js --session <session> "new Promise(async (done) => { for (let i = 0; i < 40; i++) { if (document.querySelector('section#right').innerText.includes('index.html')) return done(true); await new Promise((r) => setTimeout(r, 250)); } done(false); })"
+```
 
 ### The shop fixture
 
@@ -162,11 +169,11 @@ A proof shows the action and the state it caused, not only the last screen. Foll
 - Use the real path. Press the key, click the button. Do not set app state with `js` and call that a pass.
 - Look at every PNG before you rely on it. Open it with the Read tool.
 - Check side effects next to the pixels. `decided`, `bounds`, and the files in `project` say what the app did, and a screenshot may not.
-- Save screenshots where your task says. Without an instruction, `shot` writes to `/tmp/verify-evidence/`, which `stop` leaves alone. Name each file for the claim it proves.
+- Save screenshots where your task says. `--out` creates any missing folders on the way. Without an instruction, `shot` writes to `/tmp/verify-evidence/`, which `stop` leaves alone. Name each file for the claim it proves.
 
 Two things about pictures.
 
-- The browser pane is a native view laid over the window, which a plain capture of the window leaves out. `shot` and `record` take the pane's page from the main process and lay it over the window at the pane's real bounds, using `sharp` from the checkout's `node_modules`, so one image or video shows the page above the terminal. They leave it out when a person would not see it, which is when no pane is open, the shell has hidden it behind a menu (the shell paints its own still there), or it is parked off the window. Pass `--no-preview` to leave it out anyway. `invoke screenshot` returns the page alone and prints the PNG path.
+- The browser pane is a native view laid over the window, which a plain capture of the window leaves out. `shot` and `record` take the pane's page from the main process and lay it over the window at the pane's real bounds, using `sharp` from the checkout's `node_modules`, so one image or video shows the page above the terminal. Only the view the shell placed in the box counts, so a view the app borrows for a moment to screenshot a hidden tab is never drawn. They leave the page out when a person would not see it, which is when no pane is open, the shell has hidden it behind a menu (the shell paints its own still there), or it is parked off the window. Pass `--no-preview` to leave it out anyway. `invoke screenshot` returns the page alone and prints the PNG path.
 - `record` blocks for the whole duration, so start it in the background and drive while it runs. Here `reply.txt` is any text file of about 1,500 characters, which at 250 ms per 40-character chunk streams for about 10 seconds.
 
 ```
@@ -185,7 +192,7 @@ node .claude/skills/verify/drive.mjs stop --session <session>
 
 It prints `stopped` and exits 0 when the instance is gone. If a process survives `SIGKILL` it exits 1 and names the process ids, and the session folder stays.
 
-Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay.
+Run it when you finish and after every failed attempt. It ends every process that belongs to the instance and deletes the session folder, which holds the HOME, the user-data dir and the project copy. Screenshots and videos you saved elsewhere stay. For an instance booted with `--xvfb` it also removes the `xvfb-run.*` folder in the temp dir that the instance's own Xvfb names, which killing `xvfb-run` leaves behind.
 
 `stop` works in two steps. It first signals the whole process group that `boot` started, `SIGTERM` and then `SIGKILL`, so Electron, its helpers and a terminal's jobs go together. It does that only while the group's leader has this session's `--user-data-dir` on its command line, so a hand-edited state file cannot aim the signal at another group. It then looks for stragglers and signals them by pid. The app launches provider agents into process groups of their own, and Codex starts a `git fetch` at startup that can outlive the app and keep a debug port bound, so a group kill alone misses them.
 
@@ -202,7 +209,6 @@ If you lost the session path, run `node .claude/skills/verify/drive.mjs sessions
 
 ## Gotchas
 
-- A toast such as "Codex is out, Update, Later" can appear a few seconds after boot, depending on which CLIs the machine has. Run `click Later` before any screenshot you keep as evidence, because the toast covers the top right of the window.
 - `perm` records the answer in the main process. Nothing runs the tool, so an allowed `Edit` does not change the file.
 - `click` takes the first visible match, exact text before partial. If another element sits on top of the point, it prints a warning and the click lands on that element, as it would for a person.
 - Boot turns off Chromium's throttling of covered and background windows, so instances that overlap on one screen still paint and tick.
