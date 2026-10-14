@@ -36,7 +36,13 @@ function onMessage(msg) {
   send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `unknown method ${msg.method}` } });
 }
 
+function startLingeringFetch(pidsFile) {
+  const fetch = require('child_process').spawn('sleep', ['600'], { stdio: 'ignore' });
+  fs.appendFileSync(pidsFile, `${process.pid} ${fetch.pid}\n`);
+}
+
 if (process.argv.includes('app-server')) {
+  if (process.env.MOCK_CODEX_PIDS_FILE) startLingeringFetch(process.env.MOCK_CODEX_PIDS_FILE);
   const rl = readline.createInterface({ input: process.stdin });
   rl.on('line', (line) => {
     if (!line.trim()) return;
