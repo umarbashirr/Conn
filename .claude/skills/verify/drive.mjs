@@ -155,7 +155,9 @@ const standIn = `(() => {
   // another, the app shows its view as a 1x1 at 0,0 for the length of the capture,
   // and that is not a box the shell placed.
   const shownViews = () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    // A recording opens a hidden window of its own, and it is not always the last.
+    const windows = BrowserWindow.getAllWindows();
+    const win = windows.find((w) => /index\.html/.test(w.webContents.getURL())) || windows[0];
     const { width, height } = win.getContentBounds();
     const placed = globalThis.__bounds.at(-1);
     const near = (a, b) => ['x', 'y', 'width', 'height'].every((k) => Math.abs(a[k] - b[k]) <= 1);
