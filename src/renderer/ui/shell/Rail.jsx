@@ -582,7 +582,7 @@ function ConfirmDelete({ chat, onCancel, onConfirm }) {
           <DialogDescription>
             {chat?.busy
               ? 'This chat is mid-turn. Deleting stops it and removes its transcript for good.'
-              : 'Its transcript goes with it, here and from claude --resume. This cannot be undone.'}
+              : 'Its transcript goes with it, here and in the CLI that wrote it. This cannot be undone.'}
           </DialogDescription>
         </DialogHeader>
 
