@@ -17,11 +17,6 @@ const REJECT_MODEL = process.env.MOCK_ACP_REJECT_MODEL === '1';
 // the app handed the agent.
 const LOG = process.env.MOCK_ACP_LOG || '';
 const record = (entry) => LOG && require('fs').appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
-// A stored conversation, for session/list and session/load. The value is a
-// prefix for the session ids, so two mocks standing in for two CLIs never
-// share one. MOCK_ACP_DELETE makes the agent advertise session/delete and
-// session/close the way OpenCode does. MOCK_ACP_PIDS names a file that gets a
-// line for each process start and each list.
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
@@ -285,8 +280,6 @@ rl.on('line', (line) => {
     if (msg.id !== undefined) fail(msg.id, e.message);
   }
 });
-// MOCK_ACP_LINGER keeps the process up once its stdin is gone, as Cursor's
-// worker does, so only an explicit kill ends it.
 rl.on('close', () => {
   if (process.env.MOCK_ACP_LINGER === '1') setInterval(() => {}, 1 << 30);
   else process.exit(0);

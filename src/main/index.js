@@ -138,8 +138,6 @@ const owners = new Map();
 const ownerOf = (id) => rowOf(owners.get(id) || provider)?.history;
 
 async function sessionsIn(dir) {
-  // Together, so a CLI that is slow to answer costs the rail its own wait
-  // rather than the sum of everyone's.
   const lists = await Promise.all((registry?.all() || []).filter((row) => row.hasHistory && row.has()).map(async (row) => {
     const rows = await Promise.resolve()
       .then(() => row.history.listSessions(dir))
@@ -2053,6 +2051,5 @@ app.on('before-quit', () => {
   bridge?.stop();
   AppServer.closeAll();
   AcpRpc.closeAll();
-  // A CLI held open to answer the rail must not outlive the app.
   for (const row of registry?.all() || []) row.history?.close?.();
 });

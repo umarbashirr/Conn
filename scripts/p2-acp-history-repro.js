@@ -1,12 +1,4 @@
 'use strict';
-/* Cursor, Grok and OpenCode chats are on the session rail after a restart, open
-   as the conversation they were, and are deleted only where the CLI can.
-
-   Drives the real app over the DevTools protocol on a throwaway HOME. The
-   stand-in ACP agent is the Cursor CLI, which advertises list and load, and the
-   OpenCode CLI, which also advertises close and delete. Everything the rail and
-   the panel ask goes through the preload bridge to the real handlers. Needs a
-   built renderer: `npx vite build` first. */
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -92,8 +84,6 @@ const lines = (file) => (fs.existsSync(file)
   : []);
 const logged = (file) => lines(file).map((l) => JSON.parse(l));
 
-// A stand-in CLI that stores two chats under `prefix` and, like Cursor's worker,
-// stays up when the pipe to it closes.
 function agent(dir, name, prefix, extra) {
   const file = path.join(dir, name);
   fs.writeFileSync(file, [
@@ -139,8 +129,6 @@ async function main() {
       for (let i = 0; i < 60 && !window.conn?.agent; i++) await new Promise((r) => setTimeout(r, 250));
     });
 
-    // A handler that throws reaches the panel as the error it shows, so the
-    // answer carries it back instead of failing the script.
     const call = (expression) => shell.run(`(async () => { try { return { ok: await ${expression} }; } catch (e) { return { thrown: e.message }; } })()`);
     const rail = async () => {
       const { ok } = await call('window.conn.agent.history()');

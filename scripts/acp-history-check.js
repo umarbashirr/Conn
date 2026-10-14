@@ -1,6 +1,4 @@
 'use strict';
-/* The fold from a replayed ACP session to the messages the panel draws, called
-   directly with arrays of updates. Plain node, no Electron and no agent. */
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');

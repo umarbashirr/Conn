@@ -1,6 +1,4 @@
 'use strict';
-/* What a replayed transcript is allowed to weigh, for the providers that read
-   a chat back from a CLI rather than from a file of their own. */
 
 const MAX_MESSAGES = 400;
 const MAX_TEXT = 6000;
@@ -22,7 +20,6 @@ function slim(msg) {
   return { ...msg, message: { ...msg.message, content } };
 }
 
-// The newest MAX_MESSAGES, each slimmed, in the shape agent:transcript returns.
 function clip(id, messages) {
   const tail = messages.slice(-MAX_MESSAGES);
   return { id, truncated: messages.length > tail.length, messages: tail.map(slim) };

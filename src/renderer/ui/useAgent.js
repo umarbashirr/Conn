@@ -1060,7 +1060,6 @@ export function useAgent() {
     setChats(chatsRef.current);
     switchTo(chat.key);
 
-    // Cursor takes about ten seconds to hand a long chat back.
     push(chat.key, { id: 'opening', kind: 'note', text: 'opening this chat…' });
     try {
       const t = await conn().agent.transcript(s.id, chat.project);
