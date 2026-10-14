@@ -63,6 +63,7 @@ const DOING = {
   browser_hover: 'Hovering',
   browser_scroll: 'Scrolling',
   browser_screenshot: 'Screenshotting',
+  browser_record: 'Recording',
   browser_evaluate: 'Evaluating',
   browser_wait: 'Waiting',
   browser_highlight: 'Highlighting',

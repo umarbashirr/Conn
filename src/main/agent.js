@@ -4,7 +4,7 @@
 // by the user.
 const { EventEmitter } = require('events');
 const fs = require('fs');
-const { browserTools, INSTRUCTIONS } = require('../shared/browser-tools');
+const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const shellEnv = require('./shell-env');
@@ -96,7 +96,8 @@ class AgentSession extends EventEmitter {
         const text = t.render ? t.render(result)
           : typeof result === 'string' ? result
             : JSON.stringify(result, null, 2);
-        return { content: [{ type: 'text', text }] };
+        const stills = t.format === 'recording' && result?.keyframes ? keyframeBlocks(result, fs.readFileSync) : [];
+        return { content: [{ type: 'text', text }, ...stills] };
       }, { alwaysLoad: CORE.has(t.name) }),
     );
 

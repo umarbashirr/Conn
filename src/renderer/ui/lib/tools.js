@@ -35,6 +35,7 @@ const SUMMARY = {
   browser_hover: (i) => i.target,
   browser_scroll: (i) => i.target || (i.dy ? `${i.dy < 0 ? 'up' : 'down'} ${Math.abs(i.dy)}px` : ''),
   browser_screenshot: (i) => i.target || (i.fullPage ? 'full page' : ''),
+  browser_record: (i) => [i.action, i.name].filter(Boolean).join(' '),
   browser_console: (i) => (i.level ? `${LEVELS[i.level] || i.level} only` : 'all messages'),
   browser_network: nothing,
   browser_evaluate: (i) => i.code,

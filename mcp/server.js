@@ -9,7 +9,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 
 const state = require('../cli/state');
-const { browserTools } = require('../src/shared/browser-tools');
+const { browserTools, keyframeBlocks } = require('../src/shared/browser-tools');
 
 // Which project the agent is working in. The window may have several open, so
 // the request has to say. The terminal that started this server exports
@@ -63,7 +63,9 @@ for (const t of browserTools(z)) {
   server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a) => {
     const result = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a);
     if (t.format === 'image') return image(result);
-    return text(t.render ? t.render(result) : result);
+    const out = text(t.render ? t.render(result) : result);
+    if (t.format === 'recording' && result?.keyframes) out.content.push(...keyframeBlocks(result, fs.readFileSync));
+    return out;
   }));
 }
 

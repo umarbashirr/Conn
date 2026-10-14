@@ -683,6 +683,23 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
+// The files behind the images of a tool result, in order. A screenshot says
+// where it landed in its note; a recording lists its stills.
+function imagePaths(content) {
+  for (const b of content) {
+    const text = typeof b?.text === 'string' ? b.text : '';
+    const shot = SHOT_NOTE.exec(text);
+    if (shot) return [shot[3]];
+    if (text.startsWith('{')) {
+      try {
+        const { keyframes } = JSON.parse(text);
+        if (Array.isArray(keyframes)) return keyframes;
+      } catch { /* some other tool's JSON */ }
+    }
+  }
+  return [];
+}
+
 function lighten(msg) {
   const content = msg?.message?.content;
   if (!Array.isArray(content)) return msg;
@@ -691,16 +708,16 @@ function lighten(msg) {
   const mapped = content.map((block) => {
     if (block?.type !== 'tool_result' || !Array.isArray(block.content)) return block;
 
-    const note = block.content.find((b) => b?.type === 'text' && SHOT_NOTE.test(String(b.text || '')));
-    const shotPath = note ? SHOT_NOTE.exec(String(note.text))[3] : null;
-
+    const paths = imagePaths(block.content);
+    let image = 0;
     let hit = false;
     const inner = block.content.map((b) => {
       if (b?.type === 'image') {
         hit = true;
         // No path means no way to show it later, so say that rather than
         // silently dropping the block.
-        return shotPath ? { type: 'image', path: shotPath } : { type: 'text', text: '[screenshot]' };
+        const file = paths[image++];
+        return file ? { type: 'image', path: file } : { type: 'text', text: '[screenshot]' };
       }
       if (typeof b?.text === 'string' && b.text.length > MAX_TOOL_TEXT) {
         hit = true;

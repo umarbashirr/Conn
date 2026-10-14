@@ -72,6 +72,12 @@ function browserTools(z) {
       format: 'image',
     },
     {
+      name: 'browser_record', bridgeTool: 'record', label: 'Record', title: 'Record the page',
+      description: 'Make a video of the preview pane, the page only and without sound. action "start" begins (maxSeconds defaults to 60 and is capped at 120, then it stops by itself and keeps the file). action "stop" returns the video\'s path, its length and size, and three stills (first, middle, last) saved beside it, which you can look at yourself. Click and type between the two to record what you do. name is a file name, not a path.',
+      schema: { action: z.enum(['start', 'stop']), name: z.string().optional(), maxSeconds: z.number().optional() },
+      format: 'recording',
+    },
+    {
       name: 'browser_console', bridgeTool: 'console', label: 'Console', title: 'Read the console',
       description: 'Console messages the page logged since the last navigation. Check this after any action that should have worked.',
       schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional() },
@@ -138,6 +144,11 @@ function browserTools(z) {
   ];
 }
 
+/** The stills of a finished recording as MCP image blocks, so a model that cannot watch video still sees it. */
+const keyframeBlocks = (result, read) => (result.keyframes || []).map((file) => ({
+  type: 'image', data: read(file).toString('base64'), mimeType: 'image/jpeg',
+}));
+
 const INSTRUCTIONS = [
   'You are working next to a live preview browser. It is a real Chromium view the human can see.',
   'Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000).',
@@ -175,4 +186,4 @@ const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.route
    list under their bare names. */
 const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '' };
 
-module.exports = { browserTools, INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX };
+module.exports = { browserTools, keyframeBlocks, INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX };

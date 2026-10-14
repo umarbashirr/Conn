@@ -167,7 +167,7 @@ browser, wired in already: no MCP config, no restart, no setup step.
   and the like). That list is a convenience, not a sandbox. It cannot catch everything a command
   could do, so anyone who needs real isolation should run the CLI inside an OS-level sandbox instead.
   Full bypass asks for nothing and checks nothing. Looking at the preview does not ask in any mode.
-  That covers snapshot, text, screenshot, console, and network. Changing the page follows the chat
+  That covers snapshot, text, screenshot, record, console, and network. Changing the page follows the chat
   on screen: refused in Plan, a card in Ask, allowed in Auto and Full bypass. The card offers
   **Allow**, **Always**, or **Deny**. A terminal agent driving the preview through `conn` or the MCP
   server uses that same chat mode, and Ask shows the card in the chat rather than refusing the call.
@@ -261,6 +261,7 @@ conn fill e3 "you@example.com"
 conn click e7
 conn console --level error
 conn shot --full
+conn record start demo # a video of the page; conn record stop prints its path
 conn preview close
 ```
 
@@ -280,6 +281,37 @@ viewport: 795x860  scroll: 0/860
 
 Every `eN` feeds `click`, `fill`, `hover`, `select` and `highlight`. Refs are dropped on navigation, so
 snapshot again after a page load. `conn help` lists the rest.
+
+## Recording the page
+
+`record` makes a video of the preview pane, for when a person asked to see a flow and a still would
+not show it. Start it, click and type, stop it:
+
+```sh
+conn record start login-flow --max 30
+conn click e7
+conn record stop        # prints /tmp/conn-recordings-1000/login-flow.mp4
+```
+
+The agent has the same thing as the `browser_record` tool (`action` is `start` or `stop`, with
+optional `name` and `maxSeconds`). Stop returns the path, the length, the size, and three stills
+(first, middle, last) saved beside the video. The stills reach the model as images, so an agent that
+cannot watch video still sees what was recorded. Looking at the page does not ask permission in any
+mode, and neither does this.
+
+- It records the preview page, not the window. There is no audio.
+- It works with the pane closed or behind another tab, and a navigation does not end it.
+- It stops by itself after `maxSeconds` (60 unless asked, 120 at most) and keeps the file. The next
+  `stop` hands that file over.
+- Files go to a private folder in the temp directory (`/tmp/conn-recordings-<uid>/`), and only the
+  newest 20 are kept, a video with its stills. `name` is a file name, never a path.
+- The video is H.264 in an MP4 where this build of Electron can encode it, and WebM (VP9, then
+  whatever WebM it has) where it cannot. The extension says which. Frames are 10 a second, and a
+  still page repeats its last frame so the length matches the clock. Both sides are rounded down to
+  an even number of pixels.
+- Opening DevTools on the pane takes its debugger, so a recording in progress ends there and a new
+  one will not start until DevTools is closed.
+- Nothing needs ffmpeg. The encoding happens in a hidden window that exists only while recording.
 
 ## Using it from another agent
 
@@ -340,6 +372,6 @@ outside those terminals can reach the tool routes without that token.
   an MCP server configured as a bare command name would fail to start. The app asks your login shell
   for its PATH once at startup and hands that to the agent and to its servers.
 - Cross-origin iframes appear in snapshots but their contents cannot be read.
-- `screenshot --full` and viewport emulation go through CDP, and neither works while DevTools is open,
-  since only one debugger can attach at a time.
+- `screenshot --full`, viewport emulation and `record` go through CDP, and none works while DevTools
+  is open, since only one debugger can attach at a time.
 - `homepage` in package.json is a placeholder. Set it to the real repository before publishing.
