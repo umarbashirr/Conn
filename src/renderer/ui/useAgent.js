@@ -1060,6 +1060,8 @@ export function useAgent() {
     setChats(chatsRef.current);
     switchTo(chat.key);
 
+    // Cursor takes about ten seconds to hand a long chat back.
+    push(chat.key, { id: 'opening', kind: 'note', text: 'opening this chat…' });
     try {
       const t = await conn().agent.transcript(s.id, chat.project);
       const next = [];
@@ -1087,7 +1089,10 @@ export function useAgent() {
       }
       edit(chat.key, (c) => ({ ...c, items: next }));
     } catch (e) {
-      push(chat.key, { id: uid('e'), kind: 'note', error: true, text: `could not open that chat: ${e.message}` });
+      edit(chat.key, (c) => ({
+        ...c,
+        items: [...c.items.filter((it) => it.id !== 'opening'), { id: uid('e'), kind: 'note', error: true, text: `could not open that chat: ${e.message}` }],
+      }));
     }
   }, [edit, push, switchTo]);
 

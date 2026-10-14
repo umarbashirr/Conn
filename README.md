@@ -175,8 +175,10 @@ browser, wired in already: no MCP config, no restart, no setup step.
 - **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
   a conversation you started in the terminal shows up in the rail, and a chat you started here shows
-  up in `claude --resume`. Codex chats appear in that rail too. Cursor, Grok and OpenCode chats live in this
-  window for the session; Conn does not read those CLIs' on-disk transcripts yet. Pick one and the
+  up in `claude --resume`. Codex chats appear in that rail too. So do Cursor, Grok and OpenCode chats: Conn
+  asks each CLI for its chats, including ones you started in its own terminal. Cursor opens a long
+  chat slowly, about ten seconds. Delete works for OpenCode only; the other two keep their chats
+  until you delete them in the CLI. Pick one and the
   thread replays, tool calls and screenshots included, and that chat is live again for the next thing
   you type. Switching chats does not stop one that is still running.
 - **Tool calls** collapse to one line each. Click one to see its input and result, including

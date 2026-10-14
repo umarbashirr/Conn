@@ -492,5 +492,5 @@ class AcpSession extends EventEmitter {
 }
 
 module.exports = {
-  AcpSession, CLIENT, mcpEnv, toolOf, followAgent, ACP_INSTRUCTIONS,
+  AcpSession, CLIENT, mcpEnv, toolOf, callInput, textOf, followAgent, ACP_INSTRUCTIONS,
 };

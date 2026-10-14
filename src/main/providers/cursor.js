@@ -3,7 +3,7 @@ const path = require('path');
 const { makeLocator } = require('./find-binary');
 const { AcpDriver, probeVersion } = require('./acp-driver');
 const { AcpSession } = require('./acp-session');
-const history = require('./stub-history');
+const { createAcpHistory } = require('./acp-history');
 const { AcpCatalog } = require('./acp-catalog');
 const { everyMode } = require('../modes');
 
@@ -59,10 +59,10 @@ function create({ cacheDir, settings }) {
     modelKey: 'cursorModel',
     settingsKey: 'cursor',
     catalogKind: 'acp',
-    hasHistory: false,
+    hasHistory: true,
     driver,
     catalog: new AcpCatalog({ id: 'cursor', spec, cacheDir }),
-    history,
+    history: createAcpHistory({ spec, label: 'Cursor' }),
     spec,
     preferBinary: (p) => locate.prefer(p),
     binary: () => locate.current(),
