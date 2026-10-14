@@ -204,6 +204,18 @@ async function main() {
     await click(s, `css=[data-sidebar="menu-button"][title=${J(SECOND)}]`);
 
     await emitTo(0, 'message', INIT);
+    await emitTo(0, 'message', call('b2', 'Bash', { command: 'npm run dev', run_in_background: true }));
+    await emitTo(0, 'message', back('b2', 'Command running in background with ID: bg2'));
+    await emitTo(0, 'message', { type: 'system', subtype: 'task_started', task_id: 'bg2', tool_use_id: 'b2', description: 'npm run dev' });
+    await emitTo(0, 'message', RESULT);
+    await rowIs(FIRST, { activity: 'working', chips: ['1 running'] });
+    await click(s, `css=[data-sidebar="menu-button"][title=${J(FIRST)}]`);
+    await click(s, `css=[data-sidebar="menu-button"][title=${J(SECOND)}]`);
+    await emitTo(0, 'message', { type: 'system', subtype: 'task_notification', task_id: 'bg2', tool_use_id: 'b2', status: 'completed' });
+    await sleep(800);
+    check('background-command-finishing-after-the-chat-was-opened-raises-no-toast', (await toasts()).length === 0, J(await toasts()));
+
+    await emitTo(0, 'message', INIT);
     await emitTo(0, 'error', 'agent crashed');
     const crashed = await until(async () => (await toasts()).find((t) => t.includes(`${FIRST} ended with an error`)), 2500);
     check('crash-ending-raises-a-toast', !!crashed, J(await toasts()));
