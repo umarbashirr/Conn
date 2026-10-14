@@ -52,8 +52,9 @@ class Recorder {
   /**
    * `io` is what the pane lends: send(method, params) to its debugger,
    * attached() for whether it has one, size() for the view's size in pixels,
-   * nudge() to make a hidden view draw again, and changed() for when
-   * `recording` flips.
+   * nudge() to make a hidden view draw again, changed() for when `recording`
+   * flips, and ended(result) for a recording that stopped on its own and
+   * asked to be announced.
    */
   constructor(io) {
     this.io = io;
@@ -75,13 +76,13 @@ class Recorder {
     return Promise.resolve().then(() => this.io.send(method, params));
   }
 
-  async start({ dir, name, keep, maxSeconds }) {
+  async start({ dir, name, keep, maxSeconds, announce = false }) {
     if (this.phase !== 'idle') throw new Error('already recording this pane. Call record stop first.');
     if (!this.io.attached()) {
       throw new Error('DevTools is open on the preview pane, so it cannot be recorded. Close them with the devtools tool and try again.');
     }
     const rec = {
-      dir, name, keep,
+      dir, name, keep, announce,
       fps: FPS,
       maxSeconds: clampSeconds(maxSeconds),
       startedAt: 0,
@@ -256,7 +257,10 @@ class Recorder {
         keyframes,
         ...(rec.endedBy === 'stop' ? {} : { endedBy: rec.endedBy }),
       };
-      if (!rec.claimed) this.finished = result;
+      if (!rec.claimed) {
+        this.finished = result;
+        if (rec.announce) this.io.ended(result);
+      }
       return result;
     } finally {
       this.#release(rec);

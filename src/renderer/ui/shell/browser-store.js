@@ -45,6 +45,7 @@ const blank = () => ({
   // every move would slide the handle out from under the pointer.
   hold: null,
   picking: false,
+  recording: false,
 });
 
 /* Whether the native guest should paint in the hole. Empty and error Stages
@@ -388,6 +389,18 @@ export async function screenshot(tab = current) {
   toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
 }
 
+// The person's own recordings go to Videos/Conn and are never pruned; the
+// agent's go to a temp folder. Main decides which by who asked.
+export async function toggleRecording(tab = current) {
+  const stopping = previewOf(tab).recording;
+  try {
+    const r = await window.conn.browser.action('record', { action: stopping ? 'stop' : 'start' }, tab);
+    if (stopping) toast('Saved recording', r.path, [{ label: 'ok', primary: true }]);
+  } catch (e) {
+    toast('Could not record', String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), [{ label: 'ok', primary: true }]);
+  }
+}
+
 export async function pickElement(tab = current) {
   const b = previewOf(tab);
   if (!b.live) {
@@ -570,6 +583,11 @@ window.conn.browser.onState((s) => {
   const hadError = !!b.error;
   const hadViewport = b.viewport;
   if (s.viewport !== undefined) b.viewport = s.viewport;
+  // The dot is on the tab strip, which draws every preview, so a parked tab
+  // starting to record has to be heard too.
+  const wasRecording = b.recording;
+  b.recording = !!s.recording;
+  if (!drawing && wasRecording !== b.recording) changed();
 
   // Retyping an address while the page is still loading should not have the old
   // one land back on top of it. The bar keeps a local draft while focused; the
@@ -620,6 +638,10 @@ window.conn.browser.onState((s) => {
       act('syncPreviewBounds');
     }
   }
+});
+
+window.conn.browser.onRecorded((r) => {
+  toast('Saved recording', r.path, [{ label: 'ok', primary: true }]);
 });
 
 window.conn.browser.onConsole((c) => {

@@ -135,6 +135,19 @@ export const toolText = (output) => {
 export const toolImages = (output) =>
   (Array.isArray(output) ? output : []).filter((b) => b.type === 'image' && (b.path || b.source?.data));
 
+// A finished recording's result, when this output is one. The tool answers with
+// its numbers as JSON text, so the video is found by the path in it.
+export function toolRecording(output) {
+  for (const b of Array.isArray(output) ? output : []) {
+    if (b?.type !== 'text' || !String(b.text).startsWith('{')) continue;
+    try {
+      const r = JSON.parse(b.text);
+      if (/\.(mp4|webm)$/i.test(r.path || '')) return r;
+    } catch { /* some other tool's JSON */ }
+  }
+  return null;
+}
+
 export const imageSrc = (b) => (b.path
   ? `file://${encodeURI(b.path)}`
   : `data:${b.source.media_type || 'image/png'};base64,${b.source.data}`);

@@ -59,6 +59,7 @@ class BrowserPane extends EventEmitter {
       // draws, and hiding it to nudge it stops the frames.
       nudge: () => { if (!this.visible) { this.view.setVisible(true); this.view.setVisible(false); } },
       // A recording can end after the pane has closed.
+      ended: (result) => this.emit('recorded', result),
       changed: () => { if (!this.wc.isDestroyed()) this.emit('state', this.state()); },
     });
 
@@ -505,10 +506,12 @@ class BrowserPane extends EventEmitter {
   // stay.
   async record({ action, name, maxSeconds } = {}, { library = false } = {}) {
     if (action === 'start') {
+      // The person's file is found by its name in a folder of their own.
+      if (library && !name) name = `conn-recording-${new Date().toLocaleString('sv').replace(/[: ]/g, '-')}`;
       const where = library
         ? { dir: path.join(app.getPath('videos'), 'Conn'), keep: null }
         : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS };
-      return this.recorder.start({ ...where, name, maxSeconds });
+      return this.recorder.start({ ...where, name, maxSeconds, announce: library });
     }
     if (action === 'stop') return this.recorder.stop();
     throw new Error('record needs action "start" or "stop"');

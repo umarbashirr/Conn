@@ -474,7 +474,23 @@ async function main() {
     }
     check('decide-lets-record-through-in-every-mode', verdicts.length === 0, verdicts.join('; '));
 
-    // 10. Quit in the middle of a recording.
+    // 10. The person's own recording, from the preview menu's IPC, goes to their
+    //     Videos folder and is not pruned.
+    const mine = await shell.evaluate(async () => {
+      const start = await window.conn.browser.action('record', { action: 'start' });
+      await new Promise((r) => setTimeout(r, 800));
+      const stop = await window.conn.browser.action('record', { action: 'stop' });
+      return { start, stop };
+    });
+    check('menu-recording-goes-to-videos-conn', mine.start?.recording === true && path.dirname(mine.stop?.path || '') === path.join(home, 'Videos', 'Conn') && fs.existsSync(mine.stop.path), JSON.stringify(mine));
+    check('menu-recording-is-named-for-the-time', /conn-recording-\d{4}-\d\d-\d\d-\d\d-\d\d-\d\d\.(mp4|webm)$/.test(mine.stop?.path || ''), mine.stop?.path);
+    check('agents-cannot-ask-for-the-videos-folder', await (async () => {
+      const r = await invoke('record', { action: 'start', saveTo: 'videos', library: true, dir: '/tmp' });
+      const kept = await invoke('record', { action: 'stop' });
+      return /conn-recordings/.test(kept.path || '') && r.ok === true;
+    })(), 'the tool took a folder from its arguments');
+
+    // 11. Quit in the middle of a recording.
     await invoke('record', { action: 'start' });
     await sleep(800);
     check('encoder-window-up-before-quit', (await encoders()) === 1, `encoders=${await encoders()}`);

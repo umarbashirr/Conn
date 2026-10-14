@@ -92,6 +92,7 @@ import {
   MAX_VIEWPORT,
   MIN_VIEWPORT,
   toggleResponsive,
+  toggleRecording,
   screenshot,
   setViewport,
   showDrawer,
@@ -365,6 +366,9 @@ function PaneMenu({ tab }) {
       <DropdownMenuContent align="end" className="w-64 p-1.5">
         <DropdownMenuItem onSelect={() => screenshot(tab)}>
           Take Screenshot
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => toggleRecording(tab)}>
+          {s.recording ? 'Stop recording' : 'Start recording'}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => go('hardReload', tab)}>
           Hard Reload

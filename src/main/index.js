@@ -284,6 +284,7 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   const made = new BrowserPane(win, HOME_URL, { project });
   made.on('state', (st) => send('browser:state', { ...st, tab, project }));
   made.on('console', (c) => send('browser:console', { ...c, tab, project }));
+  made.on('recorded', (r) => send('browser:recorded', { ...r, tab, project }));
   panes.set(tab, { pane: made, project, chat });
   // Born parked. It comes on screen only when the shell says it is the tab in
   // the box, and the shell has already said where the box is.
@@ -1936,6 +1937,7 @@ function registerIpc() {
       case 'console': return pane.consoleLog({ limit: 200 });
       case 'network': return pane.networkLog({ limit: 100 });
       case 'screenshot': return pane.screenshot(arg || {});
+      case 'record': return pane.record(arg || {}, { library: true });
       case 'still': return pane.still();
       case 'setViewport': return arg ? pane.setViewport(arg.width, arg.height) : pane.clearViewport();
       case 'openExternal': return shell.openExternal(pane.state().url);
