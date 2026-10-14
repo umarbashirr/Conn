@@ -84,6 +84,11 @@ class BrowserPane extends EventEmitter {
       this.favicon = (favicons && favicons[0]) || '';
       push();
     });
+    // DevTools takes the debugger when it opens; take it back when it closes,
+    // whoever closed it, or the pane is left without one.
+    wc.on('devtools-closed', () => { if (!this.debuggerAttached) this.#attachDebugger(); });
+    wc.debugger.on('message', (_e, method, params) => this.#onCdp(method, params));
+    wc.debugger.on('detach', () => { this.debuggerAttached = false; });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrameNavFail(isMainFrame, code)) {
         this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
@@ -113,8 +118,6 @@ class BrowserPane extends EventEmitter {
       this.wc.debugger.attach('1.3');
       this.debuggerAttached = true;
       await this.wc.debugger.sendCommand('Network.enable');
-      this.wc.debugger.on('message', (_e, method, params) => this.#onCdp(method, params));
-      this.wc.debugger.on('detach', () => { this.debuggerAttached = false; });
     } catch (err) {
       this.debuggerAttached = false;
     }
@@ -533,7 +536,6 @@ class BrowserPane extends EventEmitter {
   toggleDevTools() {
     if (this.wc.isDevToolsOpened()) {
       this.wc.closeDevTools();
-      if (!this.debuggerAttached) this.#attachDebugger();
     } else {
       if (this.debuggerAttached) { try { this.wc.debugger.detach(); } catch {} this.debuggerAttached = false; }
       this.wc.openDevTools({ mode: 'bottom' });
