@@ -104,8 +104,8 @@ function Row({ chat, current, onDelete, onRename }) {
   const activity = chat.activity ?? IDLE;
   const tall = activity.state !== 'idle';
   // The spinner and the line already say working, so only waiting and a count
-  // of agents earn a chip beside the line.
-  const chip = badge && (badge.tone === 'wait' || chat.agents > 0);
+  // of what runs in the background earn a chip beside the line.
+  const chip = badge && (badge.tone === 'wait' || chat.agents > 0 || chat.shells > 0);
 
   return (
     <ContextMenu>

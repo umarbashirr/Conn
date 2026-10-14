@@ -67,10 +67,10 @@ function wants(items, at) {
 
 // One walk back from the newest item finds everything the line needs. The call
 // or prose in flight only counts inside the current turn, so it stops counting
-// at the message or note that opened or closed the turn. A permission or a live
-// subagent counts wherever it sits.
+// at the message or note that opened or closed the turn. A permission, a live
+// subagent or a command left running in the background counts wherever it sits.
 function scan(items) {
-  const found = { ask: -1, agent: null, step: -1, edge: null };
+  const found = { ask: -1, task: null, step: -1, edge: null };
   let behindTurnEdge = false;
   for (let i = items.length - 1; i >= 0; i--) {
     const it = items[i];
@@ -79,9 +79,10 @@ function scan(items) {
         if (!it.decided) found.ask = i;
         break;
       case 'agent':
-        if (!found.agent && isLive(it)) found.agent = it;
+        if (!found.task && isLive(it)) found.task = it;
         break;
       case 'tool':
+        if (!found.task && it.taskId && isLive(it)) found.task = it;
         if (!behindTurnEdge && found.step < 0 && it.state === 'input-available') found.step = i;
         break;
       case 'assistant':
@@ -101,6 +102,8 @@ function scan(items) {
   return found;
 }
 
+const taskLine = (it) => (it.kind === 'agent' ? nameOf(it) : doingTool(it.name, it.input));
+
 /**
  * @param {readonly object[]} items The chat's transcript, flat, subagent steps included.
  * @param {boolean} busy Whether a turn is running.
@@ -108,11 +111,11 @@ function scan(items) {
  * @returns {Activity}
  */
 export function chatActivity(items, busy, seen) {
-  const { ask, agent, step: at, edge } = scan(items);
+  const { ask, task, step: at, edge } = scan(items);
   if (ask >= 0) return { state: 'waiting', line: wants(items, ask) };
 
-  if (busy || agent) {
-    if (at < 0) return { state: 'working', line: agent ? nameOf(agent) : 'Thinking', target: null };
+  if (busy || task) {
+    if (at < 0) return { state: 'working', line: task ? taskLine(task) : 'Thinking', target: null };
     const step = items[at];
     if (step.kind === 'assistant') return { state: 'working', line: 'Writing', target: null };
     const label = toolLabel(step.name);
