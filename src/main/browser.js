@@ -312,7 +312,15 @@ class BrowserPane extends EventEmitter {
     return h.length > max ? h.slice(0, max) + '\n<!-- truncated -->' : h;
   }
 
+  // Until the page has drawn a frame, Chromium has nothing to hit-test a press
+  // against and drops it, though the move before it gets through. A page that
+  // has just loaded often has not drawn yet.
   async click(target, { button = 'left', clickCount = 1, modifiers = [] } = {}) {
+    const drawn = await this.#js(`Promise.race([
+      new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))),
+      new Promise((r) => setTimeout(() => r(false), 2000)),
+    ])`);
+    if (!drawn) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
     const p = await this.#js(`window.__conn.point(${JSON.stringify(target)}, "click")`);
     const base = { x: Math.round(p.x), y: Math.round(p.y), button, modifiers };
     this.wc.sendInputEvent({ type: 'mouseMove', ...base });
