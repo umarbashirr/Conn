@@ -706,6 +706,7 @@ export function useAgent() {
         busy: c.busy,
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
+        shells: c.items.filter((it) => it.kind !== 'agent' && isRunning(it)).length,
         activity: chatActivity(c.items, c.busy, !c.endedUnseen),
       })),
     });
