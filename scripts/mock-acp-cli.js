@@ -285,4 +285,9 @@ rl.on('line', (line) => {
     if (msg.id !== undefined) fail(msg.id, e.message);
   }
 });
-rl.on('close', () => process.exit(0));
+// MOCK_ACP_LINGER keeps the process up once its stdin is gone, as Cursor's
+// worker does, so only an explicit kill ends it.
+rl.on('close', () => {
+  if (process.env.MOCK_ACP_LINGER === '1') setInterval(() => {}, 1 << 30);
+  else process.exit(0);
+});

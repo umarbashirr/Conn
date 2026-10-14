@@ -92,12 +92,13 @@ const lines = (file) => (fs.existsSync(file)
   : []);
 const logged = (file) => lines(file).map((l) => JSON.parse(l));
 
-// A stand-in CLI that stores two chats under `prefix`.
+// A stand-in CLI that stores two chats under `prefix` and, like Cursor's worker,
+// stays up when the pipe to it closes.
 function agent(dir, name, prefix, extra) {
   const file = path.join(dir, name);
   fs.writeFileSync(file, [
     '#!/bin/sh',
-    `export MOCK_ACP_STORE=${prefix} MOCK_ACP_PIDS=${JSON.stringify(path.join(dir, 'pids'))} MOCK_ACP_LOG=${JSON.stringify(path.join(dir, `${prefix}.log`))} ${extra}`,
+    `export MOCK_ACP_STORE=${prefix} MOCK_ACP_LINGER=1 MOCK_ACP_PIDS=${JSON.stringify(path.join(dir, 'pids'))} MOCK_ACP_LOG=${JSON.stringify(path.join(dir, `${prefix}.log`))} ${extra}`,
     `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(MOCK)} "$@"`,
     '',
   ].join('\n'), { mode: 0o755 });
@@ -117,7 +118,7 @@ async function main() {
   const opencode = agent(bin, 'opencode', 'opencode', 'MOCK_ACP_DELETE=1');
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
   fs.writeFileSync(path.join(home, '.conn', 'settings.json'), JSON.stringify({
-    agent: { provider: 'cursor', mode: 'bypass' },
+    agent: { provider: 'claude', mode: 'bypass' },
     cursor: { binary: cursor },
     opencode: { binary: opencode },
   }));
@@ -194,8 +195,8 @@ async function main() {
     main.ws.close();
     check('app-quits', await until(() => app.exitCode !== null || app.signalCode !== null, 15000), 'Electron still running 15 s after app.quit()');
     await sleep(500);
-    const left = spawned().map(([, pid]) => Number(pid)).filter(alive);
-    check('no-mock-agent-outlives-the-app', left.length === 0, `still running: ${left.join(',')}`);
+    const left = [...new Set(spawned().map(([, pid]) => Number(pid)))].filter(alive);
+    check('no-mock-agent-outlives-the-app', left.length === 0, `still running: ${left.join(",")} of ${JSON.stringify(spawned())}`);
   } finally {
     for (const pid of spawned().map(([, p]) => Number(p)).filter(alive)) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     try { process.kill(-app.pid, 'SIGKILL'); } catch (e) { if (e.code !== 'ESRCH') throw e; }
