@@ -185,6 +185,21 @@ async function main() {
     check('dot-does-not-come-back', !!(await rowIs(FIRST, { activity: 'idle', dot: false })), J(await row(FIRST)));
 
     await emitTo(0, 'message', INIT);
+    await emitTo(0, 'message', call('b1', 'Bash', { command: 'npm run dev', run_in_background: true }));
+    await emitTo(0, 'message', back('b1', 'Command running in background with ID: bg1'));
+    await emitTo(0, 'message', { type: 'system', subtype: 'task_started', task_id: 'bg1', tool_use_id: 'b1', description: 'npm run dev' });
+    await emitTo(0, 'message', RESULT);
+    const background = await rowIs(FIRST, { activity: 'working', line: 'Running npm run dev', chips: ['1 running'], spinner: true });
+    check('background-command-keeps-the-row-working', !!background, J(await row(FIRST)));
+    const synced = await evaluate(s, `window.__rail.chats.find((c) => c.title === ${J(FIRST)})`);
+    check('background-command-reaches-the-rail', synced?.shells === 1, J(synced));
+    await shot(s, SHOT('background'));
+    await emitTo(0, 'message', { type: 'system', subtype: 'task_notification', task_id: 'bg1', tool_use_id: 'b1', status: 'completed' });
+    check('finished-background-command-lets-the-row-rest', !!(await rowIs(FIRST, { activity: 'finished', spinner: false, chips: [] })), J(await row(FIRST)));
+    await click(s, 'Open');
+    await click(s, `css=[data-sidebar="menu-button"][title=${J(SECOND)}]`);
+
+    await emitTo(0, 'message', INIT);
     await emitTo(0, 'error', 'agent crashed');
     const crashed = await until(async () => (await toasts()).find((t) => t.includes(`${FIRST} ended with an error`)), 2500);
     check('crash-ending-raises-a-toast', !!crashed, J(await toasts()));

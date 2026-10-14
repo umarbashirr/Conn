@@ -85,6 +85,23 @@ is(
   'a subagent that finished leaves the chat idle',
 );
 
+const server = tool('Bash', { command: 'npm run dev', run_in_background: true }, { state: 'output-available', output: 'started', taskId: 'b1', status: 'running' });
+is(
+  chatActivity([user(), server, ended()], false, true),
+  { state: 'working', line: 'Running npm run dev', target: null },
+  'a command left running in the background keeps an ended turn working',
+);
+is(
+  chatActivity([user(), { ...server, status: 'done' }, ended()], false, false),
+  { state: 'finished', line: 'Finished' },
+  'a background command that finished lets the chat finish',
+);
+is(
+  chatActivity([user(), tool('Read', { file_path: '/r/a.js' }, { state: 'output-available', output: 'x', status: 'running' }), ended()], false, true),
+  IDLE,
+  'a call with no task behind it is not background work',
+);
+
 is(
   chatActivity([user(), perm('Edit', { file_path: '/repo/src/cart.js' })], true, true),
   { state: 'waiting', line: 'Wants to edit src/cart.js' },
