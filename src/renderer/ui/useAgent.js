@@ -16,6 +16,8 @@ const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', openc
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
+// What keeps going once the turn that started it has ended.
+const outlivesTurn = (it) => isRunning(it) && it.background;
 
 const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with an error' : 'is done'}`, null, [{
   label: 'Open',
@@ -118,6 +120,9 @@ const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   items: [],
   busy: false,
   endedUnseen: false,
+  // A turn that ended away from the screen, as 'done' or 'error'. Its toast
+  // waits until no background work it started is still running.
+  toastDue: null,
   // When the turn on this chat started, so the header can count it. Per chat,
   // because the fleet runs several at once and switching chats mid-turn must
   // not hand the other one's clock to this one.
@@ -498,6 +503,7 @@ export function useAgent() {
           ...c,
           busy: false,
           endedUnseen: away,
+          toastDue: away ? (failed ? 'error' : 'done') : null,
           usage: account(c.usage, msg),
           // A blocking agent cannot outlive the turn that was waiting on it. If
           // its notification went missing, the turn ending says the same thing,
@@ -513,8 +519,6 @@ export function useAgent() {
           }],
         }));
         window.connRail?.refresh();
-        const finished = away && chatsRef.current.find((c) => c.key === chat);
-        if (finished) toastEnd(finished, failed);
       }
     }));
 
@@ -713,8 +717,16 @@ export function useAgent() {
   }, [chats, activeKey]);
 
   useEffect(() => {
+    const due = chats.filter((c) => c.toastDue && !c.busy && (c.toastDue === 'error' || !c.items.some(outlivesTurn)));
+    if (!due.length) return;
+    for (const c of due) if (c.key !== activeKey) toastEnd(c, c.toastDue === 'error');
+    const keys = new Set(due.map((c) => c.key));
+    setChats((cur) => cur.map((c) => (keys.has(c.key) ? { ...c, toastDue: null } : c)));
+  }, [chats, activeKey]);
+
+  useEffect(() => {
     if (!chats.some((c) => c.key === activeKey && c.endedUnseen)) return;
-    setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false } : c)));
+    setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false, toastDue: null } : c)));
   }, [activeKey, chats]);
 
   const sendTo = useCallback(async (key, text, images = []) => {
