@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeIma
 const path = require('path');
 const { spawn } = require('child_process');
 const { BrowserPane, normalizeUrl } = require('./browser');
+const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { runTool, TAB_TOOLS } = require('./tools');
@@ -2045,6 +2046,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
+  abortAllRecordings();
   ledger?.flush();
   stopAllChats();
   mcpRegistry.stopSignIns();

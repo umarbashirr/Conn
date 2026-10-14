@@ -22,6 +22,7 @@ const TOOLS = {
   evaluate: { args: '{ code }', help: 'Run JavaScript in the page and return the result.' },
   waitFor: { args: '{ selector?, ms?, networkIdle?, timeout? }', help: 'Wait for a selector, a delay, or the network to go quiet.' },
   screenshot: { args: '{ fullPage?, target?, name? }', help: 'Capture a PNG and return its path on disk.' },
+  record: { args: '{ action, name?, maxSeconds? }', help: 'Make a video of the preview pane. action "start" begins (maxSeconds defaults to 60, at most 120); "stop" ends it and returns the path, the length, and three stills (first, middle, last) saved beside it. No audio, and only the page, not the window.' },
   setViewport: { args: '{ width, height }', help: 'Emulate a viewport size, for checking responsive layout.' },
   clearViewport: { args: '{}', help: 'Drop viewport emulation.' },
   console: { args: '{ level?, limit? }', help: 'Buffered console messages from the page.' },
@@ -71,6 +72,7 @@ async function runTool(name, a, ctx) {
     case 'evaluate': return pane.evaluate(a.code ?? a.js ?? a.expression);
     case 'waitFor': return pane.waitFor(a);
     case 'screenshot': return pane.screenshot(a);
+    case 'record': return pane.record({ action: a.action, name: a.name, maxSeconds: a.maxSeconds });
     case 'setViewport': return pane.setViewport(a.width, a.height);
     case 'clearViewport': return pane.clearViewport();
     case 'console': return pane.consoleLog(a);
