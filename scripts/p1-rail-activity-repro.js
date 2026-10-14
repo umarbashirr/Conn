@@ -194,8 +194,12 @@ async function main() {
     const synced = await evaluate(s, `window.__rail.chats.find((c) => c.title === ${J(FIRST)})`);
     check('background-command-reaches-the-rail', synced?.shells === 1, J(synced));
     await shot(s, SHOT('background'));
+    await sleep(500);
+    check('turn-ending-under-a-background-command-raises-no-toast', (await toasts()).length === 0, J(await toasts()));
     await emitTo(0, 'message', { type: 'system', subtype: 'task_notification', task_id: 'bg1', tool_use_id: 'b1', status: 'completed' });
     check('finished-background-command-lets-the-row-rest', !!(await rowIs(FIRST, { activity: 'finished', spinner: false, chips: [] })), J(await row(FIRST)));
+    const late = await until(async () => (await toasts()).find((t) => t.includes(`${FIRST} is done`)), 2500);
+    check('last-background-command-finishing-raises-the-toast', !!late, J(await toasts()));
     await click(s, 'Open');
     await click(s, `css=[data-sidebar="menu-button"][title=${J(SECOND)}]`);
 
