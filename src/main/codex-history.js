@@ -29,6 +29,7 @@ const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
 const { chatTitle } = require('../shared/chat-title');
+const { clip } = require('./transcript-clip');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -253,26 +254,6 @@ function messagesFor(item, at, found) {
   return [toolUse(item.id, name, input, at), toolResult(item.id, out, failed, at)];
 }
 
-const MAX_MESSAGES = 400;
-const MAX_TEXT = 6000;
-
-// A whole npm install lands in one tool_result, and the panel has nowhere to
-// put 400KB of it.
-function slim(msg) {
-  const c = msg.message?.content;
-  if (!Array.isArray(c)) return msg;
-  const content = c.map((b) => {
-    if (typeof b.text === 'string' && b.text.length > MAX_TEXT) {
-      return { ...b, text: `${b.text.slice(0, MAX_TEXT)}\n… truncated` };
-    }
-    if (typeof b.content === 'string' && b.content.length > MAX_TEXT) {
-      return { ...b, content: `${b.content.slice(0, MAX_TEXT)}\n… truncated` };
-    }
-    return b;
-  });
-  return { ...msg, message: { ...msg.message, content } };
-}
-
 /* Which subagents a chat ran, filled in by the read that found them. The
    claude side lists them off disk without opening a transcript; codex only
    mentions them inside the thread, so this is what the read left behind.
@@ -296,8 +277,7 @@ async function readSession(cwd, id) {
   }
   agents.set(id, found);
 
-  const tail = out.slice(-MAX_MESSAGES);
-  return { id, truncated: out.length > tail.length, messages: tail.map(slim) };
+  return clip(id, out);
 }
 
 /* Synchronous on purpose: index.js folds this into the transcript reply it

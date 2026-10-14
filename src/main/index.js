@@ -11,6 +11,7 @@ const { AgentSession, SHOT_NOTE } = require('./agent');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
+const { AcpRpc } = require('./providers/acp-rpc');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
@@ -137,14 +138,14 @@ const owners = new Map();
 const ownerOf = (id) => rowOf(owners.get(id) || provider)?.history;
 
 async function sessionsIn(dir) {
-  const out = [];
-  for (const row of registry?.all() || []) {
-    if (!row.hasHistory || !row.has()) continue;
+  const lists = await Promise.all((registry?.all() || []).filter((row) => row.hasHistory && row.has()).map(async (row) => {
     const rows = await Promise.resolve()
       .then(() => row.history.listSessions(dir))
       .catch(() => []);
-    for (const r of rows) { owners.set(r.id, row.id); out.push({ ...r, provider: row.id }); }
-  }
+    return rows.map((r) => ({ ...r, provider: row.id }));
+  }));
+  const out = lists.flat();
+  for (const r of out) owners.set(r.id, r.provider);
   return out.sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => {
     const title = chatTitles.get(s.id);
     const board = canvasIds.get(s.id);
@@ -2043,4 +2044,12 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { ledger?.flush(); stopAllChats(); mcpRegistry.stopSignIns(); bridge?.stop(); AppServer.closeAll(); });
+app.on('before-quit', () => {
+  ledger?.flush();
+  stopAllChats();
+  mcpRegistry.stopSignIns();
+  bridge?.stop();
+  AppServer.closeAll();
+  AcpRpc.closeAll();
+  for (const row of registry?.all() || []) row.history?.close?.();
+});

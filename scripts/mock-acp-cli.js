@@ -17,6 +17,15 @@ const REJECT_MODEL = process.env.MOCK_ACP_REJECT_MODEL === '1';
 // the app handed the agent.
 const LOG = process.env.MOCK_ACP_LOG || '';
 const record = (entry) => LOG && require('fs').appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
+const STORE = process.env.MOCK_ACP_STORE || '';
+const DELETE = process.env.MOCK_ACP_DELETE === '1';
+const PIDS = process.env.MOCK_ACP_PIDS || '';
+const trace = (what) => PIDS && require('fs').appendFileSync(PIDS, `${what} ${process.pid}\n`);
+trace('start');
+const stored = STORE ? [
+  { sessionId: `${STORE}-chat-0001`, title: 'Make the button red', updatedAt: '2026-03-02T10:00:00.000Z' },
+  { sessionId: `${STORE}-chat-0002`, title: 'Older chat on page two', updatedAt: '2026-03-01T09:30:00.000Z' },
+] : [];
 const chosen = { model: 'mock-1', mode: 'build' };
 let seq = 0;
 // A session id the app can file things under: unique to this process, and long
@@ -77,6 +86,30 @@ function toolDone(sessionId, id, output, failed) {
       content: [{ type: 'content', content: { type: 'text', text: output } }],
     },
   });
+}
+
+function replayStored(sessionId) {
+  const { ACP_INSTRUCTIONS } = require('../src/main/providers/acp-session');
+  const said = `${ACP_INSTRUCTIONS}\n\nmake the button red`;
+  const at = 40;
+  const update = (u) => notify('session/update', { sessionId, update: u });
+  const text = (sessionUpdate, t) => update({ sessionUpdate, content: { type: 'text', text: t } });
+  update({ sessionUpdate: 'available_commands_update', availableCommands: [] });
+  text('user_message_chunk', said.slice(0, at));
+  text('user_message_chunk', said.slice(at));
+  text('agent_thought_chunk', 'the css lives in style.css');
+  text('agent_message_chunk', 'Sure, ');
+  text('agent_message_chunk', 'I will ');
+  text('agent_message_chunk', 'change it.');
+  update({
+    sessionUpdate: 'tool_call', toolCallId: 'replay-0-1', title: 'Edit style.css', kind: 'edit', status: 'pending', rawInput: {},
+  });
+  update({
+    sessionUpdate: 'tool_call_update', toolCallId: 'replay-0-1', status: 'completed', rawInput: { path: 'style.css' }, rawOutput: 'edited style.css',
+  });
+  update({ sessionUpdate: 'usage_update', used: 10, size: 100 });
+  text('agent_message_chunk', 'Done.');
+  text('user_message_chunk', 'thanks');
 }
 
 async function handlePrompt(id, params) {
@@ -143,6 +176,7 @@ function onMessage(msg) {
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: true,
+        ...(STORE ? { sessionCapabilities: { list: {}, ...(DELETE ? { close: {}, delete: {} } : {}) } } : {}),
         promptCapabilities: { image: true },
         mcpCapabilities: {},
       },
@@ -153,6 +187,31 @@ function onMessage(msg) {
 
   if (method === 'authenticate') {
     return AUTH ? fail(id, 'not logged in') : result(id, {});
+  }
+
+  if (STORE && method === 'session/list') {
+    if (!params?.cwd) return fail(id, 'cwd is required');
+    trace('list');
+    const page = params.cursor ? 1 : 0;
+    const row = stored[page];
+    return result(id, {
+      sessions: row ? [{ ...row, cwd: params.cwd }] : [],
+      ...(page === 0 && stored.length > 1 ? { nextCursor: 'page-2' } : {}),
+    });
+  }
+
+  if (STORE && DELETE && method === 'session/delete') {
+    record({ method, sessionId: params?.sessionId });
+    const at = stored.findIndex((s) => s.sessionId === params?.sessionId);
+    if (at >= 0) stored.splice(at, 1);
+    return result(id, {});
+  }
+
+  if (STORE && method === 'session/close') record({ method, sessionId: params?.sessionId });
+
+  if (STORE && method === 'session/load') {
+    if (!stored.some((s) => s.sessionId === params?.sessionId)) return fail(id, 'session not found');
+    replayStored(params.sessionId);
   }
 
   if (method === 'session/new' || method === 'session/load') {
@@ -221,4 +280,7 @@ rl.on('line', (line) => {
     if (msg.id !== undefined) fail(msg.id, e.message);
   }
 });
-rl.on('close', () => process.exit(0));
+rl.on('close', () => {
+  if (process.env.MOCK_ACP_LINGER === '1') setInterval(() => {}, 1 << 30);
+  else process.exit(0);
+});
