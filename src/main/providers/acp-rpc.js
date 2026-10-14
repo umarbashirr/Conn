@@ -5,6 +5,8 @@ const shellEnv = require('../shell-env');
 
 const HANDSHAKE_MS = 20000;
 
+const unclosedAgents = new Set();
+
 class AcpRpc extends EventEmitter {
   constructor({ bin, argv = ['acp'], cwd, env }) {
     super();
@@ -34,6 +36,7 @@ class AcpRpc extends EventEmitter {
       // would open a console window.
       detached: process.platform !== 'win32',
     });
+    unclosedAgents.add(this);
 
     this.child.stdout.on('data', (d) => this.#read(d));
     this.child.stderr.on('data', (d) => this.emit('stderr', String(d)));
@@ -165,6 +168,7 @@ class AcpRpc extends EventEmitter {
   }
 
   close() {
+    unclosedAgents.delete(this);
     if (this.closed) {
       this.#kill();
       return;
@@ -173,6 +177,10 @@ class AcpRpc extends EventEmitter {
     for (const [, entry] of this.pending) clearTimeout(entry.timer);
     this.pending.clear();
     this.#kill();
+  }
+
+  static closeAll() {
+    for (const agent of unclosedAgents) agent.close();
   }
 }
 

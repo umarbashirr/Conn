@@ -11,6 +11,7 @@ const { AgentSession, SHOT_NOTE } = require('./agent');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
+const { AcpRpc } = require('./providers/acp-rpc');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
@@ -2051,6 +2052,7 @@ app.on('before-quit', () => {
   mcpRegistry.stopSignIns();
   bridge?.stop();
   AppServer.closeAll();
+  AcpRpc.closeAll();
   // A CLI held open to answer the rail must not outlive the app.
   for (const row of registry?.all() || []) row.history?.close?.();
 });
