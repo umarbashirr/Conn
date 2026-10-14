@@ -118,7 +118,7 @@ async function main() {
   const opencode = agent(bin, 'opencode', 'opencode', 'MOCK_ACP_DELETE=1');
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
   fs.writeFileSync(path.join(home, '.conn', 'settings.json'), JSON.stringify({
-    agent: { provider: 'claude', mode: 'bypass' },
+    agent: { provider: 'cursor', mode: 'bypass' },
     cursor: { binary: cursor },
     opencode: { binary: opencode },
   }));
