@@ -10,6 +10,7 @@ const { createTabRouter } = require('./tab-router');
 const { AgentSession, SHOT_NOTE } = require('./agent');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
+const { AppServer } = require('./codex-rpc');
 const { Settings } = require('./settings');
 const { Updates } = require('./updates');
 const shellEnv = require('./shell-env');
@@ -2042,4 +2043,4 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { ledger?.flush(); stopAllChats(); mcpRegistry.stopSignIns(); bridge?.stop(); rowOf('codex')?.history?.close?.(); });
+app.on('before-quit', () => { ledger?.flush(); stopAllChats(); mcpRegistry.stopSignIns(); bridge?.stop(); AppServer.closeAll(); });

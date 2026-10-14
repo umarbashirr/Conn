@@ -19,6 +19,8 @@ const shellEnv = require('./shell-env');
 // will never answer does not hold a chat open forever.
 const HANDSHAKE_MS = 20000;
 
+const unclosedServers = new Set();
+
 class AppServer extends EventEmitter {
   constructor({ bin, cwd, config = [] }) {
     super();
@@ -45,7 +47,13 @@ class AppServer extends EventEmitter {
       // out of it. See shell-env.js.
       env: shellEnv.env(),
       stdio: ['pipe', 'pipe', 'pipe'],
+      // The codex on PATH is a node wrapper that passes a signal on to the
+      // native binary alone, and that binary starts a `git fetch` at startup.
+      // Its own process group lets close() take the whole tree down. Windows
+      // has no groups, and detached there would open a console window.
+      detached: process.platform !== 'win32',
     });
+    unclosedServers.add(this);
 
     this.child.stdout.on('data', (d) => this.#read(d));
     this.child.stderr.on('data', (d) => {
@@ -133,11 +141,25 @@ class AppServer extends EventEmitter {
   }
 
   close() {
-    if (this.closed) return;
-    this.closed = true;
-    for (const [, entry] of this.pending) clearTimeout(entry.timer);
-    this.pending.clear();
-    try { this.child?.kill(); } catch {}
+    unclosedServers.delete(this);
+    if (!this.closed) {
+      this.closed = true;
+      for (const [, entry] of this.pending) clearTimeout(entry.timer);
+      this.pending.clear();
+    }
+    this.#killGroup();
+  }
+
+  #killGroup() {
+    if (!this.child) return;
+    try {
+      if (process.platform === 'win32') this.child.kill();
+      else process.kill(-this.child.pid, 'SIGTERM');
+    } catch {}
+  }
+
+  static closeAll() {
+    for (const server of unclosedServers) server.close();
   }
 }
 
