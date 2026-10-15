@@ -1246,7 +1246,13 @@ function registerIpc() {
     try {
       const dir = project && known(project) ? project : cwdOfChat(chat);
       const res = await rowOf('claude').history.forkBefore(dir, session, uuid);
+      // The panel reads the old session closing as the chat going idle, so
+      // the close has to reach it before this reply sends the next message.
+      const gone = live && !live.closed
+        ? Promise.race([new Promise((r) => live.once('closed', r)), new Promise((r) => setTimeout(r, 1000))])
+        : null;
       stopChat(chat);
+      await gone;
       if (res.sessionId) owners.set(res.sessionId, 'claude');
       return res;
     } catch (e) {
