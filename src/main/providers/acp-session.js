@@ -130,6 +130,7 @@ class AcpSession extends EventEmitter {
     this.closed = false;
     this.busy = false;
     this.pending = new Map();
+    this.openCalls = new Set();
     this.sessionId = null;
     this.rpc = null;
     this.streaming = false;
@@ -265,6 +266,7 @@ class AcpSession extends EventEmitter {
 
   #promptDone(res) {
     this.#closeStream();
+    this.openCalls.clear();
     this.busy = false;
     this.prompting = null;
     const stop = res?.stopReason || 'end_turn';
@@ -279,6 +281,9 @@ class AcpSession extends EventEmitter {
   async interrupt() {
     for (const [id] of this.pending) this.decide(id, 'deny');
     this.rpc?.notify('session/cancel', { sessionId: this.sessionId });
+    // ACP leaves it to the client to call a cancelled turn's open calls done.
+    for (const id of this.openCalls) this.#result(id, 'interrupted', true);
+    this.openCalls.clear();
     this.busy = false;
     return { ok: true };
   }
@@ -361,6 +366,14 @@ class AcpSession extends EventEmitter {
     this.#emit({ type: 'stream_event', event, parent_tool_use_id: null });
   }
 
+  #result(id, content, isError) {
+    this.#emit({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+      parent_tool_use_id: null,
+    });
+  }
+
   #openStream() {
     if (this.streaming) return;
     this.streaming = true;
@@ -387,6 +400,7 @@ class AcpSession extends EventEmitter {
     if (kind === 'tool_call') {
       this.#closeStream();
       const id = update.toolCallId;
+      this.openCalls.add(id);
       const name = toolOf(update);
       const input = callInput(update);
       this.#emit({
@@ -402,20 +416,9 @@ class AcpSession extends EventEmitter {
         this.#emit({ type: 'tool_input', tool_use_id: update.toolCallId, input: extra });
       }
       if (update.status !== 'completed' && update.status !== 'failed') return;
+      this.openCalls.delete(update.toolCallId);
       const output = textOf(update.rawOutput) || textOf(update.content) || update.status;
-      this.#emit({
-        type: 'user',
-        message: {
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: update.toolCallId,
-            content: output,
-            is_error: update.status === 'failed',
-          }],
-        },
-        parent_tool_use_id: null,
-      });
+      this.#result(update.toolCallId, output, update.status === 'failed');
       return;
     }
     if (kind === 'current_mode_update' && update.currentModeId) {

@@ -25,6 +25,22 @@ const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with a
   run: () => window.connChat?.open({ key: chat.key, id: chat.session, project: chat.project, title: chat.title }),
 }], { duration: 10000 });
 
+const OPEN_CALL = new Set(['input-streaming', 'input-available']);
+
+// A blocking agent ends with the turn that was waiting on it, as `agentEnd`.
+function endTurn(items, agentEnd) {
+  const outlives = new Set();
+  return items.map((it) => {
+    if (outlivesTurn(it) || outlives.has(it.parent)) {
+      outlives.add(it.id);
+      return it;
+    }
+    if (it.kind === 'agent' && it.status === 'running') return { ...it, status: agentEnd, waiting: false };
+    if (it.kind === 'tool' && OPEN_CALL.has(it.state)) return { ...it, state: 'output-error', output: 'interrupted' };
+    return it;
+  });
+}
+
 // A stopped turn's transcript. Its open permission cards are a deny and the
 // agents that were waiting on them are not waiting any more.
 function interrupted(items) {
@@ -33,7 +49,7 @@ function interrupted(items) {
       .filter((it) => it.kind === 'perm' && !it.decided && it.agent?.toolUseId)
       .map((it) => it.agent.toolUseId),
   );
-  return [...items.map((it) => {
+  return [...endTurn(items, 'stopped').map((it) => {
     if (it.kind === 'perm' && !it.decided) return { ...it, decided: 'deny' };
     if (waitingIds.has(it.id)) return { ...it, waiting: false };
     return it;
@@ -508,9 +524,7 @@ export function useAgent() {
           // A blocking agent cannot outlive the turn that was waiting on it. If
           // its notification went missing, the turn ending says the same thing,
           // and a row that spins forever is worse than one that stops early.
-          items: [...c.items.map((it) => (it.kind === 'agent' && it.status === 'running' && !it.background
-            ? { ...it, status: 'done' }
-            : it)), {
+          items: [...endTurn(c.items, 'done'), {
             id: uid('r'),
             kind: 'note',
             ended: true,

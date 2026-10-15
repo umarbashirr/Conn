@@ -136,6 +136,7 @@ class CodexSession extends EventEmitter {
     this.rpc = null;
     this.pending = new Map();     // permission id -> { respond, input, tool }
     this.open = new Set();        // agentMessage item ids with a text block open
+    this.openCalls = new Set();
     this.edits = new Map();       // fileChange item id -> its changes, for the dialog
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
     this.window = 0;              // how many tokens this model's window holds
@@ -446,6 +447,7 @@ class CodexSession extends EventEmitter {
   }
 
   #tool(id, name, input) {
+    this.openCalls.add(id);
     this.#emit({
       type: 'assistant',
       message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
@@ -537,6 +539,7 @@ class CodexSession extends EventEmitter {
   }
 
   #itemDone(item) {
+    this.openCalls.delete(item.id);
     if (item.type === 'agentMessage') {
       if (this.open.has(item.id)) {
         this.open.delete(item.id);
@@ -572,6 +575,10 @@ class CodexSession extends EventEmitter {
     // the renderer would leave that bubble spinning for the rest of the chat.
     for (const _ of this.open) this.#stream({ type: 'content_block_stop', index: 0 });
     this.open.clear();
+    // An interrupt ends the turn without an item/completed for the command it
+    // cut short (codex 0.158.0), so that row would run for the rest of the chat.
+    for (const id of this.openCalls) this.#result(id, 'interrupted', true);
+    this.openCalls.clear();
 
     this.busy = false;
     this.turnId = null;

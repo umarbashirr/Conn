@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
-// Stand-in for `codex`: enough of `--version` and `app-server` to let
-// codex-driver.js's probe finish, for tests that need a real installed-CLI
-// answer rather than a stubbed one.
+// Stand-in for `codex`: `--version`, and an `app-server` that answers
+// codex-driver.js's probe and runs a CodexSession turn. Each turn starts one
+// command that never finishes, and `turn/interrupt` ends the turn.
 const fs = require('fs');
 const readline = require('readline');
 
@@ -33,7 +33,28 @@ function onMessage(msg) {
       result: { data: [{ id: 'mock-codex-model', displayName: 'Mock Codex Model' }] },
     });
   }
+  if (msg.method === 'thread/start') {
+    return send({ jsonrpc: '2.0', id: msg.id, result: { thread: { id: 'mock-thread' }, model: 'mock-codex-model' } });
+  }
+  if (msg.method === 'turn/start') {
+    send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'mock-turn', status: 'inProgress' } } });
+    return notify('item/started', {
+      threadId: 'mock-thread',
+      turnId: 'mock-turn',
+      item: { type: 'commandExecution', id: 'mock-exec', command: 'sleep 600', status: 'inProgress' },
+    });
+  }
+  // What codex 0.158.0 does: the turn ends at once, with no item/completed for
+  // the command it cut short.
+  if (msg.method === 'turn/interrupt') {
+    send({ jsonrpc: '2.0', id: msg.id, result: {} });
+    return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'interrupted' } });
+  }
   send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `unknown method ${msg.method}` } });
+}
+
+function notify(method, params) {
+  send({ jsonrpc: '2.0', method, params });
 }
 
 function startLingeringFetch(pidsFile) {
