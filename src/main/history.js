@@ -51,14 +51,28 @@ function scanForCwd(cwd) {
 }
 
 // Read the front of a jsonl file without pulling a 500KB transcript into memory.
+// The budget bounds where a line starts, not where it ends. A chat opened with a
+// pasted image has a 300KB first message, and cut at the budget it never parsed,
+// so the chat had no title and stayed off the rail.
 function* parseHead(file, bytes) {
   let buf;
   try {
     const fd = fs.openSync(file, 'r');
     buf = Buffer.alloc(bytes);
     const read = fs.readSync(fd, buf, 0, bytes, 0);
+    const parts = [buf.subarray(0, read)];
+    let at = read;
+    let more = read === bytes && buf[read - 1] !== 0x0a;
+    while (more) {
+      const chunk = Buffer.alloc(1 << 16);
+      const n = fs.readSync(fd, chunk, 0, chunk.length, at);
+      const nl = chunk.subarray(0, n).indexOf(0x0a);
+      parts.push(chunk.subarray(0, nl < 0 ? n : nl));
+      at += n;
+      more = n > 0 && nl < 0;
+    }
     fs.closeSync(fd);
-    buf = buf.subarray(0, read);
+    buf = Buffer.concat(parts);
   } catch { return; }
   // No pop of the last line: a JSON.parse that fails is already skipped below,
   // and dropping it unread loses a chat whose only line was caught before its
@@ -92,22 +106,40 @@ function humanText(o) {
   return kept;
 }
 
+// A chat opened with a slash command, as the person typed it. humanText turns
+// these down because a replay would draw the tags, but for a title it is still
+// the first thing typed, and the next prompt is often past the read budget.
+function typedCommand(o) {
+  if (o.type !== 'user' || o.isSidechain || o.isMeta || typeof o.message?.content !== 'string') return null;
+  const c = o.message.content;
+  const name = c.match(/<command-name>([^<]*)<\/command-name>/)?.[1].trim();
+  if (!name) return null;
+  const args = c.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1].trim();
+  return args ? `${name} ${args}` : name;
+}
+
 // A title comes out of the head of the file and never changes once it is there,
 // so each transcript is read once rather than on every refresh. A file nothing
-// was found in is read again only after it has grown.
-const titles = new Map(); // path -> { title, size }
+// was found in, or only a bare command, is read again only after it has grown.
+const titles = new Map(); // path -> { title, size, settled }
 
 function titleOf(full, size) {
   const hit = titles.get(full);
-  if (hit && (hit.title || hit.size === size)) return hit.title;
+  if (hit && (hit.settled || hit.size === size)) return hit.title;
 
   let title = null;
+  let bare = null;
   for (const o of parseHead(full, 1 << 17)) {
     title = humanText(o);
     if (title) break;
+    // A command with nothing after it, like the /clear that opens the session
+    // a clear starts, names the chat only when nothing typed follows it.
+    const command = typedCommand(o);
+    if (command && /\s/.test(command)) { title = command; break; }
+    bare ||= command;
   }
-  titles.set(full, { title, size });
-  return title;
+  titles.set(full, { title: title || bare, size, settled: !!title });
+  return title || bare;
 }
 
 // The rail groups by day and searches across the lot, so the limit is high on
