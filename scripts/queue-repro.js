@@ -30,7 +30,7 @@ const check = (name, ok, detail) => {
 };
 
 async function target(port, pick) {
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const hit = list.find(pick);
@@ -101,6 +101,7 @@ async function main() {
   ], { env: { ...process.env, HOME: home, CONN_CWD: proj }, stdio: 'ignore' });
 
   try {
+    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     const main = await connect(await target(INSPECT, (t) => t.type === 'node'));
     await main.run(`(() => {
       const req = process.getBuiltinModule('module').createRequire(${JSON.stringify(path.join(ROOT, 'src/main/index.js'))});
@@ -129,7 +130,6 @@ async function main() {
     const interrupts = async () => (await main.run('globalThis.__interrupts')).length;
     const end = (subtype = 'success') => main.run(`globalThis.__end(${JSON.stringify(subtype)})`);
 
-    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 950, deviceScaleFactor: 1, mobile: false });
     await page.evaluate(async () => {
       for (let i = 0; i < 60 && !window.connChat; i++) await new Promise((r) => setTimeout(r, 250));
