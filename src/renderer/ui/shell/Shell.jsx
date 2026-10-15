@@ -12,10 +12,9 @@
    one out of the tree remounts its neighbours, and the terminals hang real
    xterm hosts under #terms that do not survive a remount.
 
-   Sizes are the ones the old CSS carried. In this version of the library a bare
-   number means pixels and a bare string means percent, so "18" is 18% of the
-   window and "180px" is the floor the rail used to have. */
-import { useEffect, useLayoutEffect, useState, useSyncExternalStore } from 'react';
+   In this version of the library a bare number means pixels and a bare string
+   means percent, so "18" is 18% of the window and 160 is the rail's floor. */
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -82,14 +81,17 @@ export function usePaneCover(open) {
   }, [open]);
 }
 
-// Collapsed before the first paint when it starts closed, so nothing flashes
-// open on launch, and imperatively after that.
-function useCollapse(ref, open) {
-  useLayoutEffect(() => {
-    if (open) ref.current?.expand();
-    else ref.current?.collapse();
-  }, [ref, open]);
-}
+/* The floors fit inside the window's own 800: rail, chat, column and the two
+   handles come to 762. When they did not, the library dropped a pane to nothing
+   to make the sum work, and nothing brought it back. */
+const RAIL_FLOOR = 160;
+const RAIL_MAX = 420;
+const CHAT_FLOOR = 300;
+const RIGHT_FLOOR = 300;
+
+// Below this the widest rail, the chat and the column cannot all stand at
+// their floors, so the rail makes way for the column. layout-store.js has the rule.
+const ROOMY = RAIL_MAX + CHAT_FLOOR + RIGHT_FLOOR + 2;
 
 // ----------------------------------------------------------------- the tabs
 
@@ -247,9 +249,40 @@ export default function Shell() {
   const agent = usePanelRef();
   const right = usePanelRef();
 
-  useCollapse(rail, railOpen);
-  useCollapse(right, rightOpen);
-  useCollapse(agent, !full);
+  /* The store says which panes are open and the panels follow it, before the
+     first paint so nothing flashes open on launch. A drag past a floor
+     collapses a pane without asking the store, so every layout the library
+     settles on is held to it too. */
+  const follow = () => {
+    const panes = [
+      [rail, layout.railOpen],
+      [right, layout.rightOpen],
+      [agent, !(layout.previewFull && layout.rightOpen)],
+    ];
+    for (const [{ current: panel }, open] of panes) {
+      if (!panel) continue;
+      if (open && panel.isCollapsed()) panel.expand();
+      else if (!open && !panel.isCollapsed()) panel.collapse();
+    }
+  };
+  // A group reports its first layout while it is still registering, when its
+  // panels cannot be asked anything yet.
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    follow();
+  }, [railOpen, rightOpen, full]);
+  const onLayoutChange = () => {
+    if (mounted.current) follow();
+    relayoutNow();
+  };
+
+  useEffect(() => {
+    const measure = () => setLayout({ narrow: innerWidth < ROOMY });
+    measure();
+    addEventListener('resize', measure);
+    return () => removeEventListener('resize', measure);
+  }, []);
 
   // A panel that has just opened or closed has moved every other panel with it,
   // and the preview's bounds are read off the DOM. Measure after the paint the
@@ -265,8 +298,8 @@ export default function Shell() {
     <>
       <TitleBar />
 
-      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChange={relayoutNow}>
-        <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize="18" minSize="180px" maxSize="420px">
+      <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChange={onLayoutChange}>
+        <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize="18" minSize={RAIL_FLOOR} maxSize={RAIL_MAX}>
             {/* The provider is here for the rail's context. The shortcut lives
                 with the other chords, on the keyboard page. */}
             <SidebarProvider
@@ -280,15 +313,11 @@ export default function Shell() {
             tree so collapsing the rail does not remount the content group. */}
         <ResizableHandle className={railOpen ? undefined : 'pointer-events-none opacity-0'} />
 
-        <ResizablePanel id="content" minSize="380px">
-          <ResizablePanelGroup orientation="horizontal" onLayoutChange={relayoutNow}>
-            {/* 300, not 380. Both panes are collapsible, and when their
-                minimums stopped fitting the library picked one to drop to
-                nothing: it picked the chat, and a window one notch too
-                narrow became a preview pane with no conversation beside it.
-                Two smaller floors both fit inside the window's own, so
-                neither has to disappear for the other. */}
-            <ResizablePanel id="agent" panelRef={agent} collapsible minSize="300px">
+        {/* Room for the chat and the column side by side, so the rail can
+            never squeeze one of them out. */}
+        <ResizablePanel id="content" minSize={CHAT_FLOOR + RIGHT_FLOOR + 1}>
+          <ResizablePanelGroup orientation="horizontal" onLayoutChange={onLayoutChange}>
+            <ResizablePanel id="agent" panelRef={agent} collapsible minSize={CHAT_FLOOR}>
               <section id="agent">
                 <div id="agent-root"><App /></div>
                 <Welcome />
@@ -300,7 +329,7 @@ export default function Shell() {
                 app.js still thought those shells were alive. Collapse is what
                 hides a pane; the handle just sits between two real panels. */}
             <ResizableHandle className={(full || !rightOpen) ? 'pointer-events-none opacity-0' : undefined} />
-            <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize="320px">
+            <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize={RIGHT_FLOOR}>
               <section id="right" data-full={full || undefined}>
                 <TabStrip />
                 <BrowserView />
