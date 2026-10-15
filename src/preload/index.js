@@ -133,6 +133,9 @@ contextBridge.exposeInMainWorld('conn', {
     send: (chat, session, text, images, project, provider) =>
       ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
+    // A Claude chat cut back to just before one of its messages, as a new
+    // session. Null when nothing came before it.
+    rewind: (chat, session, uuid, project) => ipcRenderer.invoke('agent:rewind', { chat, session, uuid, project }),
     // One subagent, by the id task_started gave it.
     stopTask: (chat, id) => ipcRenderer.invoke('agent:stopTask', { chat, id }),
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),

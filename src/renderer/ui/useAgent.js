@@ -67,8 +67,9 @@ function replay(messages, parent) {
   for (const m of messages) {
     const content = m.message?.content;
     const base = parent ? { parent } : {};
+    const forkAt = m.uuid ? { forkAt: m.uuid } : {};
     if (typeof content === 'string') {
-      if (m.type === 'user' && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: strip(content), ...base });
+      if (m.type === 'user' && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: strip(content), ...forkAt, ...base });
       continue;
     }
     if (!Array.isArray(content)) continue;
@@ -83,7 +84,7 @@ function replay(messages, parent) {
     const said = strip(content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n'));
     // A subagent's first user message is the prompt it was handed, which its
     // row already shows. Its later ones are tool results.
-    if (said && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: said, ...base });
+    if (said && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: said, ...forkAt, ...base });
     for (const b of content) {
       if (b.type !== 'tool_result') continue;
       const i = out.findIndex((n) => n.id === b.tool_use_id);
@@ -108,6 +109,20 @@ function replay(messages, parent) {
     }
   }
   return out;
+}
+
+// The chat as it stood before item `id`, for a fork cut there. A kept Agent row
+// keeps the rows under it, even ones written after the cut. The fork renamed
+// every message, so each kept one takes its new id from `uuids`.
+function before(items, id, uuids) {
+  const cut = items.findIndex((it) => it.id === id);
+  if (cut < 0) return items;
+  const kept = new Set();
+  return items.filter((it, i) => {
+    if (i >= cut && !kept.has(it.parent)) return false;
+    kept.add(it.id);
+    return true;
+  }).map((it) => (it.forkAt ? { ...it, forkAt: uuids[it.forkAt] } : it));
 }
 
 // One conversation. `key` is ours and outlives the session under it: a chat
@@ -608,7 +623,7 @@ export function useAgent() {
     }));
 
     // `conn ask` from the terminal can open a chat too.
-    offs.push(conn().agent.onEcho?.(({ chat, text }) => {
+    offs.push(conn().agent.onEcho?.(({ chat, text, forkAt }) => {
       const key = chat || activeRef.current;
       edit(key, (c) => ({
         ...c,
@@ -617,7 +632,7 @@ export function useAgent() {
         // Same as a message typed here: the first one names the chat, which is
         // what the rail shows until claude has written a transcript to read.
         title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
-        items: [...c.items, { id: uid('u'), kind: 'user', text }],
+        items: [...c.items, { id: uid('u'), kind: 'user', text, ...(forkAt && { forkAt }) }],
       }));
     }) ?? (() => {}));
 
@@ -743,9 +758,12 @@ export function useAgent() {
     setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false, toastDue: null } : c)));
   }, [activeKey, chats]);
 
-  const sendTo = useCallback(async (key, text, images = []) => {
+  // `session` stands in for the chat's own when a rewind has just moved it and
+  // chatsRef has not caught up. `resent` marks a message sent again at the end.
+  const sendTo = useCallback(async (key, text, images = [], { session, resent } = {}) => {
     if (!text.trim() && !(images || []).length) return;
     const chat = chatsRef.current.find((c) => c.key === key);
+    const id = uid('u');
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
@@ -755,16 +773,17 @@ export function useAgent() {
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
       title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
-      items: [...c.items, { id: uid('u'), kind: 'user', text, images }],
+      items: [...c.items, { id, kind: 'user', text, images, ...(resent && { resent }) }],
     }));
     try {
       const res = await conn().agent.send(
-        key, chat?.session || null, text, images, chat?.project || focusedProject.current,
-        chat?.provider || providerRef.current,
+        key, session === undefined ? chat?.session || null : session, text, images,
+        chat?.project || focusedProject.current, chat?.provider || providerRef.current,
       );
       // A session that could not start says why. Worth printing as it stands:
       // it names the missing CLI, and prefixing it would only muddy that.
       if (res?.error) throw new Error(res.error, { cause: 'said' });
+      if (res?.forkAt) patch(key, id, { forkAt: res.forkAt });
     } catch (e) {
       const said = e.cause === 'said';
       edit(key, (c) => ({
@@ -776,9 +795,35 @@ export function useAgent() {
         }],
       }));
     }
-  }, [edit]);
+  }, [edit, patch]);
 
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
+
+  // The other CLIs cannot go back to a message, so for them it is sent again
+  // at the end.
+  const redo = useCallback(async (id, how, text, images = []) => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const item = chat?.items.find((it) => it.id === id);
+    if (!item || chat.busy) return;
+    if (chat.provider !== 'claude' || !item.forkAt || !chat.session) {
+      sendTo(key, text, images, { resent: how });
+      return;
+    }
+    edit(key, (c) => ({ ...c, busy: true, startedAt: Date.now() }));
+    const res = await conn().agent.rewind(key, chat.session, item.forkAt, chat.project || focusedProject.current)
+      .catch((e) => ({ error: e.message }));
+    if (res?.error) {
+      edit(key, (c) => ({
+        ...c,
+        busy: false,
+        items: [...c.items, { id: uid('e'), kind: 'note', error: true, text: `could not go back to that message: ${res.error}` }],
+      }));
+      return;
+    }
+    edit(key, (c) => ({ ...c, session: res.sessionId, items: before(c.items, id, res.uuids) }));
+    sendTo(key, text, images, { session: res.sessionId });
+  }, [edit, sendTo]);
 
   const enqueue = useCallback((text, images = []) => {
     if (!text.trim()) return;
@@ -1308,7 +1353,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, enqueue, unqueue, editQueued, sendNow, sendNext,
+    send, redo, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

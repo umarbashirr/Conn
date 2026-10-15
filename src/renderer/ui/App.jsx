@@ -1,9 +1,9 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ArrowUpCircleIcon, SquareIcon } from 'lucide-react';
+import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon } from 'lucide-react';
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
-import { Message, MessageContent, MessageResponse } from '@/components/ai-elements/message';
+import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
 import { PermMark, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
@@ -17,6 +17,7 @@ import { CustomizePage } from '@/components/customize-page';
 import { ForkDialog } from '@/components/fork-dialog';
 import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
+import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
 import { Button } from '@/components/ui/button';
 import {
@@ -667,6 +668,80 @@ export function Items({ items, agent, from = 0 }) {
   });
 }
 
+const RESENT = { retry: 'Sent again as a new message', edit: 'Edited and sent again as a new message' };
+
+// The actions sit beside the bubble rather than under it, so having them makes
+// no row taller.
+function UserRow({ item, agent }) {
+  const [draft, setDraft] = useState(null);
+  const input = useRef(null);
+  const editing = draft !== null;
+  const images = item.images || [];
+
+  useEffect(() => {
+    if (editing) input.current?.focus();
+  }, [editing]);
+
+  const resend = () => {
+    setDraft(null);
+    agent.redo(item.id, 'edit', draft, images);
+  };
+  const empty = editing && !draft.trim() && !images.length;
+
+  return (
+    <Message from="user" className="mt-1.5 flex-row items-end">
+      {!editing && (
+        <MessageActions className="ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <MessageAction label="Edit" title="Edit this message" size="icon-xs" disabled={agent.busy} onClick={() => setDraft(item.text)}>
+            <PencilIcon className="size-3.5" />
+          </MessageAction>
+          <MessageAction
+            label="Retry"
+            title="Send this message again"
+            size="icon-xs"
+            disabled={agent.busy}
+            onClick={() => agent.redo(item.id, 'retry', item.text, images)}>
+            <RotateCcwIcon className="size-3.5" />
+          </MessageAction>
+        </MessageActions>
+      )}
+      <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap group-[.is-user]:ml-0'}>
+        {images.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {images.map((img, i) => (
+              <img
+                key={i}
+                alt={img.name || 'attachment'}
+                title={img.name}
+                className="max-h-40 rounded-md border"
+                src={`data:${img.media};base64,${img.data}`} />
+            ))}
+          </div>
+        )}
+        {editing ? (
+          <>
+            <TokenInput
+              ref={input}
+              value={draft}
+              onChange={setDraft}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { e.preventDefault(); setDraft(null); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!empty && !agent.busy) resend(); }
+              }}
+              placeholder="Edit this message"
+              className="min-h-8 px-0 py-0.5 text-sm" />
+            <div className="flex justify-end gap-1">
+              <Button type="button" variant="ghost" size="xs" onClick={() => setDraft(null)}>Cancel</Button>
+              <Button type="button" size="xs" disabled={empty || agent.busy} onClick={resend}>Send</Button>
+            </div>
+          </>
+        ) : <TokenText text={item.text} />}
+        {item.resent && <span className="text-muted-foreground text-xs">{RESENT[item.resent]}</span>}
+      </MessageContent>
+    </Message>
+  );
+}
+
 function Item({ item, agent, mark }) {
   const onDecide = agent.decide;
 
@@ -684,27 +759,7 @@ function Item({ item, agent, mark }) {
     );
   }
 
-  if (item.kind === 'user') {
-    return (
-      <Message from="user" className="mt-1.5">
-        <MessageContent className="whitespace-pre-wrap">
-          {item.images?.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {item.images.map((img, i) => (
-                <img
-                  key={i}
-                  alt={img.name || 'attachment'}
-                  title={img.name}
-                  className="max-h-40 rounded-md border"
-                  src={`data:${img.media};base64,${img.data}`} />
-              ))}
-            </div>
-          )}
-          <TokenText text={item.text} />
-        </MessageContent>
-      </Message>
-    );
-  }
+  if (item.kind === 'user') return <UserRow item={item} agent={agent} />;
 
   if (item.kind === 'assistant') {
     return (
