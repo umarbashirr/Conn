@@ -106,8 +106,6 @@ function until(fn, ms = 8000) {
   });
 }
 
-// ACP: a call still open when the turn is cancelled gets a result that says so,
-// because the agent is not obliged to send one.
 async function checkAcpInterruptCancelsOpenCalls() {
   const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-acp-interrupt-'));
@@ -144,11 +142,45 @@ async function checkAcpInterruptCancelsOpenCalls() {
   }
 }
 
+async function checkCodexInterruptCancelsOpenCalls() {
+  const { CodexSession } = require(path.join(ROOT, 'src/main/codex.js'));
+  const { preferBinary } = require(path.join(ROOT, 'src/main/codex-driver.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-codex-interrupt-'));
+  const bin = path.join(cwd, 'codex');
+  fs.writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${path.join(ROOT, 'scripts/mock-codex-cli.js')}" "$@"\n`);
+  fs.chmodSync(bin, 0o755);
+  preferBinary(bin);
+  const session = new CodexSession({ cwd, mode: 'ask' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  const resultFor = (id) => seen.find((m) => m.type === 'user' && m.message.content[0]?.tool_use_id === id)?.message.content[0];
+  try {
+    await session.start();
+    session.send('run it');
+    await until(() => seen.some((m) => m.type === 'assistant' && m.message.content[0]?.id === 'mock-exec'));
+    await until(() => session.turnId);
+    if (!resultFor('mock-exec')) pass('codex-command-open-before-interrupt');
+    else fail('codex-command-open-before-interrupt', 'the command had a result before the interrupt');
+    await session.interrupt();
+    await until(() => seen.some((m) => m.type === 'result'));
+    const closed = resultFor('mock-exec');
+    if (closed?.is_error && closed.content === 'interrupted') pass('codex-interrupt-closes-open-command');
+    else fail('codex-interrupt-closes-open-command', `result=${JSON.stringify(closed)}`);
+  } catch (e) {
+    fail('codex-interrupt-closes-open-command', e.stack || e.message);
+  } finally {
+    session.stop();
+    preferBinary(null);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await checkInterruptClearsPending();
   await checkDeniesBeforeSdkInterrupt();
   checkRendererClearsCards();
   await checkAcpInterruptCancelsOpenCalls();
+  await checkCodexInterruptCancelsOpenCalls();
   if (failures.length) {
     console.log(`\n${failures.length} failure(s)`);
     process.exit(1);
