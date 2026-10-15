@@ -37,9 +37,7 @@ async function main() {
       return { rail: w('[data-panel][id="rail"]'), agent: w('section#agent'), right: w('section#right'), inner: innerWidth };
     })()`);
 
-    // Two frames with the same widths at the new size, so a reconcile that
-    // lands a frame late is measured after it, not before.
-    const settle = async (width) => {
+    const untilWidthsStable = async (width) => {
       let prev = null;
       return until(async () => {
         const cur = await widths();
@@ -51,7 +49,7 @@ async function main() {
 
     const resize = async (width) => {
       await evaluate(s, `electron.BrowserWindow.getAllWindows()[0].setContentSize(${width}, 900)`, { main: true });
-      return settle(width);
+      return untilWidthsStable(width);
     };
 
     const changesListed = () => until(() => evaluate(s, `document.querySelector('section#right').innerText.includes('index.html') || null`), 10000);
@@ -63,7 +61,7 @@ async function main() {
     await resize(800);
     await key(s, 'Ctrl+Shift+G');
     check('changes-lists-the-edit', !!(await changesListed()), 'Changes never listed index.html');
-    const narrow = await settle(800);
+    const narrow = await untilWidthsStable(800);
     check('chat-has-width-at-800', narrow.agent >= FLOOR, J(narrow));
     check('changes-has-width-at-800', narrow.right >= FLOOR, J(narrow));
 
@@ -73,9 +71,9 @@ async function main() {
     check('rail-is-back-at-1440', wide.rail >= 160, J(wide));
 
     await key(s, 'Ctrl+Shift+G');
-    await settle(1440);
+    await untilWidthsStable(1440);
     await resize(900);
-    const railAt900 = (await settle(900)).rail;
+    const railAt900 = (await untilWidthsStable(900)).rail;
     await key(s, 'Ctrl+Shift+G');
     await changesListed();
     const opened900 = await until(async () => {

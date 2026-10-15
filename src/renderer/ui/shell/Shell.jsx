@@ -13,7 +13,7 @@
    xterm hosts under #terms that do not survive a remount.
 
    In this version of the library a bare number means pixels and a bare string
-   means percent, so "18" is 18% of the window and 160 is the rail's floor. */
+   means percent, so "18" is 18% of the window. */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
 import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
@@ -81,17 +81,13 @@ export function usePaneCover(open) {
   }, [open]);
 }
 
-/* The floors fit inside the window's own 800: rail, chat, column and the two
-   handles come to 762. When they did not, the library dropped a pane to nothing
-   to make the sum work, and nothing brought it back. */
 const RAIL_FLOOR = 160;
 const RAIL_MAX = 420;
 const CHAT_FLOOR = 300;
 const RIGHT_FLOOR = 300;
-
-// Below this the widest rail, the chat and the column cannot all stand at
-// their floors, so the rail makes way for the column. layout-store.js has the rule.
-const ROOMY = RAIL_MAX + CHAT_FLOOR + RIGHT_FLOOR + 2;
+const HANDLE = 1;
+const CONTENT_FLOOR = CHAT_FLOOR + HANDLE + RIGHT_FLOOR;
+const WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN = RAIL_MAX + HANDLE + CONTENT_FLOOR;
 
 // ----------------------------------------------------------------- the tabs
 
@@ -249,36 +245,29 @@ export default function Shell() {
   const agent = usePanelRef();
   const right = usePanelRef();
 
-  /* The store says which panes are open and the panels follow it, before the
-     first paint so nothing flashes open on launch. A drag past a floor
-     collapses a pane without asking the store, so every layout the library
-     settles on is held to it too. */
-  const follow = () => {
+  const holdPanelsToStore = () => {
     const panes = [
       [rail, layout.railOpen],
       [right, layout.rightOpen],
       [agent, !(layout.previewFull && layout.rightOpen)],
     ];
     for (const [{ current: panel }, open] of panes) {
-      if (!panel) continue;
       if (open && panel.isCollapsed()) panel.expand();
       else if (!open && !panel.isCollapsed()) panel.collapse();
     }
   };
-  // A group reports its first layout while it is still registering, when its
-  // panels cannot be asked anything yet.
-  const mounted = useRef(false);
+  const groupsRegistered = useRef(false);
   useLayoutEffect(() => {
-    mounted.current = true;
-    follow();
+    groupsRegistered.current = true;
+    holdPanelsToStore();
   }, [railOpen, rightOpen, full]);
   const onLayoutChange = () => {
-    if (mounted.current) follow();
+    if (groupsRegistered.current) holdPanelsToStore();
     relayoutNow();
   };
 
   useEffect(() => {
-    const measure = () => setLayout({ narrow: innerWidth < ROOMY });
+    const measure = () => setLayout({ tooNarrowForRail: innerWidth < WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN });
     measure();
     addEventListener('resize', measure);
     return () => removeEventListener('resize', measure);
@@ -313,9 +302,7 @@ export default function Shell() {
             tree so collapsing the rail does not remount the content group. */}
         <ResizableHandle className={railOpen ? undefined : 'pointer-events-none opacity-0'} />
 
-        {/* Room for the chat and the column side by side, so the rail can
-            never squeeze one of them out. */}
-        <ResizablePanel id="content" minSize={CHAT_FLOOR + RIGHT_FLOOR + 1}>
+        <ResizablePanel id="content" minSize={CONTENT_FLOOR}>
           <ResizablePanelGroup orientation="horizontal" onLayoutChange={onLayoutChange}>
             <ResizablePanel id="agent" panelRef={agent} collapsible minSize={CHAT_FLOOR}>
               <section id="agent">
