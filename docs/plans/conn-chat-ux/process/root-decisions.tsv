@@ -1,0 +1,16 @@
+ts	phase	decision	why	evidence	result
+2026-10-15T17:07:18+05:30	arm	operator said go; wrote standing orders	plan approved for execution	standing-orders.md	open
+2026-10-15T17:07:18+05:30	arm	use gh with per-command GH_TOKEN for umarbashirr	no origin CLI; memory says umarbashirrr has read only	memory/github-account-for-conn.md	decided
+2026-10-15T17:07:18+05:30	arm	cap 8 live Electron instances and 3 building owners	15 GB RAM with 6 GB free; each instance is a full Electron app	free -g	decided
+2026-10-15T17:18:01+05:30	arm	perf probe built and trunk baseline recorded	plan requires it before CUX-01	probe/chat-perf.mjs, probe/trunk-baseline.jsonl (11 lines at 2dbe95c)	replay400 median 1855ms noisy 1037-4124; verdicts use alternating runs, median of 5
+2026-10-15T17:18:01+05:30	spawn	owners build in parallel from origin/main; root restacks in id order at append	linear stack in id order would serialize 22 owners; restack keeps topology with the root	owners/brief.md	decided
+2026-10-15T17:18:17+05:30	spawn	spawned owners for CUX-01, CUX-02, CUX-03	first three bug fixes; cap of 3 building owners	queue.tsv	building
+2026-10-15T17:39:17+05:30	tick	tick 1: all three owners progressing by commits; no stuck lane	side effects only	queue.tsv; PR 16, PR 17	ok
+2026-10-15T17:48:02+05:30	verify	CUX-02 STACK-READY at c3edbcd; launched swarm of 8 (gates, 5 live workers x 2 lanes, perf, audit)	10 live lanes in 5 workers keeps Electron count near the 8 cap	owners/swarm-brief.md; patch-id e34cf485	pending
+2026-10-15T17:48:02+05:30	spawn	hold CUX-04 owner until the CUX-02 swarm drains	swarm plus two building owners already near the memory cap	free -g	decided
+2026-10-15T17:48:20+05:30	scope	cut program to CUX-01..CUX-03 and stop after	operator instruction	standing-orders.md amendment	decided
+2026-10-15T17:48:40+05:30	verify	CUX-01 STACK-READY at 0171b54; swarm queued until CUX-02 swarm drains	one swarm at a time under the memory cap	PR 17; owner perf inconclusive under load 10-13	queued
+2026-10-15T17:54:34+05:30	verify	CUX-02 lanes 1-10 PASS, gates PASS, audit ISSUES (3); perf pending	swarm results	/tmp/swarm-cux-02/worker-*	partial
+2026-10-15T17:54:34+05:30	finding	reopened Cursor chat resumed on Codex after the new-chat provider changed (worker 4, mock CLIs); not checked on trunk; outside CUX-02	correctness gap seen mid-verify; severity decides artifact	/tmp/swarm-cux-02/worker-4 report	open
+2026-10-15T17:57:04+05:30	verdict	CUX-02 verdict ISSUES at c3edbcd; findings sent to owner	audit: background-skip untested, rail checks pass on trunk, body overclaims, stale mock comment; lane 4: foreground subagent row keeps running after Stop	/tmp/swarm-cux-02/worker-3, worker-8	ISSUES
+2026-10-15T17:57:04+05:30	verify	CUX-01 swarm launched at 0171b54	CUX-02 swarm drained	/tmp/swarm-cux-01	pending
