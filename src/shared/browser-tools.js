@@ -144,7 +144,6 @@ function browserTools(z) {
   ];
 }
 
-/** The stills of a finished recording as MCP image blocks, so a model that cannot watch video still sees it. */
 const keyframeBlocks = (result, read) => (result.keyframes || []).map((file) => ({
   type: 'image', data: read(file).toString('base64'), mimeType: 'image/jpeg',
 }));

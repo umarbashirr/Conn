@@ -389,8 +389,6 @@ export async function screenshot(tab = current) {
   toast('Screenshot saved', r.path, [{ label: 'ok', primary: true }]);
 }
 
-// The person's own recordings go to Videos/Conn and are never pruned; the
-// agent's go to a temp folder. Main decides which by who asked.
 export async function toggleRecording(tab = current) {
   const stopping = previewOf(tab).recording;
   try {
@@ -583,8 +581,6 @@ window.conn.browser.onState((s) => {
   const hadError = !!b.error;
   const hadViewport = b.viewport;
   if (s.viewport !== undefined) b.viewport = s.viewport;
-  // The dot is on the tab strip, which draws every preview, so a parked tab
-  // starting to record has to be heard too.
   const wasRecording = b.recording;
   b.recording = !!s.recording;
   if (!drawing && wasRecording !== b.recording) changed();

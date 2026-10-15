@@ -61,8 +61,6 @@ contextBridge.exposeInMainWorld('conn', {
     closeTab: (tab) => ipcRenderer.send('browser:closeTab', { tab }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
-    // A recording the person started ended by itself (the time limit, DevTools
-    // opening) and was saved.
     onRecorded: on('browser:recorded'),
     // An agent asked for a preview in a folder with no tab open for one, so
     // main made the page and minted the id. The shell draws the tab.

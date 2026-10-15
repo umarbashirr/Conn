@@ -797,7 +797,6 @@ function Item({ item, agent, mark }) {
               className="mt-2 max-w-full rounded-md border"
               src={`file://${encodeURI(recording.path)}`} />
           )}
-          {/* The stills are for a model that cannot watch the video. */}
           {!recording && images.map((b, i) => (
             <img
               key={i}

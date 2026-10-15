@@ -1,8 +1,4 @@
 'use strict';
-// Turns the screencast into a video. Main owns the clock and sends the newest
-// JPEG whenever the page changed, plus a tick every 1/fps seconds. A tick draws
-// whatever is newest and asks the track for a frame, so a page that sits still
-// still fills the video with its last picture.
 const bus = window.encoder;
 
 let canvas;
@@ -18,8 +14,6 @@ const chunks = [];
 const even = (n) => Math.max(2, n - (n % 2));
 const decode = (bytes) => createImageBitmap(new Blob([bytes], { type: 'image/jpeg' }));
 
-// A frame that is not the size of the first one (the person resized the pane)
-// is fitted inside the canvas rather than stretched.
 function draw() {
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, canvas.width, canvas.height);

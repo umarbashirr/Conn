@@ -15,7 +15,7 @@ const MIMES = ['video/mp4;codecs=avc1.42E01F', 'video/webm;codecs=vp9', 'video/w
 const READY_MS = 8000;
 const DONE_MS = 30000;
 
-const live = new Map(); // webContents id -> EncoderWindow
+const live = new Map();
 let wired = false;
 
 function wire() {
@@ -30,7 +30,7 @@ function wire() {
 class EncoderWindow {
   constructor() {
     wire();
-    this.waiting = new Map(); // 'ready' | 'done' -> { resolve, reject, timer }
+    this.waiting = new Map();
     this.win = new BrowserWindow({
       show: false,
       width: 320,
@@ -94,7 +94,6 @@ class EncoderWindow {
     if (!this.win.isDestroyed()) this.wc.send(`encoder:${kind}`, payload);
   }
 
-  /** Size the canvas from the first frame and start the recorder. Resolves with { mime, width, height }. */
   init(frame) {
     const ready = this.#expect('ready', READY_MS, 'start');
     this.send('init', { mimes: MIMES, frame });
@@ -104,7 +103,6 @@ class EncoderWindow {
   frame(bytes) { this.send('frame', bytes); }
   tick() { this.send('tick'); }
 
-  /** Close the file off. Resolves with { bytes, mime }. */
   finish() {
     const done = this.#expect('done', DONE_MS, 'finish');
     this.send('stop');

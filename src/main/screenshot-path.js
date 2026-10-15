@@ -1,10 +1,6 @@
 'use strict';
 const path = require('path');
 
-// A file named by an agent, kept inside `dir`. `name` is a file name and never
-// a directory: whatever folders it carries are dropped, and a name that is
-// nothing (or `..`) falls back to `${prefix}-${now}`. `strip` lists the
-// extensions a caller may have typed that `ext` is about to add again.
 function safeFilePath(dir, name, { ext, prefix, strip = [ext] }) {
   const fallback = () => `${prefix}-${Date.now()}`;
   let stem;

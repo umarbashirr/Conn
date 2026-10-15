@@ -1,12 +1,4 @@
 'use strict';
-/* The `record` browser tool, driven the way an agent drives it, in the real
-   app on a throwaway HOME. Checks that the video is of the preview pane (right
-   size, right length, the page's own pixels in it), that it works with the pane
-   closed and survives a screenshot of a hidden pane, that the limits and the
-   file naming hold, that no permission card is raised, and that nothing outlives
-   the app. Needs a built renderer (`npx vite build`), ffmpeg and ffprobe on the
-   PATH for reading the result back, and a display: `xvfb-run -a node
-   scripts/p2-record-repro.js`. */
 const { execFileSync, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const http = require('http');
@@ -22,10 +14,7 @@ const check = (name, ok, detail) => {
   if (!ok) failures.push(name);
 };
 
-// Every pixel of the viewport is the state's colour, bar a button in the middle.
-// Wherever a frame is the wrong size or blank, a corner says so.
 const COLORS = [[220, 40, 40], [40, 180, 60], [50, 80, 230], [235, 200, 30]];
-// Changes colour by itself, so a recording of it shows life without a click.
 const TICKER = `<!doctype html><title>ticker</title>
 <body style="margin:0"><script>
   const colors = ${JSON.stringify(COLORS)};
@@ -119,7 +108,6 @@ function probe(file) {
   return { codec: s.codec_name, width: s.width, height: s.height, duration, container: out.format.format_name };
 }
 
-// The colour at (x, y) of the frame `at` seconds in; negative counts from the end.
 function pixel(file, at, x, y) {
   const seek = at < 0 ? ['-sseof', String(at)] : ['-ss', String(at)];
   const r = spawnSync('ffmpeg', ['-v', 'error', ...seek, '-i', file, '-frames:v', '1',
@@ -134,13 +122,10 @@ async function main() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-record-'));
   const home = path.join(base, 'home');
   const proj = path.join(base, 'shop');
-  // The recordings folder lives in the temp dir; keep this run's out of the machine's.
   const tmp = path.join(base, 'tmp');
   fs.mkdirSync(tmp);
   for (const d of [path.join(home, '.conn'), proj]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
-  // Ask is the mode in which every page change raises a card, so a recording
-  // that raised none was let through as looking.
   fs.writeFileSync(path.join(home, '.conn', 'settings.json'), JSON.stringify({ agent: { provider: 'claude', mode: 'ask' } }));
 
   const site = http.createServer((req, res) => {
@@ -202,7 +187,6 @@ async function main() {
     const nav = await invoke('navigate', { url: origin });
     check('page-loaded', !nav.thrown && !nav.error, JSON.stringify(nav));
 
-    // 1. A recording of the open pane, with page-changing clicks in it.
     const started = await invoke('record', { action: 'start' });
     check('start-returns-recording', started.ok === true && started.recording === true && started.maxSeconds === 60, JSON.stringify(started));
     const t0 = Date.now();
@@ -228,8 +212,6 @@ async function main() {
         `video ${info.width}x${info.height}, result ${done.width}x${done.height}, pane ${size}`);
       check('frames-counted', done.frames > 0, JSON.stringify(done.frames));
       check('video-shows-the-page', near(pixel(done.path, 0.3, 4, 4), COLORS[0]) && near(pixel(done.path, -0.3, 4, 4), COLORS[0]), `first ${pixel(done.path, 0.3, 4, 4)} last ${pixel(done.path, -0.3, 4, 4)}`);
-      // Four clicks, so the colours go 0, 1, 2, 3, 0. When each lands depends on
-      // how busy the machine is; the order does not.
       const seen = [];
       for (let t = 0.1; t < info.duration - 0.2; t += 0.2) {
         const px = pixel(done.path, t, 4, 4);
@@ -252,7 +234,6 @@ async function main() {
     const bad = await invoke('record', { action: 'pause' });
     check('unknown-action-is-an-error', /start.*stop/i.test(bad.thrown || ''), JSON.stringify(bad));
 
-    // 1b. A navigation to another origin swaps the renderer. The video goes on.
     await invoke('record', { action: 'start' });
     await sleep(1200);
     await invoke('navigate', { url: origin.replace('127.0.0.1', 'localhost') + '?2' });
@@ -269,7 +250,6 @@ async function main() {
     } else check('video-goes-on-across-a-cross-origin-navigation', false, JSON.stringify(across1));
     await invoke('navigate', { url: origin });
 
-    // 2. The pane closed: a hidden view still has to produce frames.
     await pane(false);
     check('pane-closed', await until(async () => !(await shell.evaluate(() => document.querySelector('#paneslot')?.getBoundingClientRect().width > 50))), 'pane still open');
     await invoke('record', { action: 'start', name: 'closed-pane' });
@@ -283,16 +263,12 @@ async function main() {
       check('name-is-used', path.basename(closed.path).startsWith('closed-pane.'), closed.path);
     }
 
-    // 2b. A screenshot of a hidden pane leaves its view drawn at one pixel, and a
-    //     recording started after it must not take that for the page.
     await invoke('screenshot');
     await invoke('record', { action: 'start' });
     await sleep(700);
     const after = await invoke('record', { action: 'stop' });
     check('start-after-a-hidden-screenshot-has-the-right-size', after.width === done.width && after.height === done.height, `${after.width}x${after.height}, wanted ${done.width}x${done.height}: ${JSON.stringify(after)}`);
 
-    // 3. A screenshot of a hidden pane wakes the view at 1x1 for a moment. The
-    //    video must not keep a trace of that.
     await invoke('record', { action: 'start' });
     await sleep(1200);
     const shot = await invoke('screenshot');
@@ -314,7 +290,6 @@ async function main() {
       check('video-kept-the-panes-size', v.width === done.width && v.height === done.height, `${v.width}x${v.height} vs ${done.width}x${done.height}`);
     } else check('screenshot-leaves-every-frame-full-size-and-not-blank', false, JSON.stringify(across));
 
-    // 3b. A tab behind another tab is parked too, and a page there still moves.
     const tabA = (await invoke('tabs')).current;
     await invoke('navigate', { url: `${origin}ticker` });
     await invoke('record', { action: 'start' });
@@ -335,7 +310,6 @@ async function main() {
     await invoke('navigate', { url: origin });
     await invoke('tabClose', { tab: (await invoke('tabs')).tabs.find((t) => t.id !== tabA)?.id });
 
-    // 4. The limit.
     const limited = await invoke('record', { action: 'start', maxSeconds: 2 });
     check('max-seconds-echoed', limited.maxSeconds === 2, JSON.stringify(limited));
     await sleep(3600);
@@ -350,7 +324,6 @@ async function main() {
     check('max-seconds-capped-at-120', capped.maxSeconds === 120, JSON.stringify(capped));
     await invoke('record', { action: 'stop' });
 
-    // 5. Names stay inside the directory.
     for (const name of ['../../escape/x', '/etc/passwd', 'a/b/c.mp4', '..', '']) {
       await invoke('record', { action: 'start', name });
       await sleep(400);
@@ -359,7 +332,6 @@ async function main() {
     }
     check('nothing-escaped', !!done.path && !fs.existsSync(path.join(dir, '..', 'escape')) && !fs.existsSync(path.join(os.tmpdir(), 'escape')), 'escape dir exists');
 
-    // 6. Only the newest 20 recordings are kept, each with its keyframes.
     const stale = [];
     for (let i = 0; i < 25; i++) {
       const stem = path.join(dir, `old-${String(i).padStart(2, '0')}`);
@@ -406,7 +378,6 @@ async function main() {
     await until(async () => (await invoke('setViewport', { width: 500, height: 400 })).ok === true, 8000);
     await invoke('clearViewport');
 
-    // 8. Recording looks; it does not change the page, so Ask raises no card.
     const bridge = JSON.parse(fs.readFileSync(path.join(home, '.conn', 'bridge.json'), 'utf8'));
     const viaBridge = async (tool, body = {}, signal) => {
       const res = await fetch(`${bridge.url}/tool/${tool}`, {
@@ -428,7 +399,6 @@ async function main() {
     probeCtl.abort();
     await shell.run("window.__cards = []");
 
-    // 9. The command line reaches the same tool.
     const cli = (...args) => spawnSync(process.execPath, [path.join(ROOT, 'cli', 'conn.js'), ...args], {
       env: { ...process.env, HOME: home, CONN_BRIDGE_URL: bridge.url, CONN_TOKEN: bridge.token, CONN_CWD: proj }, encoding: 'utf8',
     });
@@ -441,7 +411,6 @@ async function main() {
     const c3 = cli('record', 'stop');
     check('cli-stop-with-nothing-fails', c3.status !== 0 && /not recording|nothing/i.test(c3.stderr), c3.stdout + c3.stderr);
 
-    // 9b. The MCP server hands the stills to the model as images.
     const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
     const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
     const mcp = new Client({ name: 'record-repro', version: '0.0.0' });
@@ -464,7 +433,6 @@ async function main() {
     check('mcp-stop-with-nothing-is-an-error', m3.isError === true && /not recording/.test(JSON.stringify(m3)), JSON.stringify(m3));
     await mcp.close();
 
-    // 9c. Looking, in every mode, whichever way the tool is named.
     const { decide } = require(path.join(ROOT, 'src', 'main', 'modes.js'));
     const verdicts = [];
     for (const mode of ['plan', 'ask', 'auto', 'bypass']) {
@@ -474,8 +442,6 @@ async function main() {
     }
     check('decide-lets-record-through-in-every-mode', verdicts.length === 0, verdicts.join('; '));
 
-    // 10. The person's own recording, from the preview menu's IPC, goes to their
-    //     Videos folder and is not pruned.
     const mine = await shell.evaluate(async () => {
       const start = await window.conn.browser.action('record', { action: 'start' });
       await new Promise((r) => setTimeout(r, 800));
@@ -490,7 +456,6 @@ async function main() {
       return /conn-recordings/.test(kept.path || '') && r.ok === true;
     })(), 'the tool took a folder from its arguments');
 
-    // 11. Quit in the middle of a recording.
     await invoke('record', { action: 'start' });
     await sleep(800);
     check('encoder-window-up-before-quit', (await encoders()) === 1, `encoders=${await encoders()}`);

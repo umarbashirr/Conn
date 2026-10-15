@@ -275,7 +275,6 @@ function usage() {
 
   if (wantJson) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
   else if (spec.tool === 'record' && result && result.path) {
-    // The path alone on stdout, so `open $(conn record stop)` works.
     process.stdout.write(result.path + '\n');
     process.stderr.write(`${result.seconds}s ${result.width}x${result.height} ${result.format}, stills: ${result.keyframes.join(' ')}\n`);
   } else if (typeof result === 'string') process.stdout.write(result + '\n');

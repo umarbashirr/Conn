@@ -684,8 +684,6 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
-// The files behind the images of a tool result, in order. A screenshot says
-// where it landed in its note; a recording lists its stills.
 function imagePaths(content) {
   for (const b of content) {
     const text = typeof b?.text === 'string' ? b.text : '';
@@ -695,7 +693,7 @@ function imagePaths(content) {
       try {
         const { keyframes } = JSON.parse(text);
         if (Array.isArray(keyframes)) return keyframes;
-      } catch { /* some other tool's JSON */ }
+      } catch {}
     }
   }
   return [];

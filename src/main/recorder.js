@@ -1,12 +1,4 @@
 'use strict';
-// A recording of one preview pane, as a state machine:
-//
-//   idle -> recording -> stopping -> idle
-//
-// `recording` also covers the second or so it takes to open the encoder and get
-// the first frame, so a second start is refused from the first call on. The
-// recording itself is one object that lives from start to the file on disk.
-//
 // The pane's debugger sends a screencast frame only when the page changes. A
 // clock here sends the newest one to the encoder every 1/fps seconds, so the
 // video is as long as the wall time and a still page does not shorten it.
@@ -19,7 +11,6 @@ const { STILLS, stillPath, pruneRecordings } = require('./recording-files');
 const FPS = 10;
 const DEFAULT_SECONDS = 60;
 const MAX_SECONDS = 120;
-// A pane that draws nothing (a page that never paints) has nothing to record.
 const FIRST_FRAME_MS = 5000;
 // Chromium sends a screencast frame when the page changes, and a first one on
 // start only if it has already seen the page draw, which a pane that was just
@@ -31,9 +22,6 @@ const FIRST_FRAME_MS = 5000;
 // SETTLE_MS of a wrong one what there is gets recorded.
 const NUDGE_MS = 800;
 const SETTLE_MS = 1500;
-// Distinct frames kept for the middle still. Halved when full, so memory stays
-// bounded however long the recording and the middle is found to within a few
-// seconds.
 const PICKS = 48;
 
 const SCREENCAST = { format: 'jpeg', quality: 80, everyNthFrame: 1 };
@@ -45,24 +33,14 @@ const clampSeconds = (n) => {
   return Number.isFinite(v) && v > 0 ? Math.min(MAX_SECONDS, v) : DEFAULT_SECONDS;
 };
 
-// Recorders with a recording in flight, so quitting can end them all.
-const open = new Set();
+const inFlight = new Set();
 
 class Recorder {
-  /**
-   * `io` is what the pane lends: send(method, params) to its debugger,
-   * attached() for whether it has one, size() for the view's size in pixels,
-   * nudge() to make a hidden view draw again, changed() for when `recording`
-   * flips, and ended(result) for a recording that stopped on its own and
-   * asked to be announced.
-   */
   constructor(io) {
     this.io = io;
     this.phase = 'idle';
     this.rec = null;
-    // What ended on its own (the limit, DevTools opening) and has not been
-    // asked for yet. The next `stop` hands it over.
-    this.finished = null;
+    this.unclaimedResult = null;
   }
 
   get recording() { return this.phase === 'recording'; }
@@ -86,11 +64,11 @@ class Recorder {
       fps: FPS,
       maxSeconds: clampSeconds(maxSeconds),
       startedAt: 0,
-      latest: null,       // newest screencast JPEG
-      fresh: false,       // latest has not gone to the encoder yet
-      frames: 0,          // screencast frames seen, which is how often the page changed
+      latest: null,
+      fresh: false,
+      frames: 0,
       ticks: 0,
-      picks: [],          // { tick, buf } for each frame sent, for the stills
+      picks: [],
       encoder: null,
       format: '',
       width: 0,
@@ -101,7 +79,7 @@ class Recorder {
       firstTimer: null,
       settleTimer: null,
       nudger: null,
-      claimed: false,     // a `stop` call is waiting for this, so it is not left in `finished`
+      claimed: false,
       endedBy: 'stop',
       ready: null,
       done: null,
@@ -109,8 +87,8 @@ class Recorder {
     };
     this.#to('recording');
     this.rec = rec;
-    this.finished = null;
-    open.add(this);
+    this.unclaimedResult = null;
+    inFlight.add(this);
     this.io.changed();
     rec.ready = this.#begin(rec);
     try {
@@ -162,7 +140,6 @@ class Recorder {
     if (rec.onFirst) this.#settle(rec);
   }
 
-  // The first frame sizes the video, so it has to be the page as it is now.
   #settle(rec) {
     if (this.#fits(rec.latest)) return this.#accept(rec);
     rec.settleTimer ??= setTimeout(() => this.#accept(rec), SETTLE_MS);
@@ -204,8 +181,8 @@ class Recorder {
 
   async stop() {
     if (this.phase === 'idle') {
-      const kept = this.finished;
-      this.finished = null;
+      const kept = this.unclaimedResult;
+      this.unclaimedResult = null;
       if (kept) return kept;
       throw new Error('not recording. Call record start first.');
     }
@@ -213,8 +190,6 @@ class Recorder {
     return this.#finish(this.rec);
   }
 
-  // Ends the recording for a reason of its own (the limit, the debugger going
-  // away, the pane closing) and keeps what was recorded for the next `stop`.
   end(reason) {
     if (this.phase === 'recording') this.#end(this.rec, reason);
   }
@@ -258,7 +233,7 @@ class Recorder {
         ...(rec.endedBy === 'stop' ? {} : { endedBy: rec.endedBy }),
       };
       if (!rec.claimed) {
-        this.finished = result;
+        this.unclaimedResult = result;
         if (rec.announce) this.io.ended(result);
       }
       return result;
@@ -278,7 +253,6 @@ class Recorder {
     });
   }
 
-  // The recording is over, one way or another. Safe to call twice.
   #release(rec) {
     if (this.rec !== rec) return;
     rec.dropped = true;
@@ -287,16 +261,14 @@ class Recorder {
     clearTimeout(rec.firstTimer);
     clearTimeout(rec.settleTimer);
     clearInterval(rec.nudger);
-    // A start that failed has left the screencast running.
     this.#cdp('Page.stopScreencast').catch(() => {});
     rec.encoder?.close();
     this.rec = null;
     this.#to('idle');
-    open.delete(this);
+    inFlight.delete(this);
     this.io.changed();
   }
 
-  // The app is quitting: nothing is saved and nothing is left running.
   abort() {
     const rec = this.rec;
     if (!rec) return;
@@ -306,7 +278,7 @@ class Recorder {
 }
 
 function abortAll() {
-  for (const r of [...open]) r.abort();
+  for (const r of [...inFlight]) r.abort();
   EncoderWindow.closeAll();
 }
 

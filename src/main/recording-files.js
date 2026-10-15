@@ -1,5 +1,4 @@
 'use strict';
-// A recording is a video and three stills beside it, named after it.
 const fs = require('fs');
 const path = require('path');
 
@@ -8,8 +7,6 @@ const VIDEO = /\.(mp4|webm)$/i;
 
 const stillPath = (video, which) => video.replace(VIDEO, `-${which}.jpg`);
 
-// Oldest first goes, by mtime, a video together with its stills. Stills whose
-// video is already gone are not looked for: nothing here makes them.
 function pruneRecordings(dir, keep) {
   try {
     const videos = fs.readdirSync(dir)

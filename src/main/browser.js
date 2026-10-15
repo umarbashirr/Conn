@@ -22,7 +22,6 @@ const MAX_INFLIGHT = 500;
 // Every screenshot the agent takes lands on disk and nothing ever collected
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
-// Recordings are big and agents make them for one look. Keep the newest few.
 const MAX_RECORDINGS = 20;
 
 const ERR_ABORTED = -3;
@@ -58,7 +57,6 @@ class BrowserPane extends EventEmitter {
       // call, which is too short to reach the screen. One in the box already
       // draws, and hiding it to nudge it stops the frames.
       nudge: () => { if (!this.visible) { this.view.setVisible(true); this.view.setVisible(false); } },
-      // A recording can end after the pane has closed.
       ended: (result) => this.emit('recorded', result),
       changed: () => { if (!this.wc.isDestroyed()) this.emit('state', this.state()); },
     });
@@ -501,12 +499,8 @@ class BrowserPane extends EventEmitter {
     return { path: file, width: size.width, height: size.height };
   }
 
-  // A video of the page. The agent's recordings go to a private temp folder
-  // and are pruned; the person's own (`library`) go to their Videos folder and
-  // stay.
   async record({ action, name, maxSeconds } = {}, { library = false } = {}) {
     if (action === 'start') {
-      // The person's file is found by its name in a folder of their own.
       if (library && !name) name = `conn-recording-${new Date().toLocaleString('sv').replace(/[: ]/g, '-')}`;
       const where = library
         ? { dir: path.join(app.getPath('videos'), 'Conn'), keep: null }
