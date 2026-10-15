@@ -188,6 +188,7 @@ function TabStrip() {
           const label = labelOf(tab);
           const favicon = tab.kind === 'browser' ? previewOf(tab.id).favicon : '';
           const faviconOk = favicon && !favicon.startsWith('data:,');
+          const recording = tab.kind === 'browser' && previewOf(tab.id).recording;
           return (
             <TabsTrigger key={tab.id} value={tab.id} title={label} className="group flex-none gap-1.5 text-xs">
               {faviconOk ? (
@@ -196,6 +197,9 @@ function TabStrip() {
                 <Icon className="size-3.5 shrink-0" />
               )}
               <span className="max-w-[22ch] truncate">{label}</span>
+              {recording && (
+                <span role="img" aria-label="Recording" title="Recording this tab" className="size-2 shrink-0 animate-pulse rounded-full bg-red-500" />
+              )}
               {/* The same aim as the terminal strip: the cross is only on the
                   tab under the pointer or the one you are in, so a page you have
                   scrolled somewhere is not one stray click from gone. */}

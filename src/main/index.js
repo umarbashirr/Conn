@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeIma
 const path = require('path');
 const { spawn } = require('child_process');
 const { BrowserPane, normalizeUrl } = require('./browser');
+const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { runTool, TAB_TOOLS } = require('./tools');
@@ -283,6 +284,7 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   const made = new BrowserPane(win, HOME_URL, { project });
   made.on('state', (st) => send('browser:state', { ...st, tab, project }));
   made.on('console', (c) => send('browser:console', { ...c, tab, project }));
+  made.on('recorded', (r) => send('browser:recorded', { ...r, tab, project }));
   panes.set(tab, { pane: made, project, chat });
   // Born parked. It comes on screen only when the shell says it is the tab in
   // the box, and the shell has already said where the box is.
@@ -682,6 +684,21 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
+function imagePaths(content) {
+  for (const b of content) {
+    const text = typeof b?.text === 'string' ? b.text : '';
+    const shot = SHOT_NOTE.exec(text);
+    if (shot) return [shot[3]];
+    if (text.startsWith('{')) {
+      try {
+        const { keyframes } = JSON.parse(text);
+        if (Array.isArray(keyframes)) return keyframes;
+      } catch {}
+    }
+  }
+  return [];
+}
+
 function lighten(msg) {
   const content = msg?.message?.content;
   if (!Array.isArray(content)) return msg;
@@ -690,16 +707,16 @@ function lighten(msg) {
   const mapped = content.map((block) => {
     if (block?.type !== 'tool_result' || !Array.isArray(block.content)) return block;
 
-    const note = block.content.find((b) => b?.type === 'text' && SHOT_NOTE.test(String(b.text || '')));
-    const shotPath = note ? SHOT_NOTE.exec(String(note.text))[3] : null;
-
+    const paths = imagePaths(block.content);
+    let image = 0;
     let hit = false;
     const inner = block.content.map((b) => {
       if (b?.type === 'image') {
         hit = true;
         // No path means no way to show it later, so say that rather than
         // silently dropping the block.
-        return shotPath ? { type: 'image', path: shotPath } : { type: 'text', text: '[screenshot]' };
+        const file = paths[image++];
+        return file ? { type: 'image', path: file } : { type: 'text', text: '[screenshot]' };
       }
       if (typeof b?.text === 'string' && b.text.length > MAX_TOOL_TEXT) {
         hit = true;
@@ -1918,6 +1935,7 @@ function registerIpc() {
       case 'console': return pane.consoleLog({ limit: 200 });
       case 'network': return pane.networkLog({ limit: 100 });
       case 'screenshot': return pane.screenshot(arg || {});
+      case 'record': return pane.record(arg || {}, { library: true });
       case 'still': return pane.still();
       case 'setViewport': return arg ? pane.setViewport(arg.width, arg.height) : pane.clearViewport();
       case 'openExternal': return shell.openExternal(pane.state().url);
@@ -2045,6 +2063,7 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('before-quit', () => {
+  abortAllRecordings();
   ledger?.flush();
   stopAllChats();
   mcpRegistry.stopSignIns();

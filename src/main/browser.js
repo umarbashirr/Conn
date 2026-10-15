@@ -1,5 +1,5 @@
 'use strict';
-const { WebContentsView, nativeImage } = require('electron');
+const { WebContentsView, nativeImage, app } = require('electron');
 const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const fs = require('fs');
@@ -7,6 +7,7 @@ const path = require('path');
 const { normalizeUrl, isAllowedUrl } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
+const { Recorder } = require('./recorder');
 
 function partitionFor(project) {
   const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
@@ -21,6 +22,7 @@ const MAX_INFLIGHT = 500;
 // Every screenshot the agent takes lands on disk and nothing ever collected
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
+const MAX_RECORDINGS = 20;
 
 const ERR_ABORTED = -3;
 const isMainFrameNavFail = (isMainFrame, code) => isMainFrame && code !== ERR_ABORTED;
@@ -47,6 +49,17 @@ class BrowserPane extends EventEmitter {
     this.favicon = '';
     this.shotDir = ensurePrivateDir('conn-shots');
     this.#pruneShots();
+    this.recorder = new Recorder({
+      send: (method, params) => this.wc.debugger.sendCommand(method, params),
+      attached: () => this.debuggerAttached,
+      size: () => this.view.getBounds(),
+      // A hidden view draws again when it is shown, even for the length of one
+      // call, which is too short to reach the screen. One in the box already
+      // draws, and hiding it to nudge it stops the frames.
+      nudge: () => { if (!this.visible) { this.view.setVisible(true); this.view.setVisible(false); } },
+      ended: (result) => this.emit('recorded', result),
+      changed: () => { if (!this.wc.isDestroyed()) this.emit('state', this.state()); },
+    });
 
     this.view = new WebContentsView({
       webPreferences: {
@@ -84,6 +97,14 @@ class BrowserPane extends EventEmitter {
       this.favicon = (favicons && favicons[0]) || '';
       push();
     });
+    // DevTools takes the debugger when it opens; take it back when it closes,
+    // whoever closed it, or the pane is left without one.
+    wc.on('devtools-closed', () => { if (!this.debuggerAttached) this.#attachDebugger(); });
+    wc.debugger.on('message', (_e, method, params) => this.#onCdp(method, params));
+    wc.debugger.on('detach', () => {
+      this.debuggerAttached = false;
+      this.recorder.end('detached');
+    });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrameNavFail(isMainFrame, code)) {
         this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
@@ -113,14 +134,13 @@ class BrowserPane extends EventEmitter {
       this.wc.debugger.attach('1.3');
       this.debuggerAttached = true;
       await this.wc.debugger.sendCommand('Network.enable');
-      this.wc.debugger.on('message', (_e, method, params) => this.#onCdp(method, params));
-      this.wc.debugger.on('detach', () => { this.debuggerAttached = false; });
     } catch (err) {
       this.debuggerAttached = false;
     }
   }
 
   #onCdp(method, p) {
+    if (method === 'Page.screencastFrame') return this.recorder.onFrame(p);
     this.lastActivity = Date.now();
     if (method === 'Network.requestWillBeSent') {
       this.pending.add(p.requestId);
@@ -189,6 +209,7 @@ class BrowserPane extends EventEmitter {
   // window keeps a renderer process alive and holds the debugger open, and
   // neither of those has anything left to show, so both go.
   dispose() {
+    this.recorder.end('closed');
     try { if (this.debuggerAttached) this.wc.debugger.detach(); } catch {}
     this.debuggerAttached = false;
     try { this.win.contentView.removeChildView(this.view); } catch {}
@@ -221,6 +242,7 @@ class BrowserPane extends EventEmitter {
       favicon: this.favicon || '',
       // The agent can set this too, and the shell has to draw the frame for it.
       viewport: this.viewport ? `${this.viewport.width}x${this.viewport.height}` : '',
+      recording: this.recorder.recording,
     };
   }
 
@@ -413,6 +435,9 @@ class BrowserPane extends EventEmitter {
      never drew at all. */
   async #awake(fn) {
     if (this.visible || !this.debuggerAttached) return fn(false);
+    // A screencast keeps the view drawing at its own size. Shrinking it to one
+    // pixel for the capture would put that size in the video.
+    if (this.recorder.recording) return fn(true);
     const parked = this.view.getBounds();
     const { width, height } = this.viewport || parked;
     this.view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
@@ -474,6 +499,18 @@ class BrowserPane extends EventEmitter {
     return { path: file, width: size.width, height: size.height };
   }
 
+  async record({ action, name, maxSeconds } = {}, { library = false } = {}) {
+    if (action === 'start') {
+      if (library && !name) name = `conn-recording-${new Date().toLocaleString('sv').replace(/[: ]/g, '-')}`;
+      const where = library
+        ? { dir: path.join(app.getPath('videos'), 'Conn'), keep: null }
+        : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS };
+      return this.recorder.start({ ...where, name, maxSeconds, announce: library });
+    }
+    if (action === 'stop') return this.recorder.stop();
+    throw new Error('record needs action "start" or "stop"');
+  }
+
   // Oldest first, by mtime. Cheap enough to run after each capture: the cap is
   // small and readdir on a flat temp folder is not worth scheduling around.
   #pruneShots() {
@@ -533,7 +570,6 @@ class BrowserPane extends EventEmitter {
   toggleDevTools() {
     if (this.wc.isDevToolsOpened()) {
       this.wc.closeDevTools();
-      if (!this.debuggerAttached) this.#attachDebugger();
     } else {
       if (this.debuggerAttached) { try { this.wc.debugger.detach(); } catch {} this.debuggerAttached = false; }
       this.wc.openDevTools({ mode: 'bottom' });

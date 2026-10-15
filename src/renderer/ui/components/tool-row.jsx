@@ -8,7 +8,7 @@ import {
   GlobeIcon, HighlighterIcon, HourglassIcon, InfoIcon, KeyboardIcon, LogsIcon, MonitorSmartphoneIcon,
   MousePointer2Icon, MousePointerClickIcon, MoveVerticalIcon, PanelRightIcon, RotateCwIcon, ScanTextIcon,
   SearchIcon, ShieldCheckIcon, ShieldXIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon,
-  TextCursorInputIcon, TextIcon, UsersIcon, WrenchIcon,
+  TextCursorInputIcon, TextIcon, UsersIcon, VideoIcon, WrenchIcon,
 } from 'lucide-react';
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
@@ -41,6 +41,7 @@ const ICONS = {
   browser_hover: MousePointer2Icon,
   browser_scroll: MoveVerticalIcon,
   browser_screenshot: CameraIcon,
+  browser_record: VideoIcon,
   browser_console: LogsIcon,
   browser_network: ActivityIcon,
   browser_evaluate: BracesIcon,

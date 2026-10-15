@@ -26,7 +26,7 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { isLive, subagentsIn } from '@/lib/subagents';
-import { imageSrc, toolImages, toolLabel, toolName, toolSummary, toolText } from '@/lib/tools';
+import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms } from '@/lib/turns';
 
 import { useAgent } from './useAgent';
@@ -726,6 +726,7 @@ function Item({ item, agent, mark }) {
   if (item.kind === 'tool') {
     const label = toolLabel(item.name);
     const images = toolImages(item.output);
+    const recording = toolRecording(item.output);
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
 
@@ -766,7 +767,7 @@ function Item({ item, agent, mark }) {
           state={item.state}
           at={item.at}
           thumb={images.at(-1) ?? null}
-          defaultOpen={item.state === 'output-error'}
+          defaultOpen={item.state === 'output-error' || !!recording}
           right={(
             <>
               {mark && <PermMark perm={mark} />}
@@ -789,7 +790,14 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
-          {images.map((b, i) => (
+          {recording && (
+            <video
+              controls
+              preload="metadata"
+              className="mt-2 max-w-full rounded-md border"
+              src={`file://${encodeURI(recording.path)}`} />
+          )}
+          {!recording && images.map((b, i) => (
             <img
               key={i}
               alt="screenshot"

@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('conn', {
     closeTab: (tab) => ipcRenderer.send('browser:closeTab', { tab }),
     onState: on('browser:state'),
     onConsole: on('browser:console'),
+    onRecorded: on('browser:recorded'),
     // An agent asked for a preview in a folder with no tab open for one, so
     // main made the page and minted the id. The shell draws the tab.
     onOpenTab: on('preview:tab'),

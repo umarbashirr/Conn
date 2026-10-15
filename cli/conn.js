@@ -183,6 +183,7 @@ const COMMANDS = {
   wait: { tool: 'waitFor', pos: ['selector'], help: 'conn wait ".chart" | conn wait --ms 500 | conn wait --network-idle' },
   shot: { tool: 'screenshot', pos: ['name'], help: 'conn shot --full   |   conn shot --target e2' },
   screenshot: { tool: 'screenshot', pos: ['name'], help: 'conn screenshot --full' },
+  record: { tool: 'record', pos: ['action', 'name'], help: 'conn record start [name] [--max 30]   |   conn record stop  (prints the video\'s path)' },
   viewport: { tool: 'setViewport', pos: ['width', 'height'], help: 'conn viewport 390 844' },
   console: { tool: 'console', pos: [], help: 'conn console --level error --limit 20' },
   network: { tool: 'network', pos: [], help: 'conn network' },
@@ -261,6 +262,7 @@ function usage() {
   const wantJson = wantJsonGlobal || args.json === true;
   delete args.json;
   if (spec.tool === 'screenshot' && args.full) { args.fullPage = true; delete args.full; }
+  if (spec.tool === 'record' && args.max !== undefined) { args.maxSeconds = Number(args.max); delete args.max; }
   if (spec.tool === 'preview') {
     const word = String(args.open ?? 'toggle');
     args.open = word === 'open' ? true : word === 'close' ? false : undefined;
@@ -272,7 +274,10 @@ function usage() {
   const result = await call(tool, args);
 
   if (wantJson) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
-  else if (typeof result === 'string') process.stdout.write(result + '\n');
+  else if (spec.tool === 'record' && result && result.path) {
+    process.stdout.write(result.path + '\n');
+    process.stderr.write(`${result.seconds}s ${result.width}x${result.height} ${result.format}, stills: ${result.keyframes.join(' ')}\n`);
+  } else if (typeof result === 'string') process.stdout.write(result + '\n');
   else if (Array.isArray(result)) {
     if (!result.length) process.stdout.write('(empty)\n');
     else for (const r of result) {

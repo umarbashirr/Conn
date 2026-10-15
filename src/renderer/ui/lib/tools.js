@@ -35,6 +35,7 @@ const SUMMARY = {
   browser_hover: (i) => i.target,
   browser_scroll: (i) => i.target || (i.dy ? `${i.dy < 0 ? 'up' : 'down'} ${Math.abs(i.dy)}px` : ''),
   browser_screenshot: (i) => i.target || (i.fullPage ? 'full page' : ''),
+  browser_record: (i) => [i.action, i.name].filter(Boolean).join(' '),
   browser_console: (i) => (i.level ? `${LEVELS[i.level] || i.level} only` : 'all messages'),
   browser_network: nothing,
   browser_evaluate: (i) => i.code,
@@ -133,6 +134,17 @@ export const toolText = (output) => {
 // transcript still carries the bytes for its most recent few. Handle both.
 export const toolImages = (output) =>
   (Array.isArray(output) ? output : []).filter((b) => b.type === 'image' && (b.path || b.source?.data));
+
+export function toolRecording(output) {
+  for (const b of Array.isArray(output) ? output : []) {
+    if (b?.type !== 'text' || !String(b.text).startsWith('{')) continue;
+    try {
+      const r = JSON.parse(b.text);
+      if (/\.(mp4|webm)$/i.test(r.path || '')) return r;
+    } catch {}
+  }
+  return null;
+}
 
 export const imageSrc = (b) => (b.path
   ? `file://${encodeURI(b.path)}`

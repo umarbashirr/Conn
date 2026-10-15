@@ -11,7 +11,7 @@
 // Tools that only observe. These never wait and never take the lease. Listing
 // the tabs and changing which one you drive change no page either.
 const READS = new Set([
-  'snapshot', 'text', 'html', 'screenshot', 'console', 'network', 'state', 'highlight', 'preview',
+  'snapshot', 'text', 'html', 'screenshot', 'record', 'console', 'network', 'state', 'highlight', 'preview',
   'tabs', 'tabSelect',
 ]);
 
