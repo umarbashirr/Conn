@@ -163,12 +163,14 @@ async function onRealCli(bin) {
     check('cli-fork-maps-the-first-prompt', !!forked.uuids[first], J(forked));
 
     const s2 = await open(forked.sessionId);
-    await turn(s2, 'charlie edited');
+    const third = await turn(s2, 'charlie edited');
     check('resume-continues-the-fork', s2.sessionId === forked.sessionId, `${s2.sessionId} vs ${forked.sessionId}`);
     const sent = requests.filter((r) => J(r?.messages || []).includes('charlie edited')).sort((a, b) => b.messages.length - a.messages.length)[0];
     const asText = J(sent?.messages || []);
     check('resumed-fork-sends-the-kept-turn', asText.includes('alpha one'), asText.slice(0, 400));
     check('resumed-fork-drops-the-edited-turn', !asText.includes('bravo two'), asText.slice(0, 400));
+    const refork = await history.forkBefore(cwd, forked.sessionId, third).catch((e) => ({ error: e.message }));
+    check('message-sent-on-a-fork-forks-again', !!refork.sessionId && !!refork.uuids?.[forked.uuids[first]], J(refork));
     s2.stop();
     await sleep(1500);
 
