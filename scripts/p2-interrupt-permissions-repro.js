@@ -3,6 +3,7 @@
 // stop() does, and the renderer must not leave those cards clickable.
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const ROOT = process.env.CONN_ROOT || path.join(__dirname, '..');
 
 const failures = [];
@@ -92,10 +93,62 @@ function checkRendererClearsCards() {
   }
 }
 
+function until(fn, ms = 8000) {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const tick = () => {
+      const v = fn();
+      if (v) return resolve(v);
+      if (Date.now() - start > ms) return reject(new Error('timed out'));
+      setTimeout(tick, 20);
+    };
+    tick();
+  });
+}
+
+// ACP: a call still open when the turn is cancelled gets a result that says so,
+// because the agent is not obliged to send one.
+async function checkAcpInterruptCancelsOpenCalls() {
+  const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-acp-interrupt-'));
+  const spec = {
+    id: 'cursor',
+    cli: 'agent',
+    argv: [path.join(ROOT, 'scripts/mock-acp-cli.js'), 'acp'],
+    modes: Object.fromEntries(['ask', 'edit', 'plan', 'bypass'].map((m) => [m, {}])),
+    binary: () => process.execPath,
+  };
+  const session = new AcpSession({ spec, cwd, model: 'mock-1' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  const resultFor = (id) => seen.find((m) => m.type === 'user' && m.message.content[0]?.tool_use_id === id)?.message.content[0];
+  try {
+    await session.start();
+    session.send('hang on a call');
+    await until(() => seen.some((m) => m.type === 'assistant' && m.message.content[0]?.id === 't-hang'));
+    if (!resultFor('t-hang')) pass('acp-call-open-before-interrupt');
+    else fail('acp-call-open-before-interrupt', 'the call had a result before the interrupt');
+    await session.interrupt();
+    await until(() => seen.some((m) => m.type === 'result'));
+    const cancelled = resultFor('t-hang');
+    if (cancelled?.is_error && cancelled.content === 'interrupted') pass('acp-interrupt-cancels-open-call');
+    else fail('acp-interrupt-cancels-open-call', `result=${JSON.stringify(cancelled)}`);
+    const ended = seen.find((m) => m.type === 'result');
+    if (ended.subtype === 'cancelled') pass('acp-turn-ends-cancelled');
+    else fail('acp-turn-ends-cancelled', `subtype=${ended.subtype}`);
+  } catch (e) {
+    fail('acp-interrupt-cancels-open-call', e.stack || e.message);
+  } finally {
+    session.stop();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await checkInterruptClearsPending();
   await checkDeniesBeforeSdkInterrupt();
   checkRendererClearsCards();
+  await checkAcpInterruptCancelsOpenCalls();
   if (failures.length) {
     console.log(`\n${failures.length} failure(s)`);
     process.exit(1);

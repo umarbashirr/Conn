@@ -138,6 +138,11 @@ async function handlePrompt(id, params) {
     });
   }
 
+  if (/\bhang\b/i.test(text)) {
+    tool(sessionId, 't-hang', 'sleep', 'execute', { command: 'sleep 600' });
+    return;
+  }
+
   if (/tool/i.test(text)) {
     tool(sessionId, 't1', 'echo', 'execute', { command: 'echo hi' });
     toolDone(sessionId, 't1', 'hi\n', false);
