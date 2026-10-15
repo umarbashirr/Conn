@@ -83,6 +83,8 @@ function composer() {
     text: box?.textContent || '',
     note: header?.children[1]?.textContent || '',
     queued: rows.map((r) => r.querySelector('button[title="Edit this message"]')?.textContent.trim()),
+    held: rows.map((r) => [...r.querySelectorAll('span')].some((s) => s.textContent.trim() === 'held')),
+    thumbs: rows.map((r) => r.querySelectorAll('img').length),
     sendNow: rows.map((r) => !!r.querySelector('button[aria-label="Send now"]')),
     busy: !!document.querySelector('#agent-root button[type="submit"] .lucide-square'),
   };
@@ -109,8 +111,8 @@ async function main() {
       globalThis.__sent = [];
       globalThis.__interrupts = [];
       ipcMain.removeHandler('agent:send');
-      ipcMain.handle('agent:send', (e, { chat, text }) => {
-        globalThis.__sent.push({ text, at: Date.now() });
+      ipcMain.handle('agent:send', (e, { chat, text, images }) => {
+        globalThis.__sent.push({ text, images: (images || []).length, at: Date.now() });
         globalThis.__end = (subtype) => {
           globalThis.__ended = Date.now();
           e.sender.send('agent:message', { chat, msg: { type: 'result', subtype, duration_ms: 10 } });
@@ -214,6 +216,55 @@ async function main() {
     await sleep(SETTLE_MS + 200);
     check('idle-empty-enter-does-nothing', (await interrupts()) === 2 && (await sent()).length === 4 && !(await state()).busy,
       `interrupts ${await interrupts()}, sent ${(await sent()).length}`);
+
+    await type('fifth task');
+    await enter();
+    await until(page, () => document.querySelector('#agent-root button[type="submit"] .lucide-square') && true, null, 3000);
+    await page.evaluate(async () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 8, height: 8 });
+      canvas.getContext('2d').fillRect(0, 0, 8, 8);
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+      const data = new DataTransfer();
+      data.items.add(new File([blob], 'dot.png', { type: 'image/png' }));
+      document.querySelector('#agent-root [contenteditable="true"]')
+        .dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await until(page, () => document.querySelector('#agent-root form img') && true, null, 3000);
+    await type('with picture');
+    await enter();
+    await type('plain one');
+    await enter();
+    await page.evaluate(() => document.querySelector('#agent-root button[type="submit"]').click());
+    await sleep(SETTLE_MS + 600);
+    const stopped = await state();
+    check('stop-keeps-two-held-rows', stopped.queued.length === 2 && stopped.queued[0].endsWith('with picture') && stopped.queued[1] === 'plain one'
+      && JSON.stringify(stopped.held) === '[true,true]',
+      `queued ${JSON.stringify(stopped.queued)}, held ${JSON.stringify(stopped.held)}`);
+    check('stop-keeps-the-image', stopped.thumbs[0] === 1, JSON.stringify(stopped.thumbs));
+    check('stop-leaves-the-box-alone', stopped.text.trim() === '', JSON.stringify(stopped.text));
+    check('held-rows-wait', (await sent()).length === 5 && !stopped.busy, `sent ${JSON.stringify(await sent())}, busy ${stopped.busy}`);
+    const gap = await page.evaluate(() => {
+      const note = [...document.querySelectorAll('#agent-root *')].filter((e) => !e.children.length && e.textContent.trim() === 'interrupted').at(-1);
+      const box = document.querySelector('#agent-root form');
+      return note ? box.getBoundingClientRect().top - note.getBoundingClientRect().bottom : null;
+    });
+    check('interrupted-note-above-composer', gap !== null && gap >= 0, `gap ${gap}`);
+
+    await page.evaluate(() => [...document.querySelectorAll('#agent-root button[aria-label="Send next"]')][1]?.click());
+    await until(page, (n) => document.querySelectorAll('#agent-root .border-dashed .font-mono').length === n || null, 1, 3000);
+    await sleep(300);
+    const nextSent = await state();
+    check('send-next-sends-that-row', JSON.stringify((await sent()).slice(5)) === '["plain one"]'
+      && nextSent.queued.length === 1 && nextSent.queued[0].endsWith('with picture') && JSON.stringify(nextSent.held) === '[true]',
+    `sent ${JSON.stringify(await sent())}, queued ${JSON.stringify(nextSent.queued)}, held ${JSON.stringify(nextSent.held)}`);
+
+    await end();
+    await sleep(600);
+    check('held-row-outlasts-the-next-turn', (await sent()).length === 6, `sent ${JSON.stringify(await sent())}`);
+    await page.evaluate(() => document.querySelector('#agent-root button[aria-label="Send next"]')?.click());
+    await until(page, () => !document.querySelector('#agent-root .border-dashed .font-mono') || null, null, 3000);
+    const last = (await main.run('globalThis.__sent')).at(-1);
+    check('held-image-goes-out', last?.text.endsWith('with picture') && last.images === 1, JSON.stringify(last && { text: last.text, images: last.images }));
 
     page.ws.close();
     main.ws.close();
