@@ -27,12 +27,17 @@ const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with a
 
 const OPEN_CALL = new Set(['input-streaming', 'input-available']);
 
-function endOpenCalls(items) {
+// A blocking agent ends with the turn that was waiting on it, as `agentEnd`.
+function endTurn(items, agentEnd) {
   const outlives = new Set();
   return items.map((it) => {
-    if (outlivesTurn(it) || outlives.has(it.parent)) outlives.add(it.id);
-    if (it.kind !== 'tool' || !OPEN_CALL.has(it.state) || outlives.has(it.id)) return it;
-    return { ...it, state: 'output-error', output: 'interrupted' };
+    if (outlivesTurn(it) || outlives.has(it.parent)) {
+      outlives.add(it.id);
+      return it;
+    }
+    if (it.kind === 'agent' && it.status === 'running') return { ...it, status: agentEnd, waiting: false };
+    if (it.kind === 'tool' && OPEN_CALL.has(it.state)) return { ...it, state: 'output-error', output: 'interrupted' };
+    return it;
   });
 }
 
@@ -44,7 +49,7 @@ function interrupted(items) {
       .filter((it) => it.kind === 'perm' && !it.decided && it.agent?.toolUseId)
       .map((it) => it.agent.toolUseId),
   );
-  return [...endOpenCalls(items).map((it) => {
+  return [...endTurn(items, 'stopped').map((it) => {
     if (it.kind === 'perm' && !it.decided) return { ...it, decided: 'deny' };
     if (waitingIds.has(it.id)) return { ...it, waiting: false };
     return it;
@@ -519,9 +524,7 @@ export function useAgent() {
           // A blocking agent cannot outlive the turn that was waiting on it. If
           // its notification went missing, the turn ending says the same thing,
           // and a row that spins forever is worse than one that stops early.
-          items: [...endOpenCalls(c.items).map((it) => (it.kind === 'agent' && it.status === 'running' && !it.background
-            ? { ...it, status: 'done' }
-            : it)), {
+          items: [...endTurn(c.items, 'done'), {
             id: uid('r'),
             kind: 'note',
             ended: true,
