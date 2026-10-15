@@ -256,6 +256,7 @@ export default function Shell() {
       else if (!open && !panel.isCollapsed()) panel.collapse();
     }
   };
+  // isCollapsed throws "Group not found" while a panel group is still registering.
   const groupsRegistered = useRef(false);
   useLayoutEffect(() => {
     groupsRegistered.current = true;

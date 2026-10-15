@@ -32,6 +32,11 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
+/* The rail steps aside when the right column comes up in a narrow window, and
+   comes back when the column goes or the window grows. Only on those edges: a
+   rail somebody opens or closes in between is theirs, so any write that names
+   railOpen ends the yield, even one that changes nothing. Customize closing the
+   rail it already lost is that write, and must not bring it back. */
 let crowded = false;
 let railYielded = false;
 
