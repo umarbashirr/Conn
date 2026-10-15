@@ -2,6 +2,7 @@
 // The agent panel's runtime. Runs Claude in-process through the Agent SDK, with
 // the preview browser handed over as native tools so nothing has to be wired up
 // by the user.
+const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browser-tools');
@@ -163,6 +164,7 @@ class AgentSession extends EventEmitter {
         parent_tool_use_id: null,
         session_id: this.sessionId || '',
         origin: { kind: 'human' },
+        uuid: turn.uuid,
       };
     }
   }
@@ -336,11 +338,15 @@ class AgentSession extends EventEmitter {
     return this.busy || this.unfinished.size > 0;
   }
 
+  // The uuid becomes the message's id in the transcript, which is what a fork
+  // names to cut the conversation back to just before it.
   send(text, images) {
     this.busy = true;
     if (this.preface) { text = `${this.preface}\n\n${text}`; this.preface = null; }
-    this.queue.push(images?.length ? { text, images } : text);
+    const uuid = randomUUID();
+    this.queue.push({ text, images: images || [], uuid });
     if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
+    return uuid;
   }
 
   async interrupt() {
@@ -505,14 +511,13 @@ class AgentSession extends EventEmitter {
 
 // Pictures go ahead of the words. The models read a prompt that refers back to
 // an image it has already seen more reliably than one that arrives first.
-function blocks(turn) {
-  if (typeof turn === 'string') return [{ type: 'text', text: turn }];
+function blocks({ text, images }) {
   return [
-    ...turn.images.map((img) => ({
+    ...images.map((img) => ({
       type: 'image',
       source: { type: 'base64', media_type: img.media, data: img.data },
     })),
-    { type: 'text', text: turn.text },
+    { type: 'text', text },
   ];
 }
 

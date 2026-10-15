@@ -1233,8 +1233,25 @@ function registerIpc() {
       // wrapper text.
       return { error: e.message };
     }
-    a.send(text, images);
-    return { ok: true, sessionId: a.sessionId };
+    const forkAt = a.send(text, images);
+    return { ok: true, sessionId: a.sessionId, ...(forkAt && { forkAt }) };
+  });
+  // Editing or retrying a Claude message. The transcript is forked to just
+  // before it while the session is still up, because the CLI may not have
+  // written the last turn yet and a stopped one never will. The chat then
+  // resumes the fork on its next send.
+  ipcMain.handle('agent:rewind', async (_e, { chat, session, uuid, project } = {}) => {
+    const live = sessions.get(chat);
+    if (live && !live.closed && (live.working ?? live.busy)) return { error: 'this chat is still working' };
+    try {
+      const dir = project && known(project) ? project : cwdOfChat(chat);
+      const res = await rowOf('claude').history.forkBefore(dir, session, uuid);
+      stopChat(chat);
+      if (res.sessionId) owners.set(res.sessionId, 'claude');
+      return res;
+    } catch (e) {
+      return { error: e.message };
+    }
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
     denyBridgeChat(chat);
@@ -2028,8 +2045,8 @@ app.whenReady().then(async () => {
           session = sessions.get(chat)?.sessionId || null;
         }
         const a = await ensureAgent({ chat, resume: session, project: target || undefined });
-        send('agent:echo', { text, chat, project: cwdOfChat(chat) });
-        a.send(text);
+        const forkAt = a.send(text);
+        send('agent:echo', { text, chat, project: cwdOfChat(chat), ...(forkAt && { forkAt }) });
         return { ok: true, sessionId: a.sessionId, chat };
       },
       captureWindow: async () => {

@@ -253,7 +253,7 @@ async function readSession(cwd, id) {
     // What an Agent call came back with: how long it ran, how much it did, and
     // what it concluded. Cheaper and more exact than parsing the result text.
     const agent = o.toolUseResult?.agentId ? summarise(o.toolUseResult) : null;
-    out.push({ type: o.type, message: o.message, at: o.timestamp, ...(agent ? { agent } : {}) });
+    out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...(agent ? { agent } : {}) });
   }
 
   const budget = { images: MAX_IMAGES };
@@ -267,6 +267,59 @@ async function readSession(cwd, id) {
 
 const hasToolResult = (o) =>
   Array.isArray(o.message?.content) && o.message.content.some((b) => b.type === 'tool_result');
+
+async function* entries(file) {
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    try { yield JSON.parse(line); } catch { /* a line still being written */ }
+  }
+}
+
+// Where a conversation picks up when the person edits or retries `uuid`: the
+// entry it was written after. Null when nothing was said before it, so there
+// is nothing to keep.
+async function parentOf(file, uuid) {
+  let said = false;
+  for await (const o of entries(file)) {
+    if (o.uuid === uuid && o.type === 'user') return { parent: said ? o.parentUuid || null : null };
+    if (!o.isSidechain && (o.type === 'user' || o.type === 'assistant')) said = true;
+  }
+  return null;
+}
+
+// The SDK is ESM only, and Electron's require cannot load it.
+const sdk = () => import('@anthropic-ai/claude-agent-sdk');
+
+// The CLI writes a turn to its transcript a beat after the turn ends, so a
+// message sent moments ago may not be on disk yet.
+const LANDS_WITHIN = 3000;
+
+// A new session holding the transcript up to just before `uuid`, for the chat
+// to carry on from. The old transcript is left as it was. Every message in the
+// fork gets a fresh uuid, so `uuids` maps the old ids of the person's messages
+// to the new ones.
+async function forkBefore(cwd, id, uuid) {
+  if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
+  if (!SESSION_ID.test(String(uuid || ''))) throw new Error(`not a message id: ${uuid}`);
+  const dir = projectDir(cwd);
+  const file = path.join(dir, `${id}.jsonl`);
+  let at = null;
+  for (const end = Date.now() + LANDS_WITHIN; !at && Date.now() < end;) {
+    at = fs.existsSync(file) ? await parentOf(file, uuid) : null;
+    if (!at) await new Promise((r) => setTimeout(r, 200));
+  }
+  if (!at) throw new Error(`message ${uuid} is not in session ${id}`);
+  if (!at.parent) return { sessionId: null, uuids: {} };
+
+  const { forkSession } = await sdk();
+  const { sessionId } = await forkSession(id, { dir: cwd, upToMessageId: at.parent });
+  const uuids = {};
+  for await (const o of entries(path.join(dir, `${sessionId}.jsonl`))) {
+    if (o.type === 'user' && o.forkedFrom?.messageUuid) uuids[o.forkedFrom.messageUuid] = o.uuid;
+  }
+  return { sessionId, uuids };
+}
 
 // The parts of an Agent tool's result worth drawing. The rest is usage
 // accounting the panel has nowhere to put.
@@ -333,4 +386,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, projectDir };
+module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir };
