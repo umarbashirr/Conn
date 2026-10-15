@@ -691,7 +691,7 @@ function UserRow({ item, agent }) {
   return (
     <Message from="user" className="mt-1.5 flex-row items-end">
       {!editing && (
-        <MessageActions className="shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        <MessageActions className="ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
           <MessageAction label="Edit" title="Edit this message" size="icon-xs" disabled={agent.busy} onClick={() => setDraft(item.text)}>
             <PencilIcon className="size-3.5" />
           </MessageAction>
@@ -705,7 +705,7 @@ function UserRow({ item, agent }) {
           </MessageAction>
         </MessageActions>
       )}
-      <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap'}>
+      <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap group-[.is-user]:ml-0'}>
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {images.map((img, i) => (
