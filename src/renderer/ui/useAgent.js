@@ -111,9 +111,9 @@ function replay(messages, parent) {
   return out;
 }
 
-// The chat as it stood before item `id`, for a fork cut there. An agent kept
-// keeps the rows it wrote later. The fork renamed every message, so each kept
-// one takes its new id from `uuids`.
+// The chat as it stood before item `id`, for a fork cut there. A kept Agent row
+// keeps the rows under it, even ones written after the cut. The fork renamed
+// every message, so each kept one takes its new id from `uuids`.
 function before(items, id, uuids) {
   const cut = items.findIndex((it) => it.id === id);
   if (cut < 0) return items;
@@ -799,9 +799,8 @@ export function useAgent() {
 
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
 
-  // Edit or Retry on one of the person's messages. A Claude chat goes back to
-  // just before it and carries on from there, dropping what came after. The
-  // other CLIs cannot go back, so the message goes again at the end.
+  // The other CLIs cannot go back to a message, so for them it is sent again
+  // at the end.
   const redo = useCallback(async (id, how, text, images = []) => {
     const key = activeRef.current;
     const chat = chatsRef.current.find((c) => c.key === key);

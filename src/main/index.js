@@ -1236,10 +1236,8 @@ function registerIpc() {
     const forkAt = a.send(text, images);
     return { ok: true, sessionId: a.sessionId, ...(forkAt && { forkAt }) };
   });
-  // Editing or retrying a Claude message. The transcript is forked to just
-  // before it while the session is still up, because the CLI may not have
-  // written the last turn yet and a stopped one never will. The chat then
-  // resumes the fork on its next send.
+  // Forks before stopping the session: the CLI may not have written the last
+  // turn to its transcript yet, and a stopped one never will.
   ipcMain.handle('agent:rewind', async (_e, { chat, session, uuid, project } = {}) => {
     const live = sessions.get(chat);
     if (live && !live.closed && (live.working ?? live.busy)) return { error: 'this chat is still working' };
