@@ -14,6 +14,7 @@ export const layout = {
   // tabs-store.js rather than here.
   rightOpen: false,
   previewFull: false,
+  tooNarrowForRail: false,
   // How many files git has not been told about yet. changes-store.js counts
   // them and the toolbar's Changes tab wears the number.
   changesCount: 0,
@@ -31,6 +32,35 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
+/* The rail steps aside when the right column comes up in a narrow window, and
+   comes back when the column goes or the window grows. Only on those edges: a
+   rail somebody opens or closes in between is theirs, so any write that names
+   railOpen ends the yield, even one that changes nothing. Customize closing the
+   rail it already lost is that write, and must not bring it back. */
+let crowded = false;
+let railYielded = false;
+
+function yieldRailToColumn(partial) {
+  const was = crowded;
+  crowded = layout.rightOpen && layout.tooNarrowForRail;
+  const someoneChoseTheRail = 'railOpen' in partial;
+  if (someoneChoseTheRail) {
+    railYielded = false;
+    return false;
+  }
+  if (crowded && !was && layout.railOpen) {
+    layout.railOpen = false;
+    railYielded = true;
+    return true;
+  }
+  if (!crowded && was && railYielded) {
+    layout.railOpen = true;
+    railYielded = false;
+    return true;
+  }
+  return false;
+}
+
 export function setLayout(partial) {
   let changed = false;
   for (const [k, v] of Object.entries(partial)) {
@@ -38,6 +68,7 @@ export function setLayout(partial) {
     layout[k] = v;
     changed = true;
   }
+  if (yieldRailToColumn(partial)) changed = true;
   if (!changed) return;
   version += 1;
   for (const fn of listeners) fn();
