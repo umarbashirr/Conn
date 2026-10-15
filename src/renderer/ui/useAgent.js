@@ -789,11 +789,15 @@ export function useAgent() {
     edit(activeRef.current, (c) => ({ ...c, queued: c.queued.filter((m) => m.id !== id) }));
   }, [edit]);
 
-  // Rewrite a parked message, or mark it held while that rewrite is on screen.
-  // A held one stays put when the turn ends: flushing it then would send the
-  // text the keystrokes have not landed in yet. The id is looked up across
-  // chats, because leaving the chat unmounts the editor and that release has
-  // to land on the chat the message belongs to.
+  const sendNext = useCallback((id) => {
+    edit(activeRef.current, (c) => {
+      const m = c.queued.find((q) => q.id === id);
+      return m ? { ...c, queued: [{ ...m, held: false }, ...c.queued.filter((q) => q.id !== id)] } : c;
+    });
+  }, [edit]);
+
+  // The id is looked up across chats, because leaving the chat unmounts the
+  // editor and that release has to land on the chat the message belongs to.
   const editQueued = useCallback((id, patch) => {
     setChats((cur) => cur.map((c) => {
       if (!c.queued.some((m) => m.id === id)) return c;
@@ -823,8 +827,8 @@ export function useAgent() {
     if (flushing.current.has(key)) return;
     const chat = chatsRef.current.find((c) => c.key === key);
     if (!chat || chat.busy) return;
-    const head = chat.queued?.[0];
-    if (!head || head.held) return;
+    const head = chat.queued?.find((m) => !m.held);
+    if (!head || head.editing) return;
     flushing.current.add(key);
     edit(key, (c) => ({ ...c, queued: c.queued.filter((m) => m.id !== head.id) }));
     try {
@@ -904,16 +908,18 @@ export function useAgent() {
     }
   }, [patch]);
 
-  // Stopping the turn also empties the queue, and the parked text is handed
-  // back to the caller so the composer can put it where the user left it.
   // Pending permission cards are denied here too: main does the same for the
   // SDK, and a card left clickable after Stop is a lie.
   const interrupt = useCallback(async () => {
     const key = activeRef.current;
-    const parked = (chatsRef.current.find((c) => c.key === key)?.queued || []).map((m) => m.text);
-    edit(key, (c) => ({ ...c, queued: [], busy: false, usage: withStop(c.usage), items: interrupted(c.items) }));
+    edit(key, (c) => ({
+      ...c,
+      queued: c.queued.map((m) => ({ ...m, held: true, now: false })),
+      busy: false,
+      usage: withStop(c.usage),
+      items: interrupted(c.items),
+    }));
     await conn().agent.interrupt(key);
-    return parked;
   }, [edit]);
 
   // The message at the front, now rather than after this turn. The turn is
@@ -924,8 +930,8 @@ export function useAgent() {
   const sendNow = useCallback(async () => {
     const key = activeRef.current;
     const chat = chatsRef.current.find((c) => c.key === key);
-    const head = chat?.queued[0];
-    if (!chat?.busy || !head || head.held || head.now) return false;
+    const head = chat?.queued.find((m) => !m.held);
+    if (!chat?.busy || !head || head.editing || head.now) return false;
     edit(key, (c) => ({
       ...c,
       queued: c.queued.map((m) => (m.id === head.id ? { ...m, now: true } : m)),
@@ -1302,7 +1308,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, enqueue, unqueue, editQueued, sendNow,
+    send, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

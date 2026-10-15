@@ -711,18 +711,20 @@ function Attachment({ item, onOpen, onRemove }) {
   );
 }
 
-// Where the message at the front of the queue stands.
+const nextOf = (queued) => queued.find((m) => !m.held);
+
 function queueStateOf(agent) {
-  const head = agent.queued[0];
-  if (!head) return 'empty';
-  if (head.held) return 'held';
+  const head = nextOf(agent.queued);
+  if (!head) return agent.queued.length ? 'held' : 'empty';
+  if (head.editing) return 'editing';
   if (!agent.busy) return 'sending';
   return head.now ? 'stopping' : 'waiting';
 }
 
 const QUEUE_NOTE = {
   empty: '',
-  held: 'sends when you save',
+  held: 'held after Stop',
+  editing: 'sends when you save',
   sending: 'sending…',
   stopping: 'stopping this turn to send it',
   waiting: 'sends after this turn',
@@ -736,6 +738,7 @@ function placeholderFor(agent, state) {
     case 'stopping': return 'Stopping. The queued message goes next';
     case 'empty':
     case 'held':
+    case 'editing':
     case 'sending': return 'Working. Enter adds this to the queue';
     default: throw new Error(`unknown queue state: ${state}`);
   }
@@ -743,9 +746,8 @@ function placeholderFor(agent, state) {
 
 // One parked message. The row is the edit control: the text opens into the
 // same box the composer types in, so a token stays a token. Enter writes it
-// back, Escape puts the row back as it was. While that box is open the
-// message is held, so a turn ending underneath it does not send the old text.
-function QueuedItem({ item, index, onEdit, onDrop, onSendNow }) {
+// back, Escape puts the row back as it was.
+function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.text);
   const input = useRef(null);
@@ -757,25 +759,25 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow }) {
   }, [editing]);
 
   useEffect(() => () => {
-    if (editingRef.current) onEdit(item.id, { held: false });
+    if (editingRef.current) onEdit(item.id, { editing: false });
   }, [onEdit, item.id]);
 
   const start = () => {
     editingRef.current = true;
     setDraft(item.text);
     setEditing(true);
-    onEdit(item.id, { held: true });
+    onEdit(item.id, { editing: true });
   };
 
   const save = () => {
     editingRef.current = false;
-    onEdit(item.id, { text: draft, held: false });
+    onEdit(item.id, { text: draft, editing: false });
     setEditing(false);
   };
 
   const cancel = () => {
     editingRef.current = false;
-    onEdit(item.id, { held: false });
+    onEdit(item.id, { editing: false });
     setEditing(false);
   };
 
@@ -823,10 +825,21 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow }) {
         className="flex min-w-0 flex-1 items-center gap-0.5 truncate text-left text-xs">
         <TokenText text={item.text} />
       </button>
-      {images.length > 0 && (
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {images.length === 1 ? '1 image' : `${images.length} images`}
-        </span>
+      {images.map((img, i) => (
+        <img
+          key={i}
+          alt={img.name || 'attachment'}
+          title={img.name}
+          className="size-5 shrink-0 rounded-sm object-cover"
+          src={`data:${img.media};base64,${img.data}`} />
+      ))}
+      {item.held && (
+        <>
+          <span className="shrink-0 text-[10px] text-muted-foreground">held</span>
+          <Button type="button" variant="ghost" size="xs" aria-label="Send next" title="Send this one next" onClick={onSendNext}>
+            Send next
+          </Button>
+        </>
       )}
       {onSendNow && (
         <Button
@@ -975,14 +988,8 @@ export function Composer({
     agent.changeMode(MODES[(i + 1) % MODES.length][0]);
   }, [agent]);
 
-  // Stopping the turn empties the queue. The parked text goes back into the
-  // box, ahead of whatever is already typed there, rather than vanishing.
-  const stop = useCallback(async () => {
-    const parked = await agent.interrupt();
-    if (parked?.length) setText((t) => [...parked, t].filter(Boolean).join('\n\n'));
-  }, [agent, setText]);
-
   const queueState = queueStateOf(agent);
+  const next = nextOf(agent.queued);
 
   const onKeyDown = useCallback((e) => {
     if (menu) {
@@ -998,9 +1005,9 @@ export function Composer({
       if (dictation.view.kind === 'listening') dictation.toggle();
       return;
     }
-    if (matches(e, 'stop') && agent.busy) { e.preventDefault(); return stop(); }
+    if (matches(e, 'stop') && agent.busy) { e.preventDefault(); return agent.interrupt(); }
     if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
-  }, [menu, rows, cursor, pick, cycleMode, stop, agent.busy, dictation]);
+  }, [menu, rows, cursor, pick, cycleMode, agent.interrupt, agent.busy, dictation]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
@@ -1026,7 +1033,8 @@ export function Composer({
                 index={i}
                 onEdit={agent.editQueued}
                 onDrop={() => agent.unqueue(m.id)}
-                onSendNow={i === 0 && queueState === 'waiting' ? agent.sendNow : undefined} />
+                onSendNext={() => agent.sendNext(m.id)}
+                onSendNow={m === next && queueState === 'waiting' ? agent.sendNow : undefined} />
             ))}
           </div>
         </div>
@@ -1151,7 +1159,7 @@ export function Composer({
               className="size-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               disabled={!agent.busy && !text.trim() && !attachments.length}
               status={agent.busy ? 'streaming' : undefined}
-              onClick={agent.busy ? (e) => { e.preventDefault(); stop(); } : undefined}>
+              onClick={agent.busy ? (e) => { e.preventDefault(); agent.interrupt(); } : undefined}>
               {agent.busy ? <SquareIcon className="size-3.5 fill-current" /> : <ArrowUpIcon className="size-4" />}
             </PromptInputSubmit>
           </PromptInputFooter>
