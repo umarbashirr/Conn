@@ -28,6 +28,7 @@ const { configuredServers } = require('./codex-catalog');
 const { INSTRUCTIONS, TOOL_PREFIX } = require('../shared/browser-tools');
 const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
 const shellEnv = require('./shell-env');
+const { classify } = require('./turn-error');
 
 const ROOT = path.join(__dirname, '..', '..');
 
@@ -143,6 +144,9 @@ class CodexSession extends EventEmitter {
     this.limits = null;           // last account/rateLimits/updated
     this.startedAt = 0;
     this.starting = null;         // the turn/start still in flight, if there is one
+    // The error notification names the failure. turn/completed only says the
+    // turn ended, so the note is drawn from the notification when it had one.
+    this.pendingFailure = null;
     // What codex is set to right now, which is not always what the mode says.
     // #policy() below is what closes the gap.
     this.applied = { sandbox: null, approvalPolicy: null };
@@ -517,7 +521,7 @@ class CodexSession extends EventEmitter {
       // A retry is not a failure yet, so it goes where the log goes rather than
       // putting a red card in the transcript for something codex went on to do.
       if (params.willRetry) this.emit('stderr', `codex is retrying after: ${why}\n`);
-      else this.emit('error', why);
+      else this.pendingFailure = classify('codex', params);
       return;
     }
 
@@ -585,9 +589,14 @@ class CodexSession extends EventEmitter {
     this.starting = null;
     this.edits.clear();
     const failed = turn.status && turn.status !== 'completed';
+    const turnError = failed
+      ? (this.pendingFailure || classify('codex', { error: turn.error, willRetry: false }))
+      : null;
+    this.pendingFailure = null;
     this.#emit({
       type: 'result',
       subtype: failed ? (turn.error?.message ? 'error' : turn.status) : 'success',
+      ...(turnError ? { turnError } : {}),
       duration_ms: turn.durationMs ?? (this.startedAt ? Date.now() - this.startedAt : 0),
       usage: this.usage ? this.#apiUsage(this.usage) : undefined,
       // What the panel actually accounts from, and it wants the running total

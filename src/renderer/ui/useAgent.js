@@ -1,6 +1,7 @@
 import { chatTitle } from '../../shared/chat-title';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
+import { classify } from '../../main/turn-error';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
@@ -14,6 +15,29 @@ const conn = () => window.conn;
 const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+
+function failureOn(provider, msg, prior) {
+  if (msg?.turnError) return msg.turnError;
+  if (provider === 'codex') return classify('codex', msg, { prior });
+  if (provider !== 'claude') return null;
+  return classify('claude', msg, { prior });
+}
+
+function putTurnError(items, failure, noteId) {
+  if (noteId) {
+    const i = items.findIndex((it) => it.id === noteId);
+    if (i >= 0) {
+      const next = items.slice();
+      next[i] = { ...next[i], ended: true, error: true, text: failure.message, turnError: failure };
+      return { items: next, noteId };
+    }
+  }
+  const id = uid('r');
+  return {
+    noteId: id,
+    items: [...items, { id, kind: 'note', ended: true, error: true, text: failure.message, turnError: failure }],
+  };
+}
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
 // What keeps going once the turn that started it has ended.
@@ -64,27 +88,78 @@ const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, 
 function replay(messages, parent) {
   const out = [];
   const own = parent ? `${parent}:` : 'h';
+  let pending = null;
+  let pendingAt = -1;
+  const remember = (failure) => {
+    if (!failure) return;
+    const base = parent ? { parent } : {};
+    if (pendingAt >= 0) {
+      out[pendingAt] = { ...out[pendingAt], text: failure.message, turnError: failure, error: true, ended: true };
+      return;
+    }
+    pendingAt = out.length;
+    out.push({
+      id: `${own}${out.length}`, kind: 'note', ended: true, error: true,
+      text: failure.message, turnError: failure, ...base,
+    });
+  };
   for (const m of messages) {
+    if (m.type === 'rate_limit_event') {
+      const failure = classify('claude', m);
+      if (failure) pending = failure;
+      continue;
+    }
+    if (m.type === 'result') {
+      const failure = classify('claude', m, { prior: pending });
+      pending = null;
+      if (failure) remember(failure);
+      pendingAt = -1;
+      continue;
+    }
     const content = m.message?.content;
     const base = parent ? { parent } : {};
     const forkAt = m.uuid ? { forkAt: m.uuid } : {};
     if (typeof content === 'string') {
-      if (m.type === 'user' && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: strip(content), ...forkAt, ...base });
+      if (m.type === 'user' && !parent) {
+        pending = null;
+        pendingAt = -1;
+        out.push({ id: `${own}${out.length}`, kind: 'user', text: strip(content), ...forkAt, ...base });
+      }
       continue;
     }
-    if (!Array.isArray(content)) continue;
+    if (!Array.isArray(content)) {
+      if (m.type === 'assistant' && m.error) {
+        const failure = classify('claude', m);
+        if (failure) {
+          pending = failure;
+          remember(failure);
+        }
+      }
+      continue;
+    }
 
     if (m.type === 'assistant') {
       for (const b of content) {
         if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
         else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${own}${out.length}`, kind: 'assistant', text: b.text, ...base });
       }
+      if (m.error) {
+        const failure = classify('claude', m);
+        if (failure) {
+          pending = failure;
+          remember(failure);
+        }
+      }
       continue;
     }
     const said = strip(content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n'));
     // A subagent's first user message is the prompt it was handed, which its
     // row already shows. Its later ones are tool results.
-    if (said && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: said, ...forkAt, ...base });
+    if (said && !parent) {
+      pending = null;
+      pendingAt = -1;
+      out.push({ id: `${own}${out.length}`, kind: 'user', text: said, ...forkAt, ...base });
+    }
     for (const b of content) {
       if (b.type !== 'tool_result') continue;
       const i = out.findIndex((n) => n.id === b.tool_use_id);
@@ -339,6 +414,14 @@ export function useAgent() {
       const parent = msg.parent_tool_use_id || null;
       const st = streamOf(chat, parent);
 
+      if (msg.type === 'rate_limit_event') {
+        edit(chat, (c) => {
+          const failure = failureOn(c.provider, msg, c.pendingFailure);
+          return failure ? { ...c, pendingFailure: failure } : c;
+        });
+        return;
+      }
+
       if (msg.type === 'stream_event') {
         const ev = msg.event;
         if (ev?.type?.startsWith('message_')) edit(chat, (c) => ({ ...c, usage: account(c.usage, msg) }));
@@ -499,6 +582,14 @@ export function useAgent() {
             }
           }
         }
+        if (msg.error || msg.turnError) {
+          edit(chat, (c) => {
+            const failure = failureOn(c.provider, msg, c.pendingFailure);
+            if (!failure) return c;
+            const put = putTurnError(c.items, failure, c.pendingNote);
+            return { ...c, pendingFailure: failure, pendingNote: put.noteId, items: put.items };
+          });
+        }
         return;
       }
 
@@ -528,25 +619,33 @@ export function useAgent() {
 
       if (msg.type === 'result') {
         const secs = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
-        const failed = msg.subtype && msg.subtype !== 'success';
+        const failed = (msg.subtype && msg.subtype !== 'success') || msg.is_error === true;
         const away = chat !== activeRef.current;
-        edit(chat, (c) => ({
-          ...c,
-          busy: false,
-          endedUnseen: away,
-          toastDue: away ? (failed ? 'error' : 'done') : null,
-          usage: account(c.usage, msg),
-          // A blocking agent cannot outlive the turn that was waiting on it. If
-          // its notification went missing, the turn ending says the same thing,
-          // and a row that spins forever is worse than one that stops early.
-          items: [...endTurn(c.items, 'done'), {
-            id: uid('r'),
-            kind: 'note',
-            ended: true,
-            error: !!failed,
-            text: failed ? `turn ended: ${msg.subtype} ${secs}` : `done in ${secs}`,
-          }],
-        }));
+        edit(chat, (c) => {
+          const turnError = msg.subtype === 'cancelled'
+            ? null
+            : (failed ? failureOn(c.provider, msg, c.pendingFailure) : null);
+          const put = turnError ? putTurnError(endTurn(c.items, 'done'), turnError, c.pendingNote) : null;
+          return {
+            ...c,
+            busy: false,
+            endedUnseen: away,
+            toastDue: away ? (failed ? 'error' : 'done') : null,
+            usage: account(c.usage, msg),
+            pendingFailure: null,
+            pendingNote: null,
+            // A blocking agent cannot outlive the turn that was waiting on it. If
+            // its notification went missing, the turn ending says the same thing,
+            // and a row that spins forever is worse than one that stops early.
+            items: put ? put.items : [...endTurn(c.items, 'done'), {
+              id: uid('r'),
+              kind: 'note',
+              ended: true,
+              error: !!failed,
+              text: failed ? `turn ended: ${msg.subtype} ${secs}` : `done in ${secs}`,
+            }],
+          };
+        });
         window.connRail?.refresh();
       }
     }));
@@ -593,12 +692,20 @@ export function useAgent() {
     offs.push(conn().agent.onError(({ chat, error }) => {
       const key = chat || activeRef.current;
       const away = key !== activeRef.current;
-      edit(key, (c) => ({
-        ...c,
-        busy: false,
-        endedUnseen: away,
-        items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: `agent error: ${error}` }],
-      }));
+      const payload = error && typeof error === 'object' ? error : { message: error };
+      edit(key, (c) => {
+        const turnError = payload.turnError || classify('acp', payload);
+        if (!turnError) {
+          return {
+            ...c,
+            busy: false,
+            endedUnseen: away,
+            items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: `agent error: ${payload.message || error}` }],
+          };
+        }
+        const put = putTurnError(c.items, turnError, null);
+        return { ...c, busy: false, endedUnseen: away, items: put.items };
+      });
       const finished = away && chatsRef.current.find((c) => c.key === key);
       if (finished) toastEnd(finished, true);
     }));
@@ -772,6 +879,8 @@ export function useAgent() {
       // Only a turn starting from idle resets it.
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
+      pendingFailure: null,
+      pendingNote: null,
       title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
       items: [...c.items, { id, kind: 'user', text, images, ...(resent && { resent }) }],
     }));

@@ -9,6 +9,7 @@ const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browse
 const { claudeBinary } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const shellEnv = require('./shell-env');
+const { classify } = require('./turn-error');
 
 // How a screenshot tool result announces where the file landed. index.js reads
 // it back to strip the base64 copy before the message reaches the renderer, so
@@ -58,6 +59,9 @@ class AgentSession extends EventEmitter {
     this.tasks = new Map();            // agent id -> { toolUseId, type, description }
     this.unfinished = new Set();       // agent ids that have started and not yet reported back
     this.byToolUse = new Map();        // Agent tool_use id -> agent id
+    // The rate limit event carries the reset time. The result that ends the
+    // turn does not, so the note is drawn from whichever arrived first.
+    this.pendingFailure = null;
     // Held for setMcpServers: it replaces the whole dynamic set, so the browser
     // tools have to be handed back every time or they go with it.
     this.preview = null;
@@ -193,7 +197,7 @@ class AgentSession extends EventEmitter {
         }
         this.#track(msg);
         if (msg.type === 'result') this.busy = false;
-        this.emit('message', msg);
+        this.emit('message', this.#annotate(msg));
       }
     } catch (err) {
       if (!this.closed) this.emit('error', err?.message || String(err));
@@ -208,6 +212,20 @@ class AgentSession extends EventEmitter {
       if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
       this.emit('closed');
     }
+  }
+
+  #annotate(msg) {
+    if (msg?.type === 'rate_limit_event' || (msg?.type === 'assistant' && msg.error)) {
+      const failure = classify('claude', msg);
+      if (failure) this.pendingFailure = failure;
+      return failure ? { ...msg, turnError: failure } : msg;
+    }
+    if (msg?.type === 'result') {
+      const failure = classify('claude', msg, { prior: this.pendingFailure });
+      this.pendingFailure = null;
+      return failure ? { ...msg, turnError: failure } : msg;
+    }
+    return msg;
   }
 
   // Everything needed to tell one agent's work from another's, kept as the

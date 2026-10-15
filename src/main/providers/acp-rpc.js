@@ -2,6 +2,7 @@
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const shellEnv = require('../shell-env');
+const { classify } = require('../turn-error');
 
 const HANDSHAKE_MS = 20000;
 
@@ -105,8 +106,14 @@ class AcpRpc extends EventEmitter {
       if (!entry) return;
       this.pending.delete(msg.id);
       clearTimeout(entry.timer);
-      if (msg.error) entry.reject(new Error(msg.error.message || 'agent refused the request'));
-      else entry.resolve(msg.result);
+      if (msg.error) {
+        const err = new Error(msg.error.message || 'agent refused the request');
+        if (msg.error.code != null) err.code = msg.error.code;
+        if (msg.error.data !== undefined) err.data = msg.error.data;
+        const failure = classify('acp', { code: err.code, message: err.message, data: err.data });
+        if (failure) err.turnError = failure;
+        entry.reject(err);
+      } else entry.resolve(msg.result);
       return;
     }
     if (msg.id !== undefined && msg.method) {

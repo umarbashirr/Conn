@@ -260,7 +260,10 @@ class AcpSession extends EventEmitter {
       .catch((e) => {
         this.busy = false;
         this.#closeStream();
-        this.emit('error', e?.message || String(e));
+        const shaped = e && typeof e === 'object' && (e.turnError || e.code != null)
+          ? { message: e.message, code: e.code, data: e.data, ...(e.turnError ? { turnError: e.turnError } : {}) }
+          : null;
+        this.emit('error', shaped || e?.message || String(e));
       });
   }
 

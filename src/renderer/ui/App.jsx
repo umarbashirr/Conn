@@ -947,9 +947,58 @@ function Item({ item, agent, mark }) {
     );
   }
 
+  if (item.turnError) return <TurnErrorRow item={item} agent={agent} />;
+
   return (
     <div className={`font-mono text-xs ${item.error ? 'text-destructive' : 'text-muted-foreground'}`}>
       {item.text}
+    </div>
+  );
+}
+
+function lastUser(items) {
+  let found = null;
+  const walk = (list) => {
+    for (const it of list || []) {
+      if (it.kind === 'user') found = it;
+      if (it.children?.length) walk(it.children);
+    }
+  };
+  walk(items);
+  return found;
+}
+
+function useCountdown(until) {
+  const [now, setNow] = useState(() => Date.now());
+  const live = typeof until === 'number' && until > now;
+  useEffect(() => {
+    if (!live) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [live, until]);
+  return now;
+}
+
+function TurnErrorRow({ item, agent }) {
+  const failure = item.turnError;
+  const until = failure.action === 'wait' ? failure.retryAt : null;
+  const now = useCountdown(until);
+  const left = typeof until === 'number' ? until - now : 0;
+  const hold = left > 0;
+  const secs = hold ? Math.ceil(left / 1000) : 0;
+  const retry = () => {
+    const prompt = lastUser(agent.items);
+    if (!prompt || agent.busy || hold) return;
+    agent.redo(prompt.id, 'retry', prompt.text, prompt.images || []);
+  };
+  return (
+    <div role="alert" className="flex flex-wrap items-center gap-2 font-mono text-xs text-destructive">
+      <span>{failure.message}</span>
+      {failure.action !== 'login' && (
+        <Button type="button" size="xs" variant="outline" disabled={agent.busy || hold} onClick={retry}>
+          {hold ? `Retry in ${secs}s` : 'Retry'}
+        </Button>
+      )}
     </div>
   );
 }

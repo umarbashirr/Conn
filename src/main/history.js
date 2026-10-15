@@ -247,13 +247,41 @@ async function readSession(cwd, id) {
     let o;
     try { o = JSON.parse(line); } catch { continue; }
     if (o.isSidechain || o.isMeta) continue;         // subagent traffic and bookkeeping
+    // A reopened chat otherwise drops the failure and the turn looks ordinary.
+    // The reset time lives on the rate limit event, not on the result.
+    if (o.type === 'rate_limit_event') {
+      out.push({ type: 'rate_limit_event', rate_limit_info: o.rate_limit_info || null, at: o.timestamp });
+      continue;
+    }
+    if (o.type === 'result') {
+      const failed = o.is_error === true || (o.subtype && o.subtype !== 'success');
+      if (failed && o.subtype !== 'cancelled') {
+        out.push({
+          type: 'result',
+          subtype: o.subtype,
+          is_error: o.is_error === true,
+          errors: Array.isArray(o.errors) ? o.errors.slice(0, 4).map((e) => (typeof e === 'string' ? e.slice(0, 500) : e)) : undefined,
+          result: typeof o.result === 'string' ? o.result.slice(0, 500) : undefined,
+          duration_ms: o.duration_ms,
+          at: o.timestamp,
+        });
+      }
+      continue;
+    }
     if (o.type !== 'user' && o.type !== 'assistant') continue;
     if (!o.message) continue;
     if (o.type === 'user' && !humanText(o) && !hasToolResult(o)) continue;
     // What an Agent call came back with: how long it ran, how much it did, and
     // what it concluded. Cheaper and more exact than parsing the result text.
     const agent = o.toolUseResult?.agentId ? summarise(o.toolUseResult) : null;
-    out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...(agent ? { agent } : {}) });
+    out.push({
+      type: o.type,
+      message: o.message,
+      at: o.timestamp,
+      uuid: o.uuid,
+      ...(o.type === 'assistant' && o.error ? { error: o.error } : {}),
+      ...(agent ? { agent } : {}),
+    });
   }
 
   const budget = { images: MAX_IMAGES };
