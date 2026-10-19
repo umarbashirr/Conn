@@ -105,7 +105,7 @@ class AcpRpc extends EventEmitter {
       if (!entry) return;
       this.pending.delete(msg.id);
       clearTimeout(entry.timer);
-      if (msg.error) entry.reject(new Error(msg.error.message || 'agent refused the request'));
+      if (msg.error) entry.reject(Object.assign(new Error(msg.error.message || 'agent refused the request'), { code: msg.error.code }));
       else entry.resolve(msg.result);
       return;
     }

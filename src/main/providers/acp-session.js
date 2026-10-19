@@ -7,6 +7,7 @@ const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { isMode, normalizeMode, decideCodex, browserTool } = require('../modes');
 const { READS } = require('../pane-lease');
 const { INSTRUCTIONS } = require('../../shared/browser-tools');
+const { classify } = require('../../shared/turn-error');
 const shellEnv = require('../shell-env');
 
 const CLIENT = {
@@ -260,7 +261,13 @@ class AcpSession extends EventEmitter {
       .catch((e) => {
         this.busy = false;
         this.#closeStream();
-        this.emit('error', e?.message || String(e));
+        this.#emit({
+          type: 'result',
+          subtype: 'error',
+          is_error: true,
+          duration_ms: this.startedAt ? Date.now() - this.startedAt : 0,
+          turnError: classify.acp(e, this.spec.id),
+        });
       });
   }
 
