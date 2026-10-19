@@ -253,7 +253,8 @@ async function readSession(cwd, id) {
     // What an Agent call came back with: how long it ran, how much it did, and
     // what it concluded. Cheaper and more exact than parsing the result text.
     const agent = o.toolUseResult?.agentId ? summarise(o.toolUseResult) : null;
-    out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...(agent ? { agent } : {}) });
+    const failed = o.isApiErrorMessage ? { error: o.error || 'unknown' } : {};
+    out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...failed, ...(agent ? { agent } : {}) });
   }
 
   const budget = { images: MAX_IMAGES };
