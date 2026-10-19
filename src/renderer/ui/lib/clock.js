@@ -6,7 +6,9 @@ import { useEffect, useState } from 'react';
 
 export const clock = (ms) => {
   const s = Math.max(0, Math.round(ms / 1000));
-  return s < 60 ? `0:${String(s).padStart(2, '0')}` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const pad = (n) => String(n).padStart(2, '0');
+  if (s >= 3600) return `${Math.floor(s / 3600)}:${pad(Math.floor(s / 60) % 60)}:${pad(s % 60)}`;
+  return `${Math.floor(s / 60)}:${pad(s % 60)}`;
 };
 
 // A repaint a second while `live`, and no timer at all when it is not. The

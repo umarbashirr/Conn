@@ -742,6 +742,29 @@ function UserRow({ item, agent }) {
   );
 }
 
+function TurnErrorRow({ item, agent }) {
+  const { kind, action, retryAt, message, detail } = item.turnError;
+  const at = agent.items.findIndex((it) => it.id === item.id);
+  const asked = (it) => it.kind === 'user';
+  // Retry on an older turn would rewind past every turn after it.
+  const latest = agent.items.slice(0, at).some(asked) && !agent.items.slice(at + 1).some(asked);
+  const left = latest && action === 'wait' && retryAt ? retryAt - Date.now() : 0;
+  useTick(left > 0);
+  return (
+    <div data-turn-error={kind} className="flex flex-col items-start gap-1.5 py-1">
+      <div className="text-[13px] text-destructive">
+        {message.split('`').map((part, i) => (i % 2 ? <code key={i} className="rounded bg-muted px-1 font-mono text-foreground text-xs">{part}</code> : part))}
+      </div>
+      {detail && <div className="text-muted-foreground text-xs">{detail}</div>}
+      {latest && (
+        <Button size="xs" variant="outline" disabled={agent.busy || left > 0} onClick={() => agent.retryTurn(item.id)}>
+          {left > 0 ? `Retry in ${clock(Math.ceil(left / 1000) * 1000)}` : 'Retry'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function Item({ item, agent, mark }) {
   const onDecide = agent.decide;
 
@@ -946,6 +969,8 @@ function Item({ item, agent, mark }) {
       </div>
     );
   }
+
+  if (item.turnError) return <TurnErrorRow item={item} agent={agent} />;
 
   return (
     <div className={`font-mono text-xs ${item.error ? 'text-destructive' : 'text-muted-foreground'}`}>
