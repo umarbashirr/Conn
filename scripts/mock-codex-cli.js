@@ -38,6 +38,12 @@ function onMessage(msg) {
   }
   if (msg.method === 'turn/start') {
     send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'mock-turn', status: 'inProgress' } } });
+    if (/limit/i.test(JSON.stringify(msg.params?.input || ''))) {
+      const error = { message: "You've hit your usage limit.", codexErrorInfo: 'usageLimitExceeded' };
+      notify('account/rateLimits/updated', { rateLimits: { primary: { usedPercent: 100, resetsAt: Math.floor(Date.now() / 1000) + 600 } } });
+      notify('error', { threadId: 'mock-thread', turnId: 'mock-turn', error, willRetry: false });
+      return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'failed', error } });
+    }
     return notify('item/started', {
       threadId: 'mock-thread',
       turnId: 'mock-turn',

@@ -96,6 +96,17 @@ fs.mkdirSync(odd, { recursive: true });
 fs.writeFileSync(path.join(odd, `${SESSION}999999999999.jsonl`), JSON.stringify(queued()) + '\n' + JSON.stringify(user('hi', { cwd: other })) + '\n');
 check('project-folder-found-by-recorded-cwd', history.projectDir(other) === odd, history.projectDir(other));
 
-fs.rmSync(home, { recursive: true, force: true });
-console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
-process.exit(failures.length ? 1 : 0);
+const limited = write([
+  user('hello'),
+  { type: 'assistant', error: 'rate_limit', isApiErrorMessage: true, apiErrorStatus: 429, message: { content: [{ type: 'text', text: "You've hit your session limit" }] } },
+  { type: 'assistant', message: { content: [{ type: 'text', text: 'fine' }] } },
+]);
+
+history.readSession(cwd, limited).then(({ messages }) => {
+  check('api-error-line-keeps-its-reason', messages[1]?.error === 'rate_limit', JSON.stringify(messages[1]));
+  check('ordinary-reply-has-no-error', messages[2] && !('error' in messages[2]), JSON.stringify(messages[2]));
+}).finally(() => {
+  fs.rmSync(home, { recursive: true, force: true });
+  console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
+  process.exit(failures.length ? 1 : 0);
+});

@@ -138,6 +138,8 @@ async function handlePrompt(id, params) {
     });
   }
 
+  if (/\bauth\b/i.test(text)) return fail(id, 'Authentication required', -32000);
+
   if (/\bhang\b/i.test(text)) {
     tool(sessionId, 't-hang', 'sleep', 'execute', { command: 'sleep 600' });
     return;

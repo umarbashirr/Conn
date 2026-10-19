@@ -1,4 +1,5 @@
 import { chatTitle } from '../../shared/chat-title';
+import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -75,6 +76,11 @@ function replay(messages, parent) {
     if (!Array.isArray(content)) continue;
 
     if (m.type === 'assistant') {
+      if (m.error && !parent) {
+        const turnError = classify.claude({ error: m.error, text: content.map((b) => b.text || '').join('\n') });
+        out.push({ id: `${own}${out.length}`, kind: 'note', ended: true, error: true, text: turnError.message, turnError });
+        continue;
+      }
       for (const b of content) {
         if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
         else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${own}${out.length}`, kind: 'assistant', text: b.text, ...base });
@@ -457,6 +463,17 @@ export function useAgent() {
         return;
       }
 
+      if (msg.type === 'rate_limit_event' && !parent) {
+        edit(chat, (c) => ({ ...c, failure: { ...c.failure, limit: msg.rate_limit_info } }));
+        return;
+      }
+
+      if (msg.type === 'assistant' && msg.error && !parent) {
+        const text = (msg.message?.content || []).map((b) => b.text || '').join('\n');
+        edit(chat, (c) => ({ ...c, failure: { ...c.failure, error: msg.error, text } }));
+        return;
+      }
+
       if (msg.type === 'assistant') {
         // How full the window is, which is the size of the request this reply
         // came back from. A subagent has a window of its own, so only the main
@@ -528,25 +545,33 @@ export function useAgent() {
 
       if (msg.type === 'result') {
         const secs = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
-        const failed = msg.subtype && msg.subtype !== 'success';
+        const failed = msg.is_error === true || (msg.subtype && msg.subtype !== 'success');
         const away = chat !== activeRef.current;
-        edit(chat, (c) => ({
-          ...c,
-          busy: false,
-          endedUnseen: away,
-          toastDue: away ? (failed ? 'error' : 'done') : null,
-          usage: account(c.usage, msg),
-          // A blocking agent cannot outlive the turn that was waiting on it. If
-          // its notification went missing, the turn ending says the same thing,
-          // and a row that spins forever is worse than one that stops early.
-          items: [...endTurn(c.items, 'done'), {
-            id: uid('r'),
-            kind: 'note',
-            ended: true,
-            error: !!failed,
-            text: failed ? `turn ended: ${msg.subtype} ${secs}` : `done in ${secs}`,
-          }],
-        }));
+        edit(chat, (c) => {
+          const turnError = failed && !c.stopped
+            ? msg.turnError ?? classify.claude({ ...c.failure, result: msg })
+            : null;
+          return {
+            ...c,
+            failure: null,
+            stopped: false,
+            busy: false,
+            endedUnseen: away,
+            toastDue: away ? (failed ? 'error' : 'done') : null,
+            usage: account(c.usage, msg),
+            // A blocking agent cannot outlive the turn that was waiting on it. If
+            // its notification went missing, the turn ending says the same thing,
+            // and a row that spins forever is worse than one that stops early.
+            items: [...endTurn(c.items, 'done'), {
+              id: uid('r'),
+              kind: 'note',
+              ended: true,
+              error: !!failed,
+              text: turnError ? turnError.message : failed ? `turn ended: ${msg.subtype} ${secs}` : `done in ${secs}`,
+              ...(turnError && { turnError }),
+            }],
+          };
+        });
         window.connRail?.refresh();
       }
     }));
@@ -593,12 +618,15 @@ export function useAgent() {
     offs.push(conn().agent.onError(({ chat, error }) => {
       const key = chat || activeRef.current;
       const away = key !== activeRef.current;
-      edit(key, (c) => ({
-        ...c,
-        busy: false,
-        endedUnseen: away,
-        items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: `agent error: ${error}` }],
-      }));
+      edit(key, (c) => {
+        const turnError = classify.text(c.provider, error);
+        return {
+          ...c,
+          busy: false,
+          endedUnseen: away,
+          items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: turnError.message, turnError }],
+        };
+      });
       const finished = away && chatsRef.current.find((c) => c.key === key);
       if (finished) toastEnd(finished, true);
     }));
@@ -772,6 +800,8 @@ export function useAgent() {
       // Only a turn starting from idle resets it.
       startedAt: c.busy ? c.startedAt : Date.now(),
       busy: true,
+      failure: null,
+      stopped: false,
       title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
       items: [...c.items, { id, kind: 'user', text, images, ...(resent && { resent }) }],
     }));
@@ -824,6 +854,13 @@ export function useAgent() {
     edit(key, (c) => ({ ...c, session: res.sessionId, items: before(c.items, id, res.uuids) }));
     sendTo(key, text, images, { session: res.sessionId });
   }, [edit, sendTo]);
+
+  const retryTurn = useCallback((noteId) => {
+    const items = chatsRef.current.find((c) => c.key === activeRef.current)?.items || [];
+    const at = items.findIndex((it) => it.id === noteId);
+    const user = at < 0 ? null : items.slice(0, at).reverse().find((it) => it.kind === 'user' && !it.parent);
+    if (user) redo(user.id, 'retry', user.text, user.images || []);
+  }, [redo]);
 
   const enqueue = useCallback((text, images = []) => {
     if (!text.trim()) return;
@@ -962,6 +999,7 @@ export function useAgent() {
       queued: c.queued.map((m) => ({ ...m, held: true, now: false })),
       busy: false,
       usage: withStop(c.usage),
+      stopped: true,
       items: interrupted(c.items),
     }));
     await conn().agent.interrupt(key);
@@ -980,6 +1018,7 @@ export function useAgent() {
     edit(key, (c) => ({
       ...c,
       queued: c.queued.map((m) => (m.id === head.id ? { ...m, now: true } : m)),
+      stopped: true,
       items: interrupted(c.items),
     }));
     await conn().agent.interrupt(key);
@@ -1353,7 +1392,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, redo, enqueue, unqueue, editQueued, sendNow, sendNext,
+    send, redo, retryTurn, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

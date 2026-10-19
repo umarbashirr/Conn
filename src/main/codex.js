@@ -27,6 +27,7 @@ const { codexBinary, CLIENT } = require('./codex-driver');
 const { configuredServers } = require('./codex-catalog');
 const { INSTRUCTIONS, TOOL_PREFIX } = require('../shared/browser-tools');
 const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
+const { classify } = require('../shared/turn-error');
 const shellEnv = require('./shell-env');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -141,6 +142,7 @@ class CodexSession extends EventEmitter {
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
     this.window = 0;              // how many tokens this model's window holds
     this.limits = null;           // last account/rateLimits/updated
+    this.pendingError = null;
     this.startedAt = 0;
     this.starting = null;         // the turn/start still in flight, if there is one
     // What codex is set to right now, which is not always what the mode says.
@@ -508,15 +510,17 @@ class CodexSession extends EventEmitter {
     if (method === 'turn/completed') return this.#turnDone(params.turn || {});
 
     /* A turn that went wrong says so twice: this, and then turn/completed with
-       a status of failed. Only the second one ends the turn, so this says what
-       happened and touches nothing else. Clearing busy here instead would let
-       the next message start a turn while this one is still running, and a
-       retryable error is not the end of anything at all. */
+       a status of failed. Only the second one ends the turn, so while a turn
+       runs this is kept for turn/completed to carry and touches nothing else.
+       Clearing busy here instead would let the next message start a turn while
+       this one is still running, and a retryable error is not the end of
+       anything at all. */
     if (method === 'error') {
       const why = params.error?.message || 'the turn failed';
       // A retry is not a failure yet, so it goes where the log goes rather than
       // putting a red card in the transcript for something codex went on to do.
       if (params.willRetry) this.emit('stderr', `codex is retrying after: ${why}\n`);
+      else if (this.busy) this.pendingError = params.error || { message: why };
       else this.emit('error', why);
       return;
     }
@@ -585,9 +589,12 @@ class CodexSession extends EventEmitter {
     this.starting = null;
     this.edits.clear();
     const failed = turn.status && turn.status !== 'completed';
+    const why = turn.error || this.pendingError;
+    this.pendingError = null;
     this.#emit({
       type: 'result',
       subtype: failed ? (turn.error?.message ? 'error' : turn.status) : 'success',
+      ...(failed && turn.status !== 'interrupted' ? { is_error: true, turnError: classify.codex(why, this.limits) } : {}),
       duration_ms: turn.durationMs ?? (this.startedAt ? Date.now() - this.startedAt : 0),
       usage: this.usage ? this.#apiUsage(this.usage) : undefined,
       // What the panel actually accounts from, and it wants the running total
