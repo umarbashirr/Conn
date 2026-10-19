@@ -117,6 +117,17 @@ async function main() {
     const zoomed = await untilWidthsStable(zoomedInner);
     check('changes-has-width-when-zoomed', zoomed.right >= zoomedInner * 0.4, J(zoomed));
     check('chat-has-width-when-zoomed', zoomed.agent >= zoomedInner * 0.4, J(zoomed));
+
+    await evaluate(s, `window.__paneErrors = []; addEventListener('error', (e) => __paneErrors.push(String(e.message)))`);
+    await evaluate(s, `electron.BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)`, { main: true });
+    const doubledInner = await until(async () => {
+      const cur = await widths();
+      return cur.inner < 410 ? cur.inner : null;
+    });
+    const doubled = await untilWidthsStable(doubledInner);
+    const errors = await evaluate(s, `__paneErrors`);
+    check('no-layout-error-at-zoom-2', errors.length === 0, J(errors));
+    check('both-panes-have-width-at-zoom-2', doubled.agent >= doubledInner * 0.4 && doubled.right >= doubledInner * 0.4, J(doubled));
   } finally {
     await stop(s).catch((e) => console.log(`stop: ${e.message}`));
   }
