@@ -83,11 +83,13 @@ export function usePaneCover(open) {
 
 const RAIL_FLOOR = 160;
 const RAIL_MAX = 420;
-const CHAT_FLOOR = 300;
-const RIGHT_FLOOR = 300;
+const PANE_FLOOR = 300;
 const HANDLE = 1;
-const CONTENT_FLOOR = CHAT_FLOOR + HANDLE + RIGHT_FLOOR;
-const WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN = RAIL_MAX + HANDLE + CONTENT_FLOOR;
+const WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN = RAIL_MAX + HANDLE + PANE_FLOOR + HANDLE + PANE_FLOOR;
+
+// Zoomed in, a narrow window can have fewer CSS pixels than two full floors,
+// and the library keeps a column it cannot fit collapsed at 1 px.
+const paneFloorFor = (width) => Math.min(PANE_FLOOR, Math.floor((width - 2 * HANDLE) / 2));
 
 // ----------------------------------------------------------------- the tabs
 
@@ -262,13 +264,23 @@ export default function Shell() {
     groupsRegistered.current = true;
     holdPanelsToStore();
   }, [railOpen, rightOpen, full]);
+  // A floor change re-registers the groups, and they report layout changes
+  // while half registered, so the hold waits for the next frame.
+  const holdFrame = useRef(0);
   const onLayoutChange = () => {
-    if (groupsRegistered.current) holdPanelsToStore();
+    if (groupsRegistered.current) {
+      cancelAnimationFrame(holdFrame.current);
+      holdFrame.current = requestAnimationFrame(holdPanelsToStore);
+    }
     relayoutNow();
   };
 
+  const [paneFloor, setPaneFloor] = useState(() => paneFloorFor(innerWidth));
   useEffect(() => {
-    const measure = () => setLayout({ tooNarrowForRail: innerWidth < WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN });
+    const measure = () => {
+      setLayout({ tooNarrowForRail: innerWidth < WIDE_ENOUGH_FOR_RAIL_BESIDE_COLUMN });
+      setPaneFloor(paneFloorFor(innerWidth));
+    };
     measure();
     addEventListener('resize', measure);
     return () => removeEventListener('resize', measure);
@@ -303,9 +315,9 @@ export default function Shell() {
             tree so collapsing the rail does not remount the content group. */}
         <ResizableHandle className={railOpen ? undefined : 'pointer-events-none opacity-0'} />
 
-        <ResizablePanel id="content" minSize={CONTENT_FLOOR}>
+        <ResizablePanel id="content" minSize={paneFloor + HANDLE + paneFloor}>
           <ResizablePanelGroup orientation="horizontal" onLayoutChange={onLayoutChange}>
-            <ResizablePanel id="agent" panelRef={agent} collapsible minSize={CHAT_FLOOR}>
+            <ResizablePanel id="agent" panelRef={agent} collapsible minSize={paneFloor}>
               <section id="agent">
                 <div id="agent-root"><App /></div>
                 <Welcome />
@@ -317,7 +329,7 @@ export default function Shell() {
                 app.js still thought those shells were alive. Collapse is what
                 hides a pane; the handle just sits between two real panels. */}
             <ResizableHandle className={(full || !rightOpen) ? 'pointer-events-none opacity-0' : undefined} />
-            <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize={RIGHT_FLOOR}>
+            <ResizablePanel id="right" panelRef={right} collapsible defaultSize="42" minSize={paneFloor}>
               <section id="right" data-full={full || undefined}>
                 <TabStrip />
                 <BrowserView />

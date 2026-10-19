@@ -103,6 +103,31 @@ async function main() {
     const regrown = await resize(1440);
     check('rail-the-user-closed-stays-closed', regrown.rail === 0, J(regrown));
     check('chat-is-wide-at-1440', regrown.agent > 600, J(regrown));
+
+    // At zoom 1.5 an 800 px window is 533 CSS px, less than the two floors.
+    await key(s, 'Ctrl+Shift+G');
+    await until(async () => ((await widths()).right <= 1 ? true : null), 3000);
+    await evaluate(s, `(w => { w.webContents.setZoomFactor(1.5); w.setContentSize(800, 900); })(electron.BrowserWindow.getAllWindows()[0])`, { main: true });
+    const zoomedInner = await until(async () => {
+      const cur = await widths();
+      return cur.inner < 540 ? cur.inner : null;
+    });
+    await key(s, 'Ctrl+Shift+G');
+    await changesListed();
+    const zoomed = await untilWidthsStable(zoomedInner);
+    check('changes-has-width-when-zoomed', zoomed.right >= zoomedInner * 0.4, J(zoomed));
+    check('chat-has-width-when-zoomed', zoomed.agent >= zoomedInner * 0.4, J(zoomed));
+
+    await evaluate(s, `window.__paneErrors = []; addEventListener('error', (e) => __paneErrors.push(String(e.message)))`);
+    await evaluate(s, `electron.BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2)`, { main: true });
+    const doubledInner = await until(async () => {
+      const cur = await widths();
+      return cur.inner < 410 ? cur.inner : null;
+    });
+    const doubled = await untilWidthsStable(doubledInner);
+    const errors = await evaluate(s, `__paneErrors`);
+    check('no-layout-error-at-zoom-2', errors.length === 0, J(errors));
+    check('both-panes-have-width-at-zoom-2', doubled.agent >= doubledInner * 0.4 && doubled.right >= doubledInner * 0.4, J(doubled));
   } finally {
     await stop(s).catch((e) => console.log(`stop: ${e.message}`));
   }
