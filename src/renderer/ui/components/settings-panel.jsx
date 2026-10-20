@@ -606,6 +606,13 @@ function ChatPrefs({ settings, set }) {
           </SelectContent>
         </Select>
       </Row>
+      <Row
+        label="Notify when a chat finishes or needs you while Conn is in the background"
+        hint="A turn that ran longer than 5 seconds, or any permission request. Clicking the notification opens the chat.">
+        <Switch
+          checked={settings.notifications.enabled}
+          onCheckedChange={(enabled) => set({ notifications: { enabled } })} />
+      </Row>
     </Section>
   );
 }
