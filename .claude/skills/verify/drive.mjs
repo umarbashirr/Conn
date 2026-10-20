@@ -135,19 +135,27 @@ export function sessions() {
   });
 }
 
-const standIn = `(() => {
+const standIn = (claude) => `(() => {
   const { ipcMain, BrowserWindow, View } = electron;
   const { AgentSession } = req('./agent');
   globalThis.__decided = [];
   globalThis.__bounds = [];
-  AgentSession.prototype.start = async function start() {
-    globalThis.__agent = this;
-    this.sessionId = '7a7a7a7a-0000-4000-8000-000000000001';
-    setTimeout(() => this.emit('ready', { sessionId: this.sessionId }), 0);
-  };
-  AgentSession.prototype.send = function send() {};
-  AgentSession.prototype.models = async function models() { return []; };
-  AgentSession.prototype.decide = function decide(id, decision, input) { globalThis.__decided.push({ id, decision, input }); };
+  if (${claude}) {
+    const decide = AgentSession.prototype.decide;
+    AgentSession.prototype.decide = function recordAndDecide(id, decision, input) {
+      globalThis.__decided.push({ id, decision, input });
+      return decide.call(this, id, decision, input);
+    };
+  } else {
+    AgentSession.prototype.start = async function start() {
+      globalThis.__agent = this;
+      this.sessionId = '7a7a7a7a-0000-4000-8000-000000000001';
+      setTimeout(() => this.emit('ready', { sessionId: this.sessionId }), 0);
+    };
+    AgentSession.prototype.send = function send() {};
+    AgentSession.prototype.models = async function models() { return []; };
+    AgentSession.prototype.decide = function decide(id, decision, input) { globalThis.__decided.push({ id, decision, input }); };
+  }
   ipcMain.on('browser:bounds', (_e, b) => { globalThis.__bounds.push(b); if (globalThis.__bounds.length > 50) globalThis.__bounds.shift(); });
   const setVisible = View.prototype.setVisible;
   View.prototype.setVisible = function setVisibleAndRemember(v) { this.__shown = v; return setVisible.call(this, v); };
@@ -185,11 +193,25 @@ const standIn = `(() => {
 
 const save = (s) => fs.writeFileSync(path.join(s.dir, 'session.json'), J(s));
 
-export async function boot({ root = ROOT, xvfb = false } = {}) {
+async function claudeApi(s) {
+  const out = path.join(s.dir, 'api.log');
+  const fd = fs.openSync(out, 'w');
+  const child = spawn(process.execPath, [path.join(HERE, 'claude-api.mjs'), s.project], { cwd: s.dir, detached: true, stdio: ['ignore', fd, fd], env: { ...process.env, HOME: s.home } });
+  child.unref();
+  const port = Number(await until(() => /listening (\d+)/.exec(read(out))?.[1], 10000));
+  if (!port) throw new Error(`the stand-in API did not start:\n${read(out)}`);
+  return {
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
+    ANTHROPIC_API_KEY: 'sk-ant-conn-verify',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  };
+}
+
+export async function boot({ root = ROOT, xvfb = false, claude = false } = {}) {
   if (!fs.existsSync(path.join(root, 'build', 'renderer', 'index.html'))) throw new Error('no renderer build: run `npx vite build` first');
   const began = Date.now();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-'));
-  const s = { dir, root, driver: HERE, startedAt: new Date().toISOString(), home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata') };
+  const s = { dir, root, driver: HERE, startedAt: new Date().toISOString(), home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata'), claude };
   fs.mkdirSync(path.join(s.home, '.conn'), { recursive: true });
   fs.cpSync(FIXTURE, s.project, { recursive: true });
   const git = (...args) => execFileSync('git', ['-c', 'user.name=verify', '-c', 'user.email=verify@conn.invalid', '-c', 'commit.gpgsign=false', ...args],
@@ -209,6 +231,10 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
   const [cmd, argv] = xvfb ? ['xvfb-run', ['-a', '-s', '-screen 0 1600x1000x24', electron, ...args]] : [electron, args];
   const env = { ...process.env, HOME: s.home, CONN_CWD: s.project };
   delete env.ELECTRON_RUN_AS_NODE;
+  if (claude) {
+    for (const k of Object.keys(env)) if (/^(CLAUDE|ANTHROPIC)/.test(k)) delete env[k];
+    Object.assign(env, await claudeApi(s));
+  }
   const logFile = path.join(dir, 'app.log');
   const log = fs.openSync(logFile, 'w');
   const child = spawn(cmd, argv, { detached: true, stdio: ['ignore', log, log], env });
@@ -228,7 +254,7 @@ export async function boot({ root = ROOT, xvfb = false } = {}) {
     save(s);
     const ready = await until(() => { alive(); return page(s, (c) => c.run('!!window.connChat')).catch(() => false); }, 45000);
     if (!ready) throw new Error('the chat never mounted');
-    await evaluate(s, standIn, { main: true });
+    await evaluate(s, standIn(claude), { main: true });
     await evaluate(s, 'electron.BrowserWindow.getAllWindows()[0].setContentSize(1440, 900)', { main: true });
     await sleep(1000);
   } catch (e) {
@@ -292,7 +318,8 @@ export async function doctor(s, { root = s?.root || ROOT } = {}) {
     await row('inspector-answers', async () => need((await main(s, (c) => c.run('process.pid'))) > 0, 'the inspector gave no pid'));
     await row('window-mounted', async () => need(await evaluate(s, '!!window.connChat'), 'no window.connChat'));
     await row('agent-stand-in', async () => need(await evaluate(s, 'Array.isArray(globalThis.__decided)', { main: true }), 'boot did not finish'));
-    await row('chat-started', async () => ((await evaluate(s, '!!globalThis.__agent', { main: true })) ? 'a chat is live' : 'no chat yet; say, perm and invoke start one'));
+    if (s.claude) await row('stand-in-api', () => `the real claude CLI talks to ${read(path.join(s.dir, 'api.log')).trim()}`);
+    else await row('chat-started', async () => ((await evaluate(s, '!!globalThis.__agent', { main: true })) ? 'a chat is live' : 'no chat yet; say, perm and invoke start one'));
   }
   return rows;
 }
@@ -306,6 +333,7 @@ const emit = (c, event, payload) => c.run(`globalThis.__agent.emit(${J(event)}, 
 const untilDrawn = (s) => evaluate(s, 'new Promise((r) => setTimeout(() => requestAnimationFrame(() => requestAnimationFrame(r)), 100))', { awaitPromise: true });
 
 async function ensureChat(s, prompt = 'Hello') {
+  if (s.claude) throw new Error('this instance runs the real claude CLI; type a prompt into the composer instead of say, perm or invoke');
   if (await evaluate(s, '!!globalThis.__agent', { main: true })) return;
   await evaluate(s, `document.querySelector('#agent-root [contenteditable="true"]').focus()`);
   await type(s, prompt);
@@ -435,11 +463,23 @@ const targetOf = (t) => {
   return at ? { at: [Number(at[1]), Number(at[2])] } : { text: t };
 };
 
-export const click = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
+const locate = async (c, target, wait, verb) => {
   const hit = await until(() => c.run(`(${locateInPage})(${J(targetOf(target))})`), wait);
-  if (!hit) throw new Error(`nothing to click for ${target}`);
+  if (!hit) throw new Error(`nothing to ${verb} for ${target}`);
+  return hit;
+};
+
+export const click = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
+  const hit = await locate(c, target, wait, 'click');
   const events = [['mouseMoved', { button: 'none', buttons: 0 }], ['mousePressed', { button: 'left', buttons: 1, clickCount: 1 }], ['mouseReleased', { button: 'left', buttons: 0, clickCount: 1 }]];
   for (const [type, rest] of events) await c.send('Input.dispatchMouseEvent', { type, x: hit.x, y: hit.y, ...rest });
+  await sleep(250);
+  return hit;
+});
+
+export const hover = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
+  const hit = await locate(c, target, wait, 'hover');
+  await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y, button: 'none', buttons: 0 });
   await sleep(250);
   return hit;
 });
@@ -643,7 +683,7 @@ export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.b
   return out;
 }
 
-const BOOLEAN = new Set(['smoke', 'xvfb', 'open', 'bare', 'main', 'enter', 'no-preview']);
+const BOOLEAN = new Set(['smoke', 'xvfb', 'claude', 'open', 'bare', 'main', 'enter', 'no-preview']);
 
 function parse(argv) {
   const pos = [];
@@ -663,7 +703,7 @@ const stdin = async () => { let t = ''; for await (const c of process.stdin) t +
 
 const COMMANDS = {
   async boot({ flags }) {
-    const s = await boot({ xvfb: !!flags.xvfb, ...(flags.root && { root: path.resolve(flags.root) }) });
+    const s = await boot({ xvfb: !!flags.xvfb, claude: !!flags.claude, ...(flags.root && { root: path.resolve(flags.root) }) });
     console.log(`ready inspect=${s.inspect} cdp=${s.cdp} boot=${s.bootMs}ms\nsession ${s.dir}\nproject ${s.project}`);
   },
   async doctor({ s, flags }) {
@@ -695,6 +735,10 @@ const COMMANDS = {
     const hit = await click(s, pos[1]);
     console.log(`clicked ${hit.label ? `"${hit.label}" ` : ''}at ${hit.x},${hit.y}`);
     if (hit.covered) console.error(`warning: a <${hit.covered}> is on top of that point`);
+  },
+  async hover({ s, pos }) {
+    const hit = await hover(s, pos[1]);
+    console.log(`hovered ${hit.label ? `"${hit.label}" ` : ''}at ${hit.x},${hit.y}`);
   },
   async drag({ s, pos }) {
     const [x0, y0, x1, y1] = pos.slice(1, 5).map(Number);

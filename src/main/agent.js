@@ -5,6 +5,7 @@
 const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const fs = require('fs');
+const path = require('path');
 const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
@@ -49,6 +50,7 @@ class AgentSession extends EventEmitter {
     this.mcpOff = mcpOff || [];
     this.sessionId = null;
     this.query = null;
+    this.starting = null;
     // Who is driving. A subagent's tool calls are only distinguishable from the
     // main thread's by working backwards: the permission callback knows the
     // agent id outright, and failing that the assistant message carrying the
@@ -66,7 +68,11 @@ class AgentSession extends EventEmitter {
     this.dynamic = Object.fromEntries((shared || []).map(({ name, ...s }) => [name, { type: 'stdio', ...s }]));
   }
 
-  async start() {
+  start() {
+    return (this.starting ||= this.#boot());
+  }
+
+  async #boot() {
     // Before anything spawns: the CLI is about to be started with whatever
     // environment this returns, and a chat sent seconds after launch would
     // otherwise race the shell and go out without the user's own settings.
@@ -141,6 +147,7 @@ class AgentSession extends EventEmitter {
         // Continue an earlier session in place. forkSession stays off so the
         // transcript keeps one id and one file on disk.
         ...(this.resume ? { resume: this.resume, forkSession: false } : {}),
+        enableFileCheckpointing: true,
         stderr: (d) => this.emit('stderr', d),
         pathToClaudeCodeExecutable: bin,
       },
@@ -408,6 +415,49 @@ class AgentSession extends EventEmitter {
       // blank. Whatever went wrong, say so where it can be read.
       return { error: e?.message || String(e) };
     }
+  }
+
+  async #live() {
+    if (!this.starting) return null;
+    try { await this.starting; } catch { return null; }
+    return this.closed ? null : this.query;
+  }
+
+  async editsSince(uuid) {
+    const q = await this.#live();
+    if (!q) return { error: 'this chat has no live session' };
+    if (this.working) return { error: 'this chat is still working' };
+    try {
+      return this.#editsFrom(await q.rewindFiles(uuid, { dryRun: true }));
+    } catch (e) {
+      return { error: e?.message || String(e) };
+    }
+  }
+
+  async undoEdits(uuid) {
+    const seen = await this.editsSince(uuid);
+    if (seen.error) return seen;
+    if (!seen.files.length) return { files: [], skipped: 0 };
+    if (this.working || this.closed) return { error: 'this chat is still working' };
+    try {
+      const res = await this.query.rewindFiles(uuid);
+      // Only the real rewind counts the links it refused to write through. The
+      // dry run listed them as files like any other.
+      return res?.canRewind
+        ? { files: seen.files, skipped: res.skippedLinks || 0 }
+        : { error: res?.error || 'the CLI would not undo these edits' };
+    } catch (e) {
+      return { error: e?.message || String(e) };
+    }
+  }
+
+  #editsFrom(res) {
+    if (!res?.canRewind) return { error: res?.error || 'cannot undo' };
+    const files = (res.filesChanged || []).map((f) => {
+      const r = path.relative(this.cwd, f);
+      return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : f;
+    });
+    return { files, insertions: res.insertions || 0, deletions: res.deletions || 0 };
   }
 
   // What /usage shows: session totals, and on a subscription the share of the
