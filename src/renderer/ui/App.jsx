@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon } from 'lucide-react';
+import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -19,6 +19,7 @@ import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
+import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -677,6 +678,8 @@ function UserRow({ item, agent }) {
   const input = useRef(null);
   const editing = draft !== null;
   const images = item.images || [];
+  const [shownOffer, setShownOffer] = useState(null);
+  const { offer, bind } = useEditsOffer(item, agent, editing || !!shownOffer);
 
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -688,57 +691,68 @@ function UserRow({ item, agent }) {
   };
   const empty = editing && !draft.trim() && !images.length;
 
+  // The dialog sits beside the row, not in it. React bubbles a portal's events
+  // up its component tree, and the row would take focus in the dialog as its own.
   return (
-    <Message from="user" className="mt-1.5 flex-row items-end">
-      {!editing && (
-        <MessageActions className="ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          <MessageAction label="Edit" title="Edit this message" size="icon-xs" disabled={agent.busy} onClick={() => setDraft(item.text)}>
-            <PencilIcon className="size-3.5" />
-          </MessageAction>
-          <MessageAction
-            label="Retry"
-            title="Send this message again"
-            size="icon-xs"
-            disabled={agent.busy}
-            onClick={() => agent.redo(item.id, 'retry', item.text, images)}>
-            <RotateCcwIcon className="size-3.5" />
-          </MessageAction>
-        </MessageActions>
-      )}
-      <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap group-[.is-user]:ml-0'}>
-        {images.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {images.map((img, i) => (
-              <img
-                key={i}
-                alt={img.name || 'attachment'}
-                title={img.name}
-                className="max-h-40 rounded-md border"
-                src={`data:${img.media};base64,${img.data}`} />
-            ))}
-          </div>
+    <>
+      <Message from="user" className="mt-1.5 flex-row items-end" {...bind}>
+        {!editing && (
+          <MessageActions className="ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {offer && (
+              <MessageAction label="Undo edits" title={`Undo edits to ${fileCount(offer.files.length)} from this message on`} size="xs" onClick={() => setShownOffer(offer)}>
+                <Undo2Icon className="size-3.5" />{offer.files.length}
+              </MessageAction>
+            )}
+            <MessageAction label="Edit" title="Edit this message" size="icon-xs" disabled={agent.busy} onClick={() => setDraft(item.text)}>
+              <PencilIcon className="size-3.5" />
+            </MessageAction>
+            <MessageAction
+              label="Retry"
+              title="Send this message again"
+              size="icon-xs"
+              disabled={agent.busy}
+              onClick={() => agent.redo(item.id, 'retry', item.text, images)}>
+              <RotateCcwIcon className="size-3.5" />
+            </MessageAction>
+          </MessageActions>
         )}
-        {editing ? (
-          <>
-            <TokenInput
-              ref={input}
-              value={draft}
-              onChange={setDraft}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') { e.preventDefault(); setDraft(null); }
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!empty && !agent.busy) resend(); }
-              }}
-              placeholder="Edit this message"
-              className="min-h-8 px-0 py-0.5 text-sm" />
-            <div className="flex justify-end gap-1">
-              <Button type="button" variant="ghost" size="xs" onClick={() => setDraft(null)}>Cancel</Button>
-              <Button type="button" size="xs" disabled={empty || agent.busy} onClick={resend}>Send</Button>
+        <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap group-[.is-user]:ml-0'}>
+          {images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {images.map((img, i) => (
+                <img
+                  key={i}
+                  alt={img.name || 'attachment'}
+                  title={img.name}
+                  className="max-h-40 rounded-md border"
+                  src={`data:${img.media};base64,${img.data}`} />
+              ))}
             </div>
-          </>
-        ) : <TokenText text={item.text} />}
-        {item.resent && <span className="text-muted-foreground text-xs">{RESENT[item.resent]}</span>}
-      </MessageContent>
-    </Message>
+          )}
+          {editing ? (
+            <>
+              <TokenInput
+                ref={input}
+                value={draft}
+                onChange={setDraft}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') { e.preventDefault(); setDraft(null); }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!empty && !agent.busy) resend(); }
+                }}
+                placeholder="Edit this message"
+                className="min-h-8 px-0 py-0.5 text-sm" />
+              <div className="flex justify-end gap-1">
+                <Button type="button" variant="ghost" size="xs" onClick={() => setDraft(null)}>Cancel</Button>
+                <Button type="button" size="xs" disabled={empty || agent.busy} onClick={resend}>Send</Button>
+              </div>
+            </>
+          ) : <TokenText text={item.text} />}
+          {item.resent && <span className="text-muted-foreground text-xs">{RESENT[item.resent]}</span>}
+          {item.undone && <span className="text-muted-foreground text-xs">{undoneCaption(item.undone)}</span>}
+        </MessageContent>
+      </Message>
+      {shownOffer && <UndoEditsDialog offer={shownOffer} undo={() => agent.undoEdits(item.id)} onClose={() => setShownOffer(null)} />}
+    </>
   );
 }
 

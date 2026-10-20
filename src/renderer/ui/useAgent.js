@@ -5,6 +5,7 @@ import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
+import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
@@ -116,6 +117,9 @@ function replay(messages, parent) {
   }
   return out;
 }
+
+const editedAfter = (items, at) =>
+  items.slice(at + 1).some((it) => it.kind === 'agent' || (it.kind === 'tool' && bucketOf(it) === 'edit'));
 
 // The chat as it stood before item `id`, for a fork cut there. A kept Agent row
 // keeps the rows under it, even ones written after the cut. The fork renamed
@@ -862,6 +866,32 @@ export function useAgent() {
     if (user) redo(user.id, 'retry', user.text, user.images || []);
   }, [redo]);
 
+  const editsSince = useCallback(async (id) => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const at = chat ? chat.items.findIndex((it) => it.id === id) : -1;
+    const item = at < 0 ? null : chat.items[at];
+    if (!item?.forkAt || chat.provider !== 'claude' || chat.busy) return null;
+    if (!editedAfter(chat.items, at)) return null;
+    const res = await conn().agent.editsSince(key, chat.session, item.forkAt,
+      chat.project || focusedProject.current, chat.provider).catch(() => null);
+    return res?.files?.length ? res : null;
+  }, []);
+
+  const undoEdits = useCallback(async (id) => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const item = chat?.items.find((it) => it.id === id);
+    if (!item?.forkAt || chat.provider !== 'claude') return { error: 'only Claude chats can undo edits' };
+    if (chat.busy) return { error: 'this chat is still working' };
+    const res = await conn().agent.undoEdits(key, chat.session, item.forkAt,
+      chat.project || focusedProject.current, chat.provider).catch((e) => ({ error: e.message }));
+    if (!res || res.error) return res || { error: 'no answer' };
+    if (!res.files?.length) return { error: 'nothing left to undo' };
+    patch(key, id, { undone: { files: res.files.length, skipped: res.skipped || 0 } });
+    return res;
+  }, [patch]);
+
   const enqueue = useCallback((text, images = []) => {
     if (!text.trim()) return;
     edit(activeRef.current, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images }] }));
@@ -1392,7 +1422,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, redo, retryTurn, enqueue, unqueue, editQueued, sendNow, sendNext,
+    send, redo, retryTurn, editsSince, undoEdits, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
