@@ -189,6 +189,8 @@ contextBridge.exposeInMainWorld('conn', {
     onClosed: on('agent:closed'),
     onEcho: on('agent:echo'),
     onDecided: on('agent:decided'),
+    notify: (note) => ipcRenderer.send('agent:notify', note),
+    onReveal: on('agent:reveal'),
     onStderr: on('agent:stderr'),
     onDriver: on('agent:driver'),
   },

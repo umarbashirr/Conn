@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeImage, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeImage, Menu, Notification } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { BrowserPane, normalizeUrl } = require('./browser');
@@ -1102,6 +1102,7 @@ async function createWindow() {
   // button (a terminal `apt upgrade`, or install.sh run by hand) is most
   // likely to be caught.
   win.on('focus', () => updates?.checkRestart().catch(() => {}));
+  win.on('focus', () => win.flashFrame(false));
 
   win.on('closed', () => {
     for (const t of terms.values()) t.kill();
@@ -1818,6 +1819,21 @@ function registerIpc() {
   ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) => {
     if (settleBridge(id, decision)) return;
     sessions.get(chat)?.decide(id, decision, input);
+  });
+  const heldUntilClosed = new Set();
+  ipcMain.on('agent:notify', (_e, { chat, title, body }) => {
+    if (!settings.get('notifications').enabled || !win || win.isDestroyed() || win.isFocused()) return;
+    win.flashFrame(true);
+    if (!Notification.isSupported()) return;
+    const note = new Notification({ title: String(title), body: String(body), icon: iconPath() });
+    heldUntilClosed.add(note);
+    note.on('close', () => heldUntilClosed.delete(note));
+    note.on('click', () => {
+      heldUntilClosed.delete(note);
+      showWindow();
+      send('agent:reveal', { chat });
+    });
+    note.show();
   });
   ipcMain.handle('agent:info', (_e, { chat } = {}) => {
     const a = sessions.get(chat);

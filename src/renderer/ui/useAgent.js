@@ -15,16 +15,20 @@ const conn = () => window.conn;
 
 const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
 
+const LONG_TURN_MS = 5000;
+
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
 const isRunning = (it) => (it.kind === 'agent' || it.taskId) && it.status === 'running';
 // What keeps going once the turn that started it has ended.
 const outlivesTurn = (it) => isRunning(it) && it.background;
 
+const openChat = (chat) => window.connChat?.open({ key: chat.key, id: chat.session, project: chat.project, title: chat.title });
+
 const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with an error' : 'is done'}`, null, [{
   label: 'Open',
   primary: true,
-  run: () => window.connChat?.open({ key: chat.key, id: chat.session, project: chat.project, title: chat.title }),
+  run: () => openChat(chat),
 }], { duration: 10000 });
 
 const OPEN_CALL = new Set(['input-streaming', 'input-available']);
@@ -343,6 +347,11 @@ export function useAgent() {
   useEffect(() => {
     const offs = [];
 
+    const notify = (key, body) => {
+      const title = chatsRef.current.find((c) => c.key === key)?.title || 'Conn';
+      conn().agent.notify({ chat: key, title, body });
+    };
+
     offs.push(conn().agent.onMessage(({ chat, msg }) => {
       if (!chat || !msg) return;
       // Everything a subagent does carries the Agent call that started it.
@@ -577,6 +586,7 @@ export function useAgent() {
           };
         });
         window.connRail?.refresh();
+        if (msg.duration_ms >= LONG_TURN_MS) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
       }
     }));
 
@@ -610,6 +620,12 @@ export function useAgent() {
     offs.push(conn().agent.onPermission(({ chat, ...p }) => {
       push(chat, { ...p, id: p.id, kind: 'perm' });
       if (p.agent?.toolUseId) patch(chat, p.agent.toolUseId, { waiting: true });
+      notify(chat, `${p.tool} needs your permission`);
+    }));
+
+    offs.push(conn().agent.onReveal(({ chat }) => {
+      const found = chatsRef.current.find((c) => c.key === chat);
+      if (found) openChat(found);
     }));
 
     // The session can move the mode on its own: approving a plan leaves plan
