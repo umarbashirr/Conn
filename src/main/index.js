@@ -1236,6 +1236,21 @@ function registerIpc() {
     const forkAt = a.send(text, images);
     return { ok: true, sessionId: a.sessionId, ...(forkAt && { forkAt }) };
   });
+  ipcMain.handle('agent:rewind-files', async (_e, { chat, session, uuid, project, provider: on, dryRun } = {}) => {
+    const live = sessions.get(chat);
+    const up = live && !live.closed;
+    const otherCli = up && !(live instanceof AgentSession);
+    const nothingToResume = !up && !session;
+    if (on !== 'claude' || otherCli) return { error: 'only Claude chats keep file checkpoints' };
+    if (!uuid || nothingToResume) return { error: 'nothing to undo yet' };
+    let a;
+    try {
+      a = await ensureAgent({ chat, resume: session, project, provider: 'claude' });
+    } catch (e) {
+      return { error: e.message };
+    }
+    return dryRun ? a.editsSince(uuid) : a.undoEdits(uuid);
+  });
   // Forks before stopping the session: the CLI may not have written the last
   // turn to its transcript yet, and a stopped one never will.
   ipcMain.handle('agent:rewind', async (_e, { chat, session, uuid, project } = {}) => {
