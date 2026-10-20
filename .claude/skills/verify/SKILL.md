@@ -5,7 +5,7 @@ description: Boot Conn, the Electron app that puts a terminal, an agent chat and
 
 # Verify Conn
 
-`drive.mjs` in this folder boots one Conn instance and drives it. Every instance gets its own HOME, user-data dir and debug ports, so any number can run at once. No real agent runs. You play the agent with `say`, `perm` and `invoke`, and you play the user with `click`, `key` and `type`.
+`drive.mjs` in this folder boots one Conn instance and drives it. Every instance gets its own HOME, user-data dir and debug ports, so any number can run at once. By default no real agent runs. You play the agent with `say`, `perm` and `invoke`, and you play the user with `click`, `key` and `type`. With `--claude` the real claude CLI runs instead, against a scripted stand-in for the Messages API. See A real Claude turn.
 
 All commands run from the repo root as `node .claude/skills/verify/drive.mjs <command>`.
 
@@ -40,6 +40,7 @@ The instance has one open project, `shop`, a copy of `fixtures/shop` that is als
 
 - `--xvfb` runs the window on a hidden X display, so nothing appears on the person's screen. Rendering is in software, and screenshots look the same as from a normal boot. Use it when you run many instances.
 - `--root <checkout>` boots a different checkout, such as a trunk worktree, with this same driver.
+- `--claude` runs Conn's real Claude session and the claude CLI from your PATH, pointed at `claude-api.mjs` in this folder. No account is used. See A real Claude turn.
 
 For a one-shot check, `node .claude/skills/verify/drive.mjs --smoke` boots, saves a screenshot of the empty chat, stops, and prints the `ready` line and `png <path>`.
 
@@ -62,6 +63,7 @@ Pass the instance with `--session <session>` on each command below.
 | `decided [id]` | With an id, prints the decision the app sent back (`allow`, `always` or `deny`) and exits 1 if there is none after 3 seconds. Without one, prints every decision. |
 | `invoke <tool> [json]` | Calls one browser tool as the agent would. The second argument is one JSON object of the tool's arguments, and it is left out when the tool takes none. See Browser tools. `--actor <json>` acts as a subagent. |
 | `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
+| `hover <target>` | Moves the mouse onto the target without clicking, with the same targets as `click`. Use it to show what a row shows on hover. |
 | `drag <x0> <y0> <x1> <y1>` | A real mouse drag. It presses at the first point, moves to the second in 20 steps, and releases, all as mouse events. Use it on dividers, for example `drag 944 450 824 450` pulls the column divider 120 px left. Find a divider with `js "[...document.querySelectorAll('[role=separator]')].map((e) => JSON.stringify(e.getBoundingClientRect()))"`. |
 | `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
 | `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
@@ -161,6 +163,30 @@ node .claude/skills/verify/drive.mjs decided --session <session> p1
 ```
 
 The reply draws a shell block with Copy and Run buttons. The last command prints `allow`. A permission that was answered draws an `allowed` mark on the row of its call.
+
+### A real Claude turn
+
+Boot with `--claude` when the proof needs what the CLI itself does, such as running a tool, writing a transcript or keeping file checkpoints. Click into the composer and type a prompt. The stand-in API reads the prompt as a script, one step per line, and answers each step with one tool call.
+
+```
+edit index.html: <h1>Your cart</h1> => <h1>Your basket</h1>
+write notes.txt: first line\nsecond line
+read index.html
+bash: printf hi > notes.txt
+wait 20
+say: All done.
+```
+
+Typed into the composer, the steps go on one line separated by ` ;; `, because `type` cannot put a newline in the composer: `edit index.html: <h1>Your cart</h1> => <h1>Your bag</h1> ;; wait 20`. `edit` reads the file first, because the CLI refuses to edit a file it has not read. `wait 20` holds the next reply 20 seconds, which keeps the turn running so you can press Stop. Paths are relative to the project. The turn ends with the `say` text, or `Done.`. A prompt with no steps gets `heard: <its last line>` back.
+
+```
+node .claude/skills/verify/drive.mjs boot --xvfb --claude
+node .claude/skills/verify/drive.mjs js --session <session> "document.querySelector('#agent-root [contenteditable=\"true\"]').focus()"
+node .claude/skills/verify/drive.mjs type --session <session> "edit index.html: <h1>Your cart</h1> => <h1>Your basket</h1>" --enter
+node .claude/skills/verify/drive.mjs click --session <session> Allow
+```
+
+The last command answers the CLI's permission card, and `index.html` in the project now says `Your basket`. `decided` lists the answers you gave. `say`, `perm` and `invoke` refuse to run on a `--claude` instance. The CLI keeps its transcripts and checkpoints under `<session>/home/.claude`, and the stand-in API logs its port to `<session>/api.log`. `stop` ends the CLI and the stand-in API with the rest of the instance.
 
 ## Evidence
 

@@ -26,7 +26,7 @@ import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { boot, bounds, click, decided, drag, evaluate, invoke, key, perm, record, say, sessions as listed, shot, stop } from '../.claude/skills/verify/drive.mjs';
+import { boot, bounds, click, decided, drag, evaluate, hover, invoke, key, perm, record, say, sessions as listed, shot, stop, type } from '../.claude/skills/verify/drive.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DRIVE = path.join(ROOT, '.claude', 'skills', 'verify', 'drive.mjs');
@@ -36,6 +36,11 @@ const failures = [];
 const check = (name, ok, detail) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${ok ? '' : `: ${detail}`}`);
   if (!ok) failures.push(name);
+};
+
+const until = async (fn, ms) => {
+  for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 250))) if (await fn()) return true;
+  return false;
 };
 
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -385,6 +390,23 @@ async function main() {
       check(`no-process-holds-${path.basename(s.dir)}`, holders(s.dir).length === 0, holders(s.dir).join(','));
       check(`session-dir-removed-${path.basename(s.dir)}`, !fs.existsSync(s.dir), s.dir);
     }
+    sessions.length = 0;
+
+    const c = await boot({ xvfb: true, claude: true });
+    sessions.push(c);
+    await click(c, 'Later').catch(() => {});
+    await evaluate(c, `document.querySelector('#agent-root [contenteditable="true"]').focus()`);
+    await type(c, 'write notes.txt: from the real cli', { enter: true });
+    const asked = await until(() => evaluate(c, `/Allow Write\\?/.test(document.querySelector('#agent-root').innerText)`), 30000);
+    await hover(c, 'Allow');
+    check('claude-mode-hover-reaches-the-card', await evaluate(c, `!!document.querySelector('#agent-root button:hover')`), 'nothing under the pointer is hovered');
+    if (asked) await click(c, 'Allow');
+    const notes = path.join(c.project, 'notes.txt');
+    check('claude-mode-runs-the-real-tool', await until(() => fs.existsSync(notes) && fs.readFileSync(notes, 'utf8') === 'from the real cli', 15000), fs.existsSync(notes) ? fs.readFileSync(notes, 'utf8') : 'no notes.txt');
+    check('claude-mode-records-the-answer', (await decided(c)).some((d) => d.decision === 'allow'), JSON.stringify(await decided(c)));
+    check('claude-mode-refuses-the-stand-in-commands', await say(c, 'hi').then(() => false, (e) => /real claude CLI/.test(e.message)), 'say ran');
+    await stop(c);
+    check('claude-mode-stop-ends-the-cli-and-the-api', holders(c.dir).length === 0, holders(c.dir).join(','));
     sessions.length = 0;
   } finally {
     for (const s of sessions) await stop(s).catch(() => {});
