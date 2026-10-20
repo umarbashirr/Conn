@@ -48,6 +48,9 @@ const DEFAULTS = {
     grokModel: '',
     opencodeModel: '',
   },
+  notifications: {
+    enabled: true,
+  },
   startup: {
     reopenProject: true,
     checkUpdates: true,
