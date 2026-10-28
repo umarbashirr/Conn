@@ -53,7 +53,7 @@ const SUMMARY = {
   browser_tab_close: (i) => i.tab,
 };
 
-const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');
+export const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');
 
 const otherFiles = (i) => (Array.isArray(i.files) && i.files.length > 1 ? ` +${i.files.length - 1}` : '');
 

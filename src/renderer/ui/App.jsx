@@ -19,6 +19,7 @@ import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
+import { TurnEdits } from '@/components/turn-edits';
 import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +33,7 @@ import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } fr
 import { inTerminal, matches } from '@/lib/keys';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
-import { attachPerms } from '@/lib/turns';
+import { attachPerms, turnEdits } from '@/lib/turns';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
@@ -729,13 +730,22 @@ function Transcript({ items, agent }) {
 }
 
 export function Items({ items, agent, from = 0 }) {
-  const { marks, rest } = attachPerms(items);
+  const { marks, rest } = useMemo(() => attachPerms(items), [items]);
+  const turns = useMemo(() => turnEdits(rest), [rest]);
+  const finished = (i) => i < turns.length - 1 || !agent.busy;
+  const footers = new Map(turns.flatMap((t, i) => (t.files.length && finished(i) ? [[t.end, t]] : [])));
   return runs(rest).slice(from).map((g) => {
-    if (!g.run) return <Row key={g.id}><Item item={g.item} agent={agent} mark={marks.get(g.id)} /></Row>;
+    const last = g.run ? g.run[g.run.length - 1] : g.item;
+    const turn = footers.get(last.id);
+    // Always a keyed Fragment: if a footer arriving changed the element type
+    // here, React would remount the row and replay its conn-in animation.
+    const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
+    if (!g.run) return <Fragment key={g.id}><Row><Item item={g.item} agent={agent} mark={marks.get(g.id)} /></Row>{footer}</Fragment>;
     if (g.run.length < FOLD_AT) {
       return (
         <Fragment key={g.id}>
           {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>)}
+          {footer}
         </Fragment>
       );
     }
@@ -744,16 +754,19 @@ export function Items({ items, agent, from = 0 }) {
     const done = g.run.slice(0, -1);
     const current = g.run[g.run.length - 1];
     return (
-      <div key={g.id} className="flex flex-col gap-px">
-        <ToolStrip items={done}>
-          {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
-        </ToolStrip>
-        {/* Keyed, so the row the run is currently on is a new element each
-            time the run moves on. Without the key React reconciles the next
-            tool call into the last one's markup and the reader inherits
-            whatever they had opened on the call before. */}
-        <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
-      </div>
+      <Fragment key={g.id}>
+        <div className="flex flex-col gap-px">
+          <ToolStrip items={done}>
+            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
+          </ToolStrip>
+          {/* Keyed, so the row the run is currently on is a new element each
+              time the run moves on. Without the key React reconciles the next
+              tool call into the last one's markup and the reader inherits
+              whatever they had opened on the call before. */}
+          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
+        </div>
+        {footer}
+      </Fragment>
     );
   });
 }

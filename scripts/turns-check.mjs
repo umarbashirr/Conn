@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 
-const { attachPerms, turnEdits } = await import('../src/renderer/ui/lib/turns.js');
+const { attachPerms, hunksOf, turnEdits } = await import('../src/renderer/ui/lib/turns.js');
 
 const call = (id, name) => ({ id, kind: 'tool', name, input: {}, state: 'output-available' });
 const perm = (id, tool, extra) => ({ id, kind: 'perm', tool, input: {}, agent: null, ...extra });
@@ -204,6 +204,28 @@ const counts = (turn) => turn.files.map((f) => `${f.path} +${f.added} -${f.remov
   const got = turnEdits([edit('e0', '/early.js', 'x', 'y'), { id: 'n0', kind: 'note', text: 'opening' }, user('u1'), edit('e1', '/a.js', 'x', 'y')]);
   assert.equal(got.length, 1, 'items before the first user item belong to no turn');
   assert.deepEqual(counts(got[0]), ['/a.js +1 -1'], 'and are not counted in the next one');
+}
+
+{
+  const files = [
+    { path: '/x.js', hunks: [{ before: 'a', after: 'b' }] },
+    { path: '/y.js', hunks: [{ before: '', after: 'new' }] },
+  ];
+  const items = [
+    user('u1'),
+    codex('c1', files),
+    { id: 'ag1', kind: 'agent', children: [edit('e1', '/x.js', 'p', 'q')] },
+    edit('e2', '/x.js', 'r', 's'),
+  ];
+  assert.deepEqual(hunksOf(items, ['c1', 'e1'], '/x.js'), [{ before: 'a', after: 'b' }, { before: 'p', after: 'q' }], 'the hunks of the named calls to one path, a subagent row included and other calls and files left out');
+}
+
+{
+  const moved = [{ path: '/src/a.js', kind: 'update', movePath: '/lib/a.js', hunks: [{ before: 'x', after: 'y' }] }];
+  const items = [user('u1'), codex('c1', moved)];
+  const [turn] = turnEdits(items);
+  assert.deepEqual(turn.files.map((f) => f.path), ['/lib/a.js'], 'a moved file is listed where it lives now');
+  assert.deepEqual(hunksOf(items, ['c1'], '/lib/a.js'), [{ before: 'x', after: 'y' }], 'and its diff is found under that path');
 }
 
 console.log('turns-check: all passed');
