@@ -17,6 +17,12 @@ const REJECT_MODEL = process.env.MOCK_ACP_REJECT_MODEL === '1';
 // the app handed the agent.
 const LOG = process.env.MOCK_ACP_LOG || '';
 const record = (entry) => LOG && require('fs').appendFileSync(LOG, `${JSON.stringify(entry)}\n`);
+// A prompt edits two files, one new, behind a permission request, the way an
+// agent that sends diff content does.
+const RICH = process.env.MOCK_ACP_RICH === '1';
+// A prompt plays back what a real agent sent for one turn, from a capture in
+// scripts/fixtures/acp-real, stopping at its permission request until answered.
+const REPLAY = process.env.MOCK_ACP_REPLAY || '';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
@@ -34,6 +40,8 @@ let minted = 0;
 const mint = () => `mock-${process.pid}-${++minted}`;
 let promptId = null;
 let cancelled = false;
+let cwd = process.cwd();
+let rich = null;
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -88,6 +96,79 @@ function toolDone(sessionId, id, output, failed) {
   });
 }
 
+const PERM_OPTIONS = [
+  { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+  { optionId: 'always', name: 'Always', kind: 'allow_always' },
+  { optionId: 'deny', name: 'Deny', kind: 'reject_once' },
+];
+
+let replay = null;
+
+function replayStep() {
+  while (replay.at < replay.frames.length) {
+    const [kind, frame] = replay.frames[replay.at++];
+    if (kind === 'raw') {
+      notify('session/update', { sessionId: replay.sessionId, update: frame });
+      continue;
+    }
+    replay.permId = `perm-${++seq}`;
+    send({
+      jsonrpc: '2.0',
+      id: replay.permId,
+      method: 'session/request_permission',
+      params: { ...frame, sessionId: replay.sessionId, options: PERM_OPTIONS },
+    });
+    return;
+  }
+  chunk(replay.sessionId, 'replayed');
+  result(promptId, { stopReason: 'end_turn' });
+  promptId = null;
+  replay = null;
+}
+
+function richEdit(sessionId, id) {
+  const diffs = [
+    { type: 'diff', path: `${cwd}/style.css`, oldText: 'button {\n  color: blue;\n  margin: 0;\n}\n', newText: 'button {\n  color: red;\n  margin: 0;\n}\n' },
+    { type: 'diff', path: `${cwd}/notes.txt`, oldText: null, newText: 'first line\nsecond line\n' },
+  ];
+  notify('session/update', {
+    sessionId,
+    update: {
+      sessionUpdate: 'tool_call',
+      toolCallId: 't-rich',
+      title: 'Edit style.css, notes.txt',
+      kind: 'edit',
+      status: 'pending',
+      content: diffs,
+      locations: [{ path: `${cwd}/style.css` }, { path: `${cwd}/notes.txt` }],
+    },
+  });
+  rich = { permId: `perm-${++seq}`, sessionId, diffs };
+  send({
+    jsonrpc: '2.0',
+    id: rich.permId,
+    method: 'session/request_permission',
+    params: {
+      sessionId,
+      toolCall: { toolCallId: 't-rich', title: 'Edit style.css, notes.txt', kind: 'edit', content: diffs },
+      options: PERM_OPTIONS,
+    },
+  });
+  promptId = id;
+}
+
+function richDone({ sessionId, diffs }) {
+  notify('session/update', {
+    sessionId,
+    update: { sessionUpdate: 'tool_call_update', toolCallId: 't-rich', status: 'completed', content: diffs },
+  });
+  rich = null;
+  if (promptId == null) return;
+  chunk(sessionId, 'edited both files');
+  result(promptId, { stopReason: 'end_turn' });
+  promptId = null;
+}
+
 function replayStored(sessionId) {
   const { ACP_INSTRUCTIONS } = require('../src/main/providers/acp-session');
   const said = `${ACP_INSTRUCTIONS}\n\nmake the button red`;
@@ -140,6 +221,13 @@ async function handlePrompt(id, params) {
 
   if (/\bauth\b/i.test(text)) return fail(id, 'Authentication required', -32000);
 
+  if (RICH) return richEdit(sessionId, id);
+  if (REPLAY) {
+    promptId = id;
+    replay = { frames: JSON.parse(require('fs').readFileSync(REPLAY, 'utf8')).frames, at: 0, sessionId, permId: null };
+    return replayStep();
+  }
+
   if (/\bhang\b/i.test(text)) {
     tool(sessionId, 't-hang', 'sleep', 'execute', { command: 'sleep 600' });
     return;
@@ -176,6 +264,8 @@ function onMessage(msg) {
     return;
   }
 
+  if (rich && id === rich.permId && !method) return richDone(rich);
+  if (replay && id === replay.permId && !method) return replayStep();
   if (id === undefined || !method) return;
 
   if (method === 'initialize') {
@@ -224,6 +314,7 @@ function onMessage(msg) {
   if (method === 'session/new' || method === 'session/load') {
     if (AUTH) return fail(id, 'not authenticated; run login');
     const servers = params?.mcpServers || [];
+    if (params?.cwd) cwd = params.cwd;
     record({ method, cwd: params?.cwd, mcpServers: servers });
     if (CONFIG) {
       return result(id, {

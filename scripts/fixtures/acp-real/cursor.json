@@ -1,0 +1,142 @@
+{
+ "agent": "cursor-agent 2026.09.15",
+ "cwd": "/tmp/c12-real-cursor-Deq4Y2",
+ "file": "alpha\nBETA\ngamma\n",
+ "frames": [
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call-94553770-b805-470d-a860-9af551ed908b-0\nfc_90c98f6f-d17e-9c8f-96c1-7341a8ec393f_0",
+    "title": "Find",
+    "kind": "search",
+    "status": "pending",
+    "rawInput": {}
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-94553770-b805-470d-a860-9af551ed908b-0\nfc_90c98f6f-d17e-9c8f-96c1-7341a8ec393f_0",
+    "title": "Find `notes.txt`",
+    "rawInput": {
+     "pattern": "notes.txt"
+    },
+    "locations": [
+     {
+      "path": "/tmp/c12-real-cursor-Deq4Y2"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-94553770-b805-470d-a860-9af551ed908b-0\nfc_90c98f6f-d17e-9c8f-96c1-7341a8ec393f_0",
+    "status": "in_progress"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-94553770-b805-470d-a860-9af551ed908b-0\nfc_90c98f6f-d17e-9c8f-96c1-7341a8ec393f_0",
+    "status": "completed",
+    "rawOutput": {
+     "totalFiles": 1,
+     "truncated": false
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call-2a4de94c-13e1-4923-b677-1ad542771c71-1\nfc_2f77c776-4610-9ca6-a6c4-3b67657d0a44_0",
+    "title": "Read notes.txt",
+    "kind": "read",
+    "status": "pending",
+    "rawInput": {
+     "path": "/tmp/c12-real-cursor-Deq4Y2/notes.txt"
+    },
+    "locations": [
+     {
+      "path": "/tmp/c12-real-cursor-Deq4Y2/notes.txt"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-2a4de94c-13e1-4923-b677-1ad542771c71-1\nfc_2f77c776-4610-9ca6-a6c4-3b67657d0a44_0",
+    "status": "in_progress"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-2a4de94c-13e1-4923-b677-1ad542771c71-1\nfc_2f77c776-4610-9ca6-a6c4-3b67657d0a44_0",
+    "status": "completed",
+    "rawOutput": {
+     "content": "alpha\nbeta\ngamma\n"
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call-a478650b-c6f0-4aa0-b52e-94032d8d9ca6-2\nfc_ebd1c3b4-d1ac-9690-a63a-d87a321b0986_0",
+    "title": "Edit File",
+    "kind": "edit",
+    "status": "pending",
+    "rawInput": {}
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-a478650b-c6f0-4aa0-b52e-94032d8d9ca6-2\nfc_ebd1c3b4-d1ac-9690-a63a-d87a321b0986_0",
+    "title": "Edit `/tmp/c12-real-cursor-Deq4Y2/notes.txt`",
+    "rawInput": {
+     "path": "/tmp/c12-real-cursor-Deq4Y2/notes.txt"
+    },
+    "locations": [
+     {
+      "path": "/tmp/c12-real-cursor-Deq4Y2/notes.txt"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-a478650b-c6f0-4aa0-b52e-94032d8d9ca6-2\nfc_ebd1c3b4-d1ac-9690-a63a-d87a321b0986_0",
+    "status": "in_progress"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-a478650b-c6f0-4aa0-b52e-94032d8d9ca6-2\nfc_ebd1c3b4-d1ac-9690-a63a-d87a321b0986_0",
+    "status": "completed",
+    "content": [
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-cursor-Deq4Y2/notes.txt",
+      "oldText": "alpha\nbeta\ngamma\n",
+      "newText": "alpha\nBETA\ngamma\n"
+     }
+    ]
+   }
+  ]
+ ]
+}

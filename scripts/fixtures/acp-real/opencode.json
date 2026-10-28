@@ -1,0 +1,180 @@
+{
+ "agent": "opencode 2.0.15",
+ "cwd": "/tmp/c12-real-opencode-vZwZ78",
+ "file": "alpha\nBETA\ngamma\n",
+ "frames": [
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call_17b3037dce1d46979121d2df",
+    "title": "read",
+    "kind": "read",
+    "status": "pending",
+    "locations": [],
+    "rawInput": {}
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_17b3037dce1d46979121d2df",
+    "status": "in_progress",
+    "kind": "read",
+    "title": "read",
+    "locations": [
+     {
+      "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt"
+     }
+    ],
+    "rawInput": {
+     "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt"
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_17b3037dce1d46979121d2df",
+    "status": "completed",
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "Read file /tmp/c12-real-opencode-vZwZ78/notes.txt, lines 1-3\n1: alpha\n2: beta\n3: gamma"
+      }
+     }
+    ],
+    "rawOutput": {
+     "metadata": {
+      "truncated": false
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call_b7037428f4ce49da8dfd45b5",
+    "title": "edit",
+    "kind": "edit",
+    "status": "pending",
+    "locations": [],
+    "rawInput": {}
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_b7037428f4ce49da8dfd45b5",
+    "status": "in_progress",
+    "kind": "edit",
+    "title": "edit",
+    "locations": [],
+    "rawInput": {
+     "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt",
+     "oldString": "beta",
+     "newString": "BETA"
+    }
+   }
+  ],
+  [
+   "rawperm",
+   {
+    "sessionId": "ses_e7dde1e01ffedWGw6nk9CSrHsn",
+    "toolCall": {
+     "toolCallId": "call_b7037428f4ce49da8dfd45b5",
+     "title": "/tmp/c12-real-opencode-vZwZ78/notes.txt",
+     "kind": "edit",
+     "status": "pending",
+     "locations": [
+      {
+       "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt"
+      }
+     ],
+     "rawInput": {
+      "files": [
+       {
+        "file": "notes.txt",
+        "patch": "Index: notes.txt\n===================================================================\n--- notes.txt\n+++ notes.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1
+       }
+      ],
+      "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt",
+      "oldString": "beta",
+      "newString": "BETA"
+     },
+     "content": [
+      {
+       "type": "diff",
+       "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt",
+       "oldText": "alpha\nbeta\ngamma\n",
+       "newText": "alpha\nBETA\ngamma\n"
+      }
+     ]
+    },
+    "options": [
+     {
+      "optionId": "once",
+      "kind": "allow_once",
+      "name": "Allow once"
+     },
+     {
+      "optionId": "always",
+      "kind": "allow_always",
+      "name": "Always allow"
+     },
+     {
+      "optionId": "reject",
+      "kind": "reject_once",
+      "name": "Reject"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_b7037428f4ce49da8dfd45b5",
+    "status": "completed",
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "Edited notes.txt (1 replacement)"
+      }
+     },
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-opencode-vZwZ78/notes.txt",
+      "oldText": "beta",
+      "newText": "BETA"
+     }
+    ],
+    "rawOutput": {
+     "metadata": {
+      "files": [
+       {
+        "file": "notes.txt",
+        "patch": "Index: notes.txt\n===================================================================\n--- notes.txt\n+++ notes.txt\n@@ -1,3 +1,3 @@\n alpha\n-beta\n+BETA\n gamma\n",
+        "status": "modified",
+        "additions": 1,
+        "deletions": 1
+       }
+      ],
+      "truncated": false
+     }
+    }
+   }
+  ]
+ ]
+}
