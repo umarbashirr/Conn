@@ -233,6 +233,19 @@ function WhatsNewDialog({ release, onDismiss }) {
   );
 }
 
+const PERM_KEYS = { y: 'allow', a: 'always', n: 'deny' };
+
+// A card may take focus from nowhere, the transcript or an empty message box,
+// never from a draft, a terminal or a dialog.
+function focusIsIdle() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return true;
+  if (el.closest('[role="log"]')) return true;
+  return el.matches('#agent-root [contenteditable="true"]') && !el.textContent.trim();
+}
+
+const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -384,6 +397,34 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [agent.busy, agent.interrupt, customizeAt]);
+
+  // An answered card passes focus to the next one, then to the composer.
+  const cards = useMemo(
+    () => agent.items.filter((it) => it.kind === 'perm' && !it.decided && it.tool !== 'AskUserQuestion').map((it) => it.id),
+    [agent.items],
+  );
+  const cardsKey = cards.join('\n');
+  const seenCards = useRef({ chat: null, ids: [] });
+  const cardFocus = useRef(null);
+  useEffect(() => {
+    const track = (e) => { cardFocus.current = e.target.closest?.('[data-perm-card]')?.dataset.permCard ?? null; };
+    document.addEventListener('focusin', track);
+    return () => document.removeEventListener('focusin', track);
+  }, []);
+  useEffect(() => {
+    const prev = seenCards.current;
+    seenCards.current = { chat: agent.activeKey, ids: cards };
+    const switchedChat = prev.chat !== agent.activeKey;
+    if (switchedChat) return;
+    const answered = prev.ids.includes(cardFocus.current) && !cards.includes(cardFocus.current);
+    if (answered && (!document.activeElement || document.activeElement === document.body)) {
+      cardFocus.current = null;
+      if (cards.length) allowButton(cards[0])?.focus();
+      else runCommand('focusComposer');
+    } else if (cards.some((id) => !prev.ids.includes(id)) && focusIsIdle()) {
+      allowButton(cards[0])?.focus();
+    }
+  }, [agent.activeKey, cardsKey]);
 
   // A release that landed while the window was open, said where the person
   // already is. Update starts the download; Install is a second toast once the
@@ -968,7 +1009,15 @@ function Item({ item, agent, mark }) {
       );
     }
     return (
-      <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
+      <div
+        data-perm-card={item.id}
+        onKeyDown={(e) => {
+          const verdict = PERM_KEYS[e.key.toLowerCase()];
+          if (!verdict || e.repeat || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+          e.preventDefault();
+          onDecide(item.id, verdict);
+        }}
+        className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Which agent is stuck on this. Without it a subagent's request
               reads as though the main thread asked. */}
@@ -994,7 +1043,7 @@ function Item({ item, agent, mark }) {
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
           )}
           <div className="ml-auto flex gap-1.5">
-            <Button size="sm" className="h-7" onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
+            <Button size="sm" className="h-7" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
             <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
             <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
           </div>
