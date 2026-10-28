@@ -240,6 +240,8 @@ export const TokenInput = forwardRef(function TokenInput({
 
   useImperativeHandle(ref, () => ({
     focus: () => boxRef.current?.focus(),
+    caret: () => (boxRef.current ? caretOffset(boxRef.current) : null),
+    replaceText: (text) => apply(text, text.length),
     // Swap whatever is being typed at the caret for the finished token, and
     // leave a space after it so there is somewhere ordinary to carry on.
     insert: (token) => {

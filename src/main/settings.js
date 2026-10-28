@@ -137,6 +137,12 @@ function normalize(raw) {
     const hidden = out[id].hidden;
     out[id].hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
   }
+  // The stop shortcut used to be stored as `stop`, empty by default, and the
+  // full defaults map wrote that empty string into every settings file. A chord
+  // someone recorded under the old id is carried over; the empty one is dropped
+  // like any unknown key so the new default reaches them.
+  const given = raw.keybindings;
+  if (typeof given?.stop === 'string' && given.stop && given.stopTurn === undefined) out.keybindings.stopTurn = given.stop;
   const shown = out.opencode.shown;
   out.opencode.shown = Array.isArray(shown) ? shown.filter((v) => typeof v === 'string' && v) : null;
   return out;

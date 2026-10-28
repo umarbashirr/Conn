@@ -843,6 +843,7 @@ export function runCommand(name, arg) {
     case 'focusComposer':
       return document.querySelector('#agent-root [contenteditable="true"]')?.focus();
     case 'dictate': return window.connChat?.dictate?.();
+    case 'jumpPermission': return window.connChat?.jumpPermission?.();
     case 'focusAddress': return openPreview(true);
     case 'pickElement': return pickElement();
     case 'terminalTab': {

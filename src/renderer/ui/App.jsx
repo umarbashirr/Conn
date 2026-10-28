@@ -27,6 +27,7 @@ import {
 
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
+import { inTerminal, matches } from '@/lib/keys';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms } from '@/lib/turns';
@@ -232,6 +233,19 @@ function WhatsNewDialog({ release, onDismiss }) {
   );
 }
 
+const PERM_KEYS = { y: 'allow', a: 'always', n: 'deny' };
+
+// A card may take focus from nowhere, the transcript or an empty message box,
+// never from a draft, a terminal or a dialog.
+function focusIsIdle() {
+  const el = document.activeElement;
+  if (!el || el === document.body) return true;
+  if (el.closest('[role="log"]')) return true;
+  return el.matches('#agent-root [contenteditable="true"]') && !el.textContent.trim();
+}
+
+const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -354,6 +368,10 @@ export default function App() {
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
       dictate: dictation.toggle,
+      jumpPermission: () => {
+        const oldest = document.querySelector('[data-perm-card]');
+        (oldest?.querySelector('[data-perm-allow]') || oldest?.querySelector('button, input, [tabindex]'))?.focus();
+      },
       // A shortcut for typing $canvas, and the canvas opens to show what comes back.
       design: () => {
         setText((t) => (mentionsIn(t).has('canvas') ? t : `${t}${t && !/\s$/.test(t) ? ' ' : ''}$canvas `));
@@ -365,6 +383,52 @@ export default function App() {
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle]);
+
+  // Escape also stops the turn when focus is nowhere or in the transcript.
+  // Customize hides the chat, and its own Escape only runs with focus inside
+  // it, so a turn nobody can see is left alone.
+  useEffect(() => {
+    if (!agent.busy || customizeAt !== null) return undefined;
+    const onKey = (e) => {
+      const t = e.target;
+      if (e.defaultPrevented || !matches(e, 'stopTurn') || inTerminal(t)) return;
+      const idle = !(t instanceof Element) || t === document.body || t === document.documentElement
+        || (!!t.closest('[role="log"]') && !t.closest('input, textarea, [contenteditable="true"]'));
+      if (!idle) return;
+      e.preventDefault();
+      agent.interrupt();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [agent.busy, agent.interrupt, customizeAt]);
+
+  // An answered card passes focus to the next one, then to the composer.
+  const cards = useMemo(
+    () => agent.items.filter((it) => it.kind === 'perm' && !it.decided && it.tool !== 'AskUserQuestion').map((it) => it.id),
+    [agent.items],
+  );
+  const cardsKey = cards.join('\n');
+  const seenCards = useRef({ chat: null, ids: [] });
+  const cardFocus = useRef(null);
+  useEffect(() => {
+    const track = (e) => { cardFocus.current = e.target.closest?.('[data-perm-card]')?.dataset.permCard ?? null; };
+    document.addEventListener('focusin', track);
+    return () => document.removeEventListener('focusin', track);
+  }, []);
+  useEffect(() => {
+    const prev = seenCards.current;
+    seenCards.current = { chat: agent.activeKey, ids: cards };
+    const switchedChat = prev.chat !== agent.activeKey;
+    if (switchedChat) return;
+    const answered = prev.ids.includes(cardFocus.current) && !cards.includes(cardFocus.current);
+    if (answered && (!document.activeElement || document.activeElement === document.body)) {
+      cardFocus.current = null;
+      if (cards.length) allowButton(cards[0])?.focus();
+      else runCommand('focusComposer');
+    } else if (cards.some((id) => !prev.ids.includes(id)) && focusIsIdle()) {
+      allowButton(cards[0])?.focus();
+    }
+  }, [agent.activeKey, cardsKey]);
 
   // A release that landed while the window was open, said where the person
   // already is. Update starts the download; Install is a second toast once the
@@ -941,15 +1005,25 @@ function Item({ item, agent, mark }) {
     // A question is not a permission, whatever the transport says.
     if (item.tool === 'AskUserQuestion') {
       return (
-        <QuestionCard
-          input={item.input}
-          onAnswer={(answers, annotations) =>
-            onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
-          onSkip={() => onDecide(item.id, 'deny')} />
+        <div data-perm-card={item.id}>
+          <QuestionCard
+            input={item.input}
+            onAnswer={(answers, annotations) =>
+              onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
+            onSkip={() => onDecide(item.id, 'deny')} />
+        </div>
       );
     }
     return (
-      <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
+      <div
+        data-perm-card={item.id}
+        onKeyDown={(e) => {
+          const verdict = PERM_KEYS[e.key.toLowerCase()];
+          if (!verdict || e.repeat || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+          e.preventDefault();
+          onDecide(item.id, verdict);
+        }}
+        className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Which agent is stuck on this. Without it a subagent's request
               reads as though the main thread asked. */}
@@ -975,7 +1049,10 @@ function Item({ item, agent, mark }) {
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
           )}
           <div className="ml-auto flex gap-1.5">
-            <Button size="sm" className="h-7" onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
+            {/* Focus lands here from a script, which Chromium leaves without a
+                focus-visible ring after a mouse click, and a click on it
+                answers the card anyway. */}
+            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
             <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
             <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
           </div>
