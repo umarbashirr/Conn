@@ -713,6 +713,10 @@ function Attachment({ item, onOpen, onRemove }) {
 
 const nextOf = (queued) => queued.find((m) => !m.held);
 
+const sentPrompts = (items) => items.filter((it) => it.kind === 'user' && it.text?.trim()).map((it) => it.text);
+
+const NOT_BROWSING = { shown: null, saved: '' };
+
 function queueStateOf(agent) {
   const head = nextOf(agent.queued);
   if (!head) return agent.queued.length ? 'held' : 'empty';
@@ -990,6 +994,35 @@ export function Composer({
 
   const queueState = queueStateOf(agent);
   const next = nextOf(agent.queued);
+  const recall = useRef(NOT_BROWSING);
+  useEffect(() => { recall.current = NOT_BROWSING; }, [agent.activeKey]);
+  useEffect(() => {
+    const { shown } = recall.current;
+    if (shown !== null && text !== sentPrompts(agent.items)[shown]) recall.current = NOT_BROWSING;
+  }, [text]);
+
+  // A draft the person typed is never swapped out, and an arrow that has a
+  // line to move to keeps moving the caret.
+  const tryRecallPrompt = useCallback((step) => {
+    const prompts = sentPrompts(agent.items);
+    const showing = recall.current.shown !== null && text === prompts[recall.current.shown];
+    if (!prompts.length || (text && !showing)) return false;
+    const { shown, saved } = showing ? recall.current : NOT_BROWSING;
+    const caret = input.current?.caret();
+    if (caret == null || (step < 0 ? text.slice(0, caret) : text.slice(caret)).includes('\n')) return false;
+    if (step > 0 && shown === null) return false;
+    const next = shown === null ? prompts.length - 1 : shown + step;
+    if (next < 0) return true;
+    if (next >= prompts.length) {
+      recall.current = NOT_BROWSING;
+      input.current.replaceText(saved);
+      return true;
+    }
+    recall.current = { shown: next, saved: shown === null ? text : saved };
+    input.current.replaceText(prompts[next]);
+    return true;
+  }, [agent.items, text, input]);
+
   const stopChord = formatChord(currentKey('stopTurn'));
 
   const onKeyDown = useCallback((e) => {
@@ -1000,6 +1033,11 @@ export function Composer({
       if (e.key === 'Escape') { e.preventDefault(); return setDismissed(true); }
     }
     if (e.key === 'Escape' && dictation.cancel()) { e.preventDefault(); return; }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      && tryRecallPrompt(e.key === 'ArrowUp' ? -1 : 1)) {
+      e.preventDefault();
+      return;
+    }
     // The words are about to land in this draft, so send waits for them.
     if (matches(e, 'send') && (dictation.view.kind === 'listening' || dictation.view.kind === 'transcribing')) {
       e.preventDefault();
@@ -1008,7 +1046,7 @@ export function Composer({
     }
     if (matches(e, 'stopTurn') && agent.busy) { e.preventDefault(); return agent.interrupt(); }
     if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
-  }, [menu, rows, cursor, pick, cycleMode, agent.interrupt, agent.busy, dictation]);
+  }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
