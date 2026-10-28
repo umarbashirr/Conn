@@ -5,7 +5,7 @@ import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } f
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
-import { PermMark, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
+import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
@@ -909,6 +909,7 @@ function Item({ item, agent, mark }) {
     const recording = toolRecording(item.output);
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
+    const failed = item.state === 'output-error';
 
     // A file edit is a diff. Showing it as JSON with two long strings in it is
     // the same information in the shape nobody can read.
@@ -931,7 +932,7 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           <DiffView hunks={hunks} />
-          {item.state === 'output-error' && <Pre className="mt-2 text-destructive">{text}</Pre>}
+          {failed && <ToolOutput text={text} error />}
         </ToolRow>
       );
     }
@@ -969,7 +970,8 @@ function Item({ item, agent, mark }) {
               )}
             </>
           )}>
-          <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
+          {failed && text && <ToolOutput text={text} error className="mt-0" />}
+          {!failed && <Pre>{JSON.stringify(item.input, null, 2)}</Pre>}
           {recording && (
             <video
               controls
@@ -985,11 +987,8 @@ function Item({ item, agent, mark }) {
               loading="lazy"
               src={imageSrc(b)} />
           ))}
-          {text && (
-            <Pre className={`mt-2 ${item.state === 'output-error' ? 'text-destructive' : ''}`}>
-              {text.slice(0, 4000)}
-            </Pre>
-          )}
+          {!failed && text && <ToolOutput text={text} />}
+          {failed && <InputFold input={item.input} />}
         </ToolRow>
       </div>
     );

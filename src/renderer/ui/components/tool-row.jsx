@@ -15,7 +15,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
 import { clock, useTick } from '@/lib/clock';
-import { bucketOf, imageSrc, toolImages, toolLabel, toolName, toolSummary } from '@/lib/tools';
+import { bucketOf, cutText, imageSrc, toolImages, toolLabel, toolName, toolSummary } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -251,5 +251,44 @@ export function Pre({ children, className }) {
     )}>
       {children}
     </pre>
+  );
+}
+
+export function ToolOutput({ text, error, className }) {
+  const [all, setAll] = useState(false);
+  const { shown, hidden } = cutText(text);
+  return (
+    <div className={cn('mt-2', className)}>
+      <Pre className={cn(error && 'text-destructive')}>{all ? text : shown}</Pre>
+      {hidden > 0 && !all && (
+        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+          {hidden.toLocaleString('en-US')} more {hidden === 1 ? 'character' : 'characters'}
+          <Button variant="ghost" size="xs" onClick={() => setAll(true)} className="h-5 px-1.5 text-[11px]">
+            Show all
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function InputFold({ input }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <Button
+        data-slot="tool-input"
+        aria-expanded={open}
+        variant="ghost"
+        size="xs"
+        onClick={() => setOpen((v) => !v)}
+        className="h-5 gap-1 px-1 text-[11px] font-normal text-muted-foreground">
+        <ChevronRightIcon className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
+        Input
+      </Button>
+      <Fold open={open} className="pt-1">
+        <Pre>{JSON.stringify(input, null, 2)}</Pre>
+      </Fold>
+    </div>
   );
 }
