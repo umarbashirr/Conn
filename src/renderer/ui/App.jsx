@@ -248,6 +248,8 @@ function focusIsIdle() {
 
 const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
 
+const permTitleId = (id) => `perm-title-${id}`;
+
 export default function App() {
   const agent = useAgent();
   // The Agents tab draws from this chat's state but mounts in the right column.
@@ -1016,8 +1018,9 @@ function Item({ item, agent, mark }) {
     // A question is not a permission, whatever the transport says.
     if (item.tool === 'AskUserQuestion') {
       return (
-        <div data-perm-card={item.id}>
+        <div data-perm-card={item.id} role="group" aria-labelledby={permTitleId(item.id)}>
           <QuestionCard
+            titleId={permTitleId(item.id)}
             input={item.input}
             onAnswer={(answers, annotations) =>
               onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
@@ -1028,6 +1031,8 @@ function Item({ item, agent, mark }) {
     return (
       <div
         data-perm-card={item.id}
+        role="group"
+        aria-labelledby={permTitleId(item.id)}
         onKeyDown={(e) => {
           const verdict = PERM_KEYS[e.key.toLowerCase()];
           if (!verdict || e.repeat || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
@@ -1049,7 +1054,7 @@ function Item({ item, agent, mark }) {
               {item.agent.label}
             </Button>
           )}
-          <span className="text-[13px]">
+          <span id={permTitleId(item.id)} className="text-[13px]">
             {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}
           </span>
           <span className="truncate font-mono text-muted-foreground text-xs">

@@ -54,7 +54,7 @@ function Option({ multi, option, checked, onPick, id }) {
   );
 }
 
-export function QuestionCard({ input, onAnswer, onSkip }) {
+export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
   const uid = useId();
   const questions = useMemo(() => (Array.isArray(input?.questions) ? input.questions : []), [input]);
   const [step, setStep] = useState(0);
@@ -134,7 +134,7 @@ export function QuestionCard({ input, onAnswer, onSkip }) {
     <div className="rounded-md border bg-card px-3 py-3">
       <div className="flex items-center gap-2 text-muted-foreground text-xs">
         <MessageCircleQuestionIcon className="size-3.5" />
-        <span>The agent is asking</span>
+        <span id={titleId}>The agent is asking</span>
         {questions.length > 1 && <span className="ml-auto">{at + 1} of {questions.length}</span>}
       </div>
 
