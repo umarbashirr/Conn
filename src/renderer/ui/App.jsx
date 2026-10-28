@@ -27,6 +27,7 @@ import {
 
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
+import { inTerminal, matches } from '@/lib/keys';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms } from '@/lib/turns';
@@ -365,6 +366,24 @@ export default function App() {
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle]);
+
+  // Escape also stops the turn when focus is nowhere or in the transcript.
+  // Customize hides the chat, and its own Escape only runs with focus inside
+  // it, so a turn nobody can see is left alone.
+  useEffect(() => {
+    if (!agent.busy || customizeAt !== null) return undefined;
+    const onKey = (e) => {
+      const t = e.target;
+      if (e.defaultPrevented || !matches(e, 'stopTurn') || inTerminal(t)) return;
+      const idle = !(t instanceof Element) || t === document.body || t === document.documentElement
+        || (!!t.closest('[role="log"]') && !t.closest('input, textarea, [contenteditable="true"]'));
+      if (!idle) return;
+      e.preventDefault();
+      agent.interrupt();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [agent.busy, agent.interrupt, customizeAt]);
 
   // A release that landed while the window was open, said where the person
   // already is. Update starts the download; Install is a second toast once the
