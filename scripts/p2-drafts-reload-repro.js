@@ -117,13 +117,7 @@ async function main() {
     await sleep(700);
     await evaluate(s, `window.connChat.newChat()`);
     await sleep(300);
-    check('a-second-new-chat-in-the-folder-starts-empty', (await boxText()) === '', J(await boxText()));
-    await focusBox();
-    await type(s, 'second unsent');
-    await sleep(700);
-    const shared = Object.entries(await stored()).filter(([k]) => k.startsWith('new:')).map(([, t]) => t);
-    check('a-second-new-chat-leaves-the-first-ones-stored-draft-alone', J(shared) === J(['unsent draft']), J(shared));
-    await clearBox();
+    check('new-chat-returns-to-the-folders-unsent-chat-and-its-draft', (await boxText()) === 'unsent draft', J(await boxText()));
     await openChat(TWO);
 
     const readAll = async () => {
