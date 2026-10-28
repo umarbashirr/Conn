@@ -6,7 +6,9 @@
    on to the next card and then to the composer. Ctrl+Shift+A jumps to the
    waiting card from anywhere. Up and Down in the composer walk this chat's
    own prompts, but only from an empty or unedited box and only from the first
-   or last line. Needs a built renderer: `npx vite build` first. */
+   or last line. A permission card is announced through a live region as it
+   arrives, a streaming reply is marked busy and a turn error is an alert
+   (CUX-10). Needs a built renderer: `npx vite build` first. */
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -63,6 +65,114 @@ function checkStoredKeybindings() {
     check('stopTurn-cleared-on-purpose-stays-cleared', cleared.stopTurn === '', stops(cleared));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function checkScreenReaderCues(drive) {
+  const { boot, stop, evaluate, click, say, perm, decided } = drive;
+  const s = await boot({ root: ROOT, xvfb: true });
+  try {
+    const until = async (fn, ms = 4000) => {
+      const end = Date.now() + ms;
+      let got;
+      while (Date.now() < end && !(got = await fn())) await sleep(100);
+      return got;
+    };
+    const emit = (msg) => evaluate(s, `globalThis.__agent.emit('message', ${J(msg)})`, { main: true });
+    const region = () => evaluate(s, `document.querySelector('[data-perm-announcer]')?.textContent ?? null`);
+    const said = () => evaluate(s, `window.__said`);
+    const card = (id) => evaluate(s, `(() => {
+      const el = document.querySelector('[data-perm-card=${J(id)}]');
+      const title = document.getElementById(el?.getAttribute('aria-labelledby') ?? '');
+      return el && { role: el.getAttribute('role'), title: title?.textContent ?? null };
+    })()`);
+    const assistantBusy = () => evaluate(s, `[...document.querySelectorAll('#agent-root .is-assistant')].map((e) => e.getAttribute('aria-busy'))`);
+
+    await click(s, 'Later').catch(() => {});
+
+    const streaming = say(s, 'Reading the cart page. '.repeat(12), { stream: 150, size: 20, prompt: 'look at the cart' });
+    const midStream = await until(async () => (await assistantBusy()).includes('true'));
+    check('assistant-row-is-busy-while-it-streams', !!midStream, J(await assistantBusy()));
+    await streaming;
+    const afterStream = await until(async () => (await assistantBusy()).length && (await assistantBusy()).every((v) => v === null));
+    check('assistant-row-drops-aria-busy-when-the-stream-ends', !!afterStream, J(await assistantBusy()));
+
+    await evaluate(s, `(() => {
+      window.__said = [];
+      const el = document.querySelector('[data-perm-announcer]');
+      if (el) new MutationObserver(() => window.__said.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true });
+    })()`);
+    await perm(s, { id: 'a1', tool: 'Bash' });
+    const bash = await until(async () => (await region()) === 'Permission needed: Bash');
+    check('announcer-reads-the-tool-after-a-card-arrives', !!bash, J(await region()));
+    check('card-is-a-group', (await card('a1'))?.role === 'group', J(await card('a1')));
+    check('card-is-named-by-its-title', /^Allow\s+Bash\?$/.test((await card('a1'))?.title ?? ''), J(await card('a1')));
+
+    await perm(s, { id: 'a2', tool: 'Edit' });
+    await until(async () => (await region()) === 'Permission needed: Edit');
+    check('stacked-cards-announce-in-order', J((await said()).filter(Boolean)) === J(['Permission needed: Bash', 'Permission needed: Edit']), J(await said()));
+
+    const box = await evaluate(s, `(() => {
+      const el = document.querySelector('[data-perm-announcer]');
+      const r = el?.getBoundingClientRect();
+      const cs = el && getComputedStyle(el);
+      return el && {
+        w: r.width, h: r.height, overflow: cs.overflow, clip: cs.clip, clipPath: cs.clipPath,
+        live: el.getAttribute('aria-live'), atomic: el.getAttribute('aria-atomic'), inLog: !!el.closest('[role="log"]'),
+      };
+    })()`);
+    const clipped = box && (/rect\(0(px)?, 0(px)?, 0(px)?, 0(px)?\)/.test(box.clip) || (box.clipPath && box.clipPath !== 'none'));
+    check('announcer-is-one-by-one-and-clipped', box?.w === 1 && box?.h === 1 && box.overflow === 'hidden' && clipped, J(box));
+    check('announcer-is-assertive-and-atomic', box?.live === 'assertive' && box?.atomic === 'true', J(box));
+    check('announcer-sits-outside-the-transcript', box && !box.inLog, J(box));
+    const logs = await evaluate(s, `[...document.querySelectorAll('[role="log"]')].length`);
+    check('transcript-keeps-role-log', logs === 1, `logs=${logs}`);
+
+    await click(s, 'Allow');
+    check('answering-a-card-clears-the-announcer', (await decided(s, 'a1')) === 'allow' && (await until(async () => (await region()) === '')) === true, J(await region()));
+    await click(s, 'Allow');
+    await decided(s, 'a2');
+
+    await evaluate(s, `window.__said.length = 0`);
+    await perm(s, { id: 'a3', tool: 'Bash' });
+    await perm(s, { id: 'a4', tool: 'Bash' });
+    await until(async () => (await said()).filter((t) => t.trim()).length >= 2, 2000);
+    const repeats = (await said()).filter((t) => t.trim());
+    check('a-second-card-of-the-same-tool-is-announced-again',
+      repeats.length === 2 && repeats.every((t) => t.trim() === 'Permission needed: Bash'), J(repeats));
+    await click(s, 'Allow');
+    await decided(s, 'a3');
+    await click(s, 'Allow');
+    await decided(s, 'a4');
+
+    const ask = { questions: [{ question: 'Which coupon?', header: 'Coupon', multiSelect: false, options: [{ label: 'SAVE10', description: 'ten off' }, { label: 'none', description: 'skip' }] }] };
+    await perm(s, { id: 'q1', tool: 'AskUserQuestion', input: ask });
+    const asked = await until(async () => (await region()) === 'Question from the agent');
+    check('announcer-reads-a-question-as-one', !!asked, J(await region()));
+    const q = await card('q1');
+    check('question-card-is-named-by-its-heading', q?.role === 'group' && /asking/i.test(q.title ?? ''), J(q));
+    await click(s, 'Skip');
+    await until(async () => (await region()) === '');
+
+    await perm(s, { id: 'a3', tool: 'Write' });
+    await until(async () => (await region()) === 'Permission needed: Write');
+    await evaluate(s, `window.connChat.newChat()`);
+    check('leaving-a-chat-clears-the-announcer', !!(await until(async () => (await region()) === '')), J(await region()));
+    await click(s, 'look at the cart');
+    const waitingCard = await until(() => card('a3'));
+    await sleep(300);
+    check('returning-to-a-chat-announces-nothing-for-its-waiting-card', !!waitingCard && (await region()) === '', `${J(waitingCard)} ${J(await region())}`);
+    await click(s, 'Allow');
+    await decided(s, 'a3');
+
+    await say(s, 'Trying again.', { prompt: 'try again', open: true });
+    await emit({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Math.floor(Date.now() / 1000) + 3600, rateLimitType: 'five_hour' } });
+    await emit({ type: 'assistant', parent_tool_use_id: null, error: 'rate_limit', message: { role: 'assistant', content: [{ type: 'text', text: "You've hit your session limit · resets 8:30pm (Asia/Kolkata)" }] } });
+    await emit({ type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: 2100, errors: [] });
+    const alert = await until(() => evaluate(s, `document.querySelector('#agent-root [data-turn-error]')?.getAttribute('role') ?? null`));
+    check('turn-error-row-is-an-alert', alert === 'alert', J(alert));
+  } finally {
+    await stop(s);
   }
 }
 
@@ -266,6 +376,8 @@ async function main() {
   } finally {
     await stop(s);
   }
+
+  await checkScreenReaderCues(drive);
 
   if (failures.length) {
     console.log(`\n${failures.length} failure(s)`);
