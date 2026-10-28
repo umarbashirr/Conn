@@ -4,7 +4,7 @@ import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } f
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
-import { DiffView, FileDiffs, editHunks, hunkStats } from '@/components/diff-view';
+import { DiffView, FileDiffs } from '@/components/diff-view';
 import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
@@ -27,6 +27,7 @@ import {
 
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
+import { editHunks, hunkStats } from '@/lib/diff';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { isLive, subagentsIn } from '@/lib/subagents';
