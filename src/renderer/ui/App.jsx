@@ -27,6 +27,7 @@ import {
 
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
+import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
@@ -96,6 +97,7 @@ function attachmentText(list, body, names, { provider, canvas }) {
 }
 
 const EMPTY_DRAFT = { text: '', attachments: [] };
+const restoredDraft = (storageKey) => ({ ...EMPTY_DRAFT, text: readDraft(storageKey) });
 
 // Between a message going out and the first row coming back, and again between
 // one tool finishing and the next starting, the transcript holds still. A held
@@ -297,15 +299,22 @@ export default function App() {
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
   const key = agent.activeKey;
-  const draft = drafts[key] || EMPTY_DRAFT;
+  const chatsRef = useRef(agent.chats);
+  chatsRef.current = agent.chats;
+  const activeChat = agent.chats.find((c) => c.key === key);
+  const storageKey = activeChat ? ownedStorageKey(agent.chats, activeChat) : null;
+  const draft = drafts[key] || restoredDraft(storageKey);
   const text = draft.text;
   const attachments = draft.attachments;
+  useEffect(() => writeDraft(storageKey, text), [storageKey, text]);
 
   // The bridge below hands these to the vanilla half once and never rebinds,
   // so they read the chat that is open now rather than the one that was open
   // when the bridge was installed. Keyed off a ref for that reason.
   const keyRef = useRef(key);
   keyRef.current = key;
+  const storageKeyRef = useRef(storageKey);
+  storageKeyRef.current = storageKey;
 
   // Held here rather than in the composer because the dictation chord works
   // from anywhere in the window, and its words go through this box.
@@ -315,7 +324,7 @@ export default function App() {
   const editDraft = useCallback((field, next) => {
     const k = keyRef.current;
     setDrafts((all) => {
-      const cur = all[k] || EMPTY_DRAFT;
+      const cur = all[k] || restoredDraft(storageKeyRef.current);
       return { ...all, [k]: { ...cur, [field]: typeof next === 'function' ? next(cur[field]) : next } };
     });
   }, []);
@@ -353,8 +362,10 @@ export default function App() {
       // Deleting one, transcript and all. The draft goes with it: half a
       // message typed into a chat that no longer exists is nobody's to keep.
       remove: async (chat) => {
+        const stored = storageKeyOfRow(chatsRef.current, chat);
         const res = await agent.removeChat(chat);
         if (chat.key) setDrafts(({ [chat.key]: _gone, ...rest }) => rest);
+        if (!res?.error) dropDraft(stored);
         return res;
       },
       rename: (chat, title) => {

@@ -5,6 +5,7 @@ import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
+import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
@@ -592,6 +593,8 @@ export function useAgent() {
 
     offs.push(conn().agent.onReady(({ chat, sessionId, model: m, mode: sessionMode }) => {
       if (!chat) return;
+      const unsent = chatsRef.current.find((c) => c.key === chat && !c.session);
+      if (sessionId && unsent) moveDraft(ownedStorageKey(chatsRef.current, unsent), sessionId);
       let pendingTitle = null;
       edit(chat, (c) => {
         // Renamed before the session existed. The name has to be written down
@@ -1103,8 +1106,13 @@ export function useAgent() {
   // its folder is the thing you asked for.
   const reset = useCallback(async (project = null) => {
     const dir = project || focusedProject.current;
-    const cur = chatsRef.current.find((c) => c.key === activeRef.current);
-    if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
+    // The sidebar lists only chats with a message in them, so a second unsent
+    // chat in a folder would leave the first, and its draft, out of reach.
+    const unsent = chatsRef.current.find((c) => !c.items.length && !c.session && (c.project || dir) === dir);
+    if (unsent) {
+      if (unsent.key !== activeRef.current) switchTo(unsent.key);
+      return;
+    }
     const next = blankChat(dir, providerRef.current, startMode.current);
     chatsRef.current = [...chatsRef.current, next];
     setChats(chatsRef.current);
