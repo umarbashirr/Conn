@@ -4,6 +4,9 @@
 // codex-driver.js's probe and runs a CodexSession turn. Each turn starts one
 // command that never finishes, and `turn/interrupt` ends the turn.
 const fs = require('fs');
+// A turn changes four files (an add, a delete, a move and an update) and asks
+// to apply the last one.
+const EDITS = process.env.MOCK_CODEX_EDITS === '1';
 const readline = require('readline');
 
 // A probe spawns this twice, once per arm of #probe()'s Promise.all: once for
@@ -18,11 +21,50 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 
+// Wire shapes from codex 0.158.0; the mapping rules live in codexFiles.
+const CHANGES = {
+  'mock-add': [{ path: '/proj/notes.txt', kind: { type: 'add' }, diff: 'first line\nsecond line\n' }],
+  'mock-delete': [{ path: '/proj/old.txt', kind: { type: 'delete' }, diff: 'goodbye\nworld\n' }],
+  'mock-move': [{
+    path: '/proj/src/a.js',
+    kind: { type: 'update', move_path: '/proj/lib/a.js' },
+    diff: "@@ -1,3 +1,3 @@\n const a = 1;\n-export default a;\n+module.exports = a;\n const b = 2;\n",
+  }],
+  'mock-update': [{
+    path: '/proj/style.css',
+    kind: { type: 'update', move_path: null },
+    diff: '@@ -1,4 +1,4 @@\n button {\n-  color: blue;\n+  color: red;\n   margin: 0;\n }\n'
+      + '@@ -20,3 +20,4 @@\n a {\n   color: green;\n+  text-decoration: none;\n }\n',
+  }],
+};
+let approving = null;
+
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
 }
 
+function editTurn() {
+  for (const [id, changes] of Object.entries(CHANGES)) {
+    const item = { type: 'fileChange', id, changes, status: 'inProgress' };
+    notify('item/started', { threadId: 'mock-thread', turnId: 'mock-turn', item });
+    if (id === 'mock-update') {
+      approving = id;
+      return send({
+        jsonrpc: '2.0', id: 'mock-approval', method: 'item/fileChange/requestApproval',
+        params: { threadId: 'mock-thread', turnId: 'mock-turn', itemId: id, startedAtMs: Date.now(), reason: null, grantRoot: null },
+      });
+    }
+    notify('item/completed', { threadId: 'mock-thread', turnId: 'mock-turn', item: { ...item, status: 'completed' } });
+  }
+}
+
 function onMessage(msg) {
+  if (approving && msg && msg.id === 'mock-approval' && !msg.method) {
+    const item = { type: 'fileChange', id: approving, changes: CHANGES[approving], status: 'completed' };
+    approving = null;
+    notify('item/completed', { threadId: 'mock-thread', turnId: 'mock-turn', item });
+    return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'completed' } });
+  }
   if (!msg || typeof msg !== 'object' || msg.id === undefined || !msg.method) return;
   if (msg.method === 'initialize') {
     return send({ jsonrpc: '2.0', id: msg.id, result: { userAgent: 'mock-codex' } });
@@ -36,6 +78,17 @@ function onMessage(msg) {
   if (msg.method === 'thread/start') {
     return send({ jsonrpc: '2.0', id: msg.id, result: { thread: { id: 'mock-thread' }, model: 'mock-codex-model' } });
   }
+  if (EDITS && msg.method === 'thread/list') {
+    const row = { id: '019a0000-0000-7000-8000-000000000001', preview: 'edit the files', cwd: msg.params?.cwd?.[0], updatedAt: 1 };
+    return send({ jsonrpc: '2.0', id: msg.id, result: { data: [row] } });
+  }
+  if (EDITS && msg.method === 'thread/read') {
+    const items = Object.entries(CHANGES).map(([id, changes]) => ({ type: 'fileChange', id, changes, status: 'completed' }));
+    return send({
+      jsonrpc: '2.0', id: msg.id,
+      result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },
+    });
+  }
   if (msg.method === 'turn/start') {
     send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'mock-turn', status: 'inProgress' } } });
     if (/limit/i.test(JSON.stringify(msg.params?.input || ''))) {
@@ -44,6 +97,7 @@ function onMessage(msg) {
       notify('error', { threadId: 'mock-thread', turnId: 'mock-turn', error, willRetry: false });
       return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'failed', error } });
     }
+    if (EDITS) return editTurn();
     return notify('item/started', {
       threadId: 'mock-thread',
       turnId: 'mock-turn',

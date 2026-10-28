@@ -1,0 +1,242 @@
+{
+ "agent": "grok 1.0.70",
+ "cwd": "/tmp/c12-real-grok-dsXRf4",
+ "file": "alpha\nBETA\ngamma\n",
+ "frames": [
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_delta_chunk",
+    "tool_call_id": "call-9204f878-4494-4861-b213-44aed491a55c-0",
+    "tool_index": 0,
+    "name": "read_file"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_delta_chunk",
+    "tool_index": 0,
+    "arguments_delta": "{\"target_file\":\"/tmp/c12-real-grok-dsXRf4/notes.txt\"}"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call-9204f878-4494-4861-b213-44aed491a55c-0",
+    "title": "read_file",
+    "rawInput": {
+     "target_file": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+    },
+    "_meta": {
+     "x.ai/tool": {
+      "version": 1,
+      "name": "read_file",
+      "kind": "read",
+      "namespace": "grok_build",
+      "label": "Read",
+      "read_only": true
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-9204f878-4494-4861-b213-44aed491a55c-0",
+    "kind": "read",
+    "title": "Read `/tmp/c12-real-grok-dsXRf4/notes.txt`",
+    "locations": [
+     {
+      "path": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+     }
+    ],
+    "rawInput": {
+     "variant": "ReadFile",
+     "target_file": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+    },
+    "_meta": {
+     "x.ai/tool": {
+      "version": 1,
+      "name": "read_file",
+      "kind": "read",
+      "namespace": "grok_build",
+      "label": "Read",
+      "read_only": true,
+      "input": {
+       "path": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+      }
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-9204f878-4494-4861-b213-44aed491a55c-0",
+    "status": "completed",
+    "content": [
+     {
+      "type": "content",
+      "content": {
+       "type": "text",
+       "text": "1\u2192alpha\nbeta\ngamma\n"
+      }
+     }
+    ],
+    "rawOutput": {
+     "type": "ReadFile",
+     "FileContent": {
+      "content": "1\u2192alpha\nbeta\ngamma\n",
+      "content_concise": "1\u2192alpha\nbeta\ngamma\n",
+      "absolute_path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+      "offset": null,
+      "raw_output": "alpha\nbeta\ngamma\n",
+      "total_lines": 3
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_delta_chunk",
+    "tool_call_id": "call-92159588-0017-440c-a3b9-0a985987dc88-1",
+    "tool_index": 0,
+    "name": "search_replace"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_delta_chunk",
+    "tool_index": 0,
+    "arguments_delta": "{\"file_path\":\"/tmp/c12-real-grok-dsXRf4/notes.txt\",\"old_string\":\"beta\",\"new_string\":\"BETA\"}"
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call-92159588-0017-440c-a3b9-0a985987dc88-1",
+    "title": "search_replace",
+    "rawInput": {
+     "file_path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+     "old_string": "beta",
+     "new_string": "BETA"
+    },
+    "_meta": {
+     "x.ai/tool": {
+      "version": 1,
+      "name": "search_replace",
+      "kind": "edit",
+      "namespace": "grok_build",
+      "label": "Edit",
+      "read_only": false
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-92159588-0017-440c-a3b9-0a985987dc88-1",
+    "kind": "edit",
+    "title": "Edit `/tmp/c12-real-grok-dsXRf4/notes.txt`",
+    "content": [
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+      "oldText": "beta",
+      "newText": "BETA",
+      "_meta": {
+       "old_line": 2,
+       "new_line": 2
+      }
+     }
+    ],
+    "locations": [
+     {
+      "path": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+     }
+    ],
+    "rawInput": {
+     "variant": "SearchReplace",
+     "file_path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+     "old_string": "beta",
+     "new_string": "BETA",
+     "replace_all": false
+    },
+    "_meta": {
+     "x.ai/tool": {
+      "version": 1,
+      "name": "search_replace",
+      "kind": "edit",
+      "namespace": "grok_build",
+      "label": "Edit",
+      "read_only": false,
+      "input": {
+       "path": "/tmp/c12-real-grok-dsXRf4/notes.txt"
+      }
+     }
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call-92159588-0017-440c-a3b9-0a985987dc88-1",
+    "status": "completed",
+    "content": [
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+      "oldText": "beta",
+      "newText": "BETA",
+      "_meta": {
+       "details": [
+        {
+         "old_string": "beta",
+         "old_line": 2,
+         "new_string": "BETA",
+         "new_line": 2,
+         "context_before": "alpha\n",
+         "context_after": "gamma\n",
+         "line_prefix": ""
+        }
+       ]
+      }
+     }
+    ],
+    "rawOutput": {
+     "type": "SearchReplace",
+     "EditsApplied": {
+      "old_string": "beta",
+      "new_string": "BETA",
+      "tool_output_for_prompt": "The file /tmp/c12-real-grok-dsXRf4/notes.txt has been updated successfully.",
+      "tool_output_for_prompt_concise": "The file /tmp/c12-real-grok-dsXRf4/notes.txt has been updated.",
+      "absolute_path": "/tmp/c12-real-grok-dsXRf4/notes.txt",
+      "edits": {
+       "details": [
+        {
+         "old_string": "beta",
+         "old_line": 2,
+         "new_string": "BETA",
+         "new_line": 2,
+         "context_before": "alpha\n",
+         "context_after": "gamma\n",
+         "line_prefix": ""
+        }
+       ]
+      }
+     }
+    }
+   }
+  ]
+ ]
+}

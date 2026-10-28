@@ -9,6 +9,7 @@ const { READS } = require('../pane-lease');
 const { INSTRUCTIONS } = require('../../shared/browser-tools');
 const { classify } = require('../../shared/turn-error');
 const shellEnv = require('../shell-env');
+const { acpFiles } = require('../../shared/unified-diff');
 
 const CLIENT = {
   name: 'conn',
@@ -62,6 +63,7 @@ const textOf = (v) => {
   if (typeof v === 'string') return v;
   if (Array.isArray(v)) return v.map(textOf).filter(Boolean).join('\n');
   if (typeof v === 'object') {
+    if (v.type === 'diff' && typeof v.path === 'string') return v.path;
     if (typeof v.text === 'string') return v.text;
     if (v.content) return textOf(v.content);
     try { return JSON.stringify(v); } catch { return String(v); }
@@ -87,6 +89,10 @@ function callInput(update) {
   const loc = locations.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
   if (loc && !raw.file_path && !raw.path && !raw.filePath) raw.path = String(loc);
   if (typeof update?.title === 'string' && update.title && raw.title == null) raw.title = update.title;
+  // `files` is ours. OpenCode's rawInput has its own, a list of patches.
+  const files = acpFiles(update?.content);
+  if (files.length) raw.files = files;
+  else delete raw.files;
   return raw;
 }
 
@@ -100,7 +106,10 @@ function toolOf(call) {
   for (const name of named) {
     if (browserTool(name) || BROWSER_NAME.test(name)) return name;
   }
-  const kind = call?.kind;
+  if (acpFiles(call?.content).length) return KIND_TOOL.edit;
+  // Grok leaves `kind` empty on the first tool_call and names it in its own
+  // _meta, seen from grok 1.0.70 (scripts/fixtures/acp-real/grok.json).
+  const kind = call?.kind || call?._meta?.['x.ai/tool']?.kind;
   if (kind && kind !== 'other' && KIND_TOOL[kind]) return KIND_TOOL[kind];
   return title || KIND_TOOL[kind] || 'Tool';
 }
@@ -448,6 +457,12 @@ class AcpSession extends EventEmitter {
     const call = params.toolCall || {};
     const tool = toolOf(call);
     const input = callInput(call);
+    // OpenCode sends an edit's diff on the permission request and the finished
+    // update only (opencode 2.0.15, scripts/fixtures/acp-real/opencode.json), so
+    // the row would wait for the answer before it could show what it asks.
+    if (input.files?.length && call.toolCallId) {
+      this.#emit({ type: 'tool_input', tool_use_id: call.toolCallId, input: { files: input.files } });
+    }
     const verdict = decideCodex(this.mode, tool, input);
     const options = params.options || [];
     const browser = browserTool(tool);

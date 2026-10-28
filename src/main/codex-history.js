@@ -30,6 +30,7 @@ const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
 const { chatTitle } = require('../shared/chat-title');
 const { clip } = require('./transcript-clip');
+const { codexFiles } = require('../shared/unified-diff');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -192,7 +193,7 @@ const toolResult = (id, content, isError, at) => ({
 
 function inputFor(item) {
   if (item.type === 'commandExecution') return { command: item.command, description: item.cwd };
-  if (item.type === 'fileChange') return { changes: item.changes };
+  if (item.type === 'fileChange') return { files: codexFiles(item.changes) };
   if (item.type === 'webSearch') return { query: item.query };
   return {};
 }
@@ -202,8 +203,8 @@ function outputFor(item) {
     return [item.aggregatedOutput ?? '', item.exitCode !== 0 && item.exitCode != null];
   }
   if (item.type === 'fileChange') {
-    const files = (item.changes || []).map((c) => c.path || c.file || '').filter(Boolean);
-    return [files.length ? files.join('\n') : (item.status || 'done'), item.status === 'failed'];
+    const paths = codexFiles(item.changes).map((f) => f.path);
+    return [paths.length ? paths.join('\n') : (item.status || 'done'), item.status === 'failed'];
   }
   if (item.type === 'mcpToolCall') {
     return [(item.error ? (item.error.message || 'the tool failed') : item.result) ?? '', !!item.error];

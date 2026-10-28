@@ -67,6 +67,15 @@ const planned = handover('summary', [
 ]);
 assert.ok(planned.includes('Its plan when we stopped:\n[completed] Find bug\n[pending] Add test'));
 
+const other = handover('summary', [
+  { id: 'u', kind: 'user', text: 'Tidy up' },
+  { id: 'c1', kind: 'tool', name: 'Edit', input: { files: [
+    { path: '/p/new.txt', kind: 'add', movePath: null, hunks: [{ before: '', after: 'x' }] },
+    { path: '/p/src/a.js', kind: 'update', movePath: '/p/lib/a.js', hunks: [] },
+  ] } },
+]);
+assert.ok(other.includes('Files it changed:\n- /p/new.txt\n- /p/src/a.js\n- /p/lib/a.js'), 'a Codex or ACP edit lists its files, and where a moved one went');
+
 assert.throws(() => handover('nope', []), /Unknown handover kind: nope/);
 
 console.log('handover-repro: ok');

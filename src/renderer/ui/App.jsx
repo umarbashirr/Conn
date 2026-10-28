@@ -4,7 +4,7 @@ import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } f
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
-import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
+import { DiffView, FileDiffs, editHunks, hunkStats } from '@/components/diff-view';
 import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
@@ -931,7 +931,7 @@ function Item({ item, agent, mark }) {
               </span>
             </>
           )}>
-          <DiffView hunks={hunks} />
+          {item.input?.files?.length ? <FileDiffs files={item.input.files} /> : <DiffView hunks={hunks} />}
           {failed && <ToolOutput text={text} error />}
         </ToolRow>
       );

@@ -57,6 +57,7 @@ function trimContext(rows, keep = 3) {
 
 export function editHunks(name, input = {}) {
   if (!EDIT_TOOLS.has(name)) return null;
+  if (Array.isArray(input.files) && input.files.length) return input.files.flatMap((f) => f.hunks ?? []);
   if (name === 'Write') return [{ before: '', after: input.content ?? '' }];
   if (Array.isArray(input.edits)) {
     return input.edits.map((e) => ({ before: e.old_string ?? '', after: e.new_string ?? '' }));
@@ -110,6 +111,36 @@ export function DiffView({ hunks, max = 400 }) {
                 {rows.length - max} more lines
               </div>
             )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function fileHeader({ path, kind, movePath }) {
+  if (movePath) return { text: `${path} → ${movePath}`, note: 'moved' };
+  if (kind === 'add') return { text: path, note: 'added' };
+  if (kind === 'delete') return { text: path, note: 'deleted' };
+  return { text: path, note: '' };
+}
+
+export function FileDiffs({ files, max }) {
+  return (
+    <div className="flex flex-col gap-3">
+      {files.map((f, i) => {
+        const { text, note } = fileHeader(f);
+        // One plain update is already named by the row above it.
+        const showHeader = files.length > 1 || !!note;
+        return (
+          <div key={i} className="flex flex-col gap-1">
+            {showHeader && (
+              <div className="flex items-baseline gap-2 px-1 text-xs">
+                <span className="break-all font-mono text-foreground/85" title={text}>{text}</span>
+                {note && <span className="shrink-0 text-muted-foreground">{note}</span>}
+              </div>
+            )}
+            <DiffView hunks={f.hunks ?? []} max={max} />
           </div>
         );
       })}

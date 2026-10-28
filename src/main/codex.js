@@ -28,6 +28,7 @@ const { configuredServers } = require('./codex-catalog');
 const { INSTRUCTIONS, TOOL_PREFIX } = require('../shared/browser-tools');
 const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
 const { classify } = require('../shared/turn-error');
+const { codexFiles } = require('../shared/unified-diff');
 const shellEnv = require('./shell-env');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -138,7 +139,7 @@ class CodexSession extends EventEmitter {
     this.pending = new Map();     // permission id -> { respond, input, tool }
     this.open = new Set();        // agentMessage item ids with a text block open
     this.openCalls = new Set();
-    this.edits = new Map();       // fileChange item id -> its changes, for the dialog
+    this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
     this.window = 0;              // how many tokens this model's window holds
     this.limits = null;           // last account/rateLimits/updated
@@ -534,7 +535,7 @@ class CodexSession extends EventEmitter {
   #itemStarted(item) {
     // Kept because the approval that follows a file change names the item and
     // says nothing about what is in it. See #askInput.
-    if (item.type === 'fileChange') this.edits.set(item.id, item.changes || []);
+    if (item.type === 'fileChange') this.edits.set(item.id, codexFiles(item.changes));
     const name = TOOL_NAME[item.type];
     if (name) return this.#tool(item.id, name, this.#input(item));
     if (item.type === 'mcpToolCall') {
@@ -564,8 +565,8 @@ class CodexSession extends EventEmitter {
       return this.#result(item.id, item.aggregatedOutput ?? '', item.exitCode !== 0 && item.exitCode != null);
     }
     if (item.type === 'fileChange') {
-      const files = (item.changes || []).map((c) => c.path || c.file || '').filter(Boolean);
-      return this.#result(item.id, files.length ? files.join('\n') : (item.status || 'done'), item.status === 'failed');
+      const paths = codexFiles(item.changes).map((f) => f.path);
+      return this.#result(item.id, paths.length ? paths.join('\n') : (item.status || 'done'), item.status === 'failed');
     }
     if (item.type === 'mcpToolCall') {
       const out = item.error ? (item.error.message || 'the tool failed') : item.result;
@@ -627,7 +628,7 @@ class CodexSession extends EventEmitter {
 
   #input(item) {
     if (item.type === 'commandExecution') return { command: item.command, description: item.cwd };
-    if (item.type === 'fileChange') return { changes: item.changes };
+    if (item.type === 'fileChange') return { files: this.edits.get(item.id) };
     if (item.type === 'webSearch') return { query: item.query };
     return {};
   }
@@ -712,7 +713,7 @@ class CodexSession extends EventEmitter {
      edit in front of them. */
   #askInput(spec, params) {
     if (spec.tool === 'Edit') {
-      return { changes: this.edits.get(params.itemId) || params.changes || params.patch, root: params.grantRoot };
+      return { files: this.edits.get(params.itemId) || [] };
     }
     if (spec.tool === 'Permissions') return { permissions: params.permissions, cwd: params.cwd };
     return {

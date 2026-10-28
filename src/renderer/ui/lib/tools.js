@@ -15,7 +15,7 @@ const SUMMARY = {
   Bash: (i) => i.command,
   Read: (i) => tail(fileOf(i)),
   Write: (i) => tail(fileOf(i)),
-  Edit: (i) => tail(fileOf(i)),
+  Edit: (i) => tail(fileOf(i)) + otherFiles(i),
   MultiEdit: (i) => tail(fileOf(i)),
   NotebookEdit: (i) => tail(fileOf(i)),
   Glob: (i) => i.pattern,
@@ -55,11 +55,13 @@ const SUMMARY = {
 
 const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');
 
+const otherFiles = (i) => (Array.isArray(i.files) && i.files.length > 1 ? ` +${i.files.length - 1}` : '');
+
 // ACP calls often name the file as `path` or a location, not `file_path`.
 function fileOf(i = {}) {
   const locs = Array.isArray(i.locations) ? i.locations : [];
   const loc = locs.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
-  return i.file_path || i.path || i.filePath || i.notebook_path || i.target_file || loc || '';
+  return i.file_path || i.path || i.filePath || i.notebook_path || i.target_file || loc || (Array.isArray(i.files) && i.files[0]?.path) || '';
 }
 
 const clip = (s) => {

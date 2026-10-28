@@ -107,6 +107,8 @@ const SUMMARIES = [
   ['browser_show', { open: false }, 'hide'],
   ['browser_show', { open: true }, ''],
   ['Skill', { skill: 'pdf' }, 'pdf'],
+  ['Edit', { files: [{ path: '/p/src/a.js', kind: 'update', movePath: null, hunks: [] }] }, 'src/a.js'],
+  ['Edit', { files: [{ path: '/p/src/a.js' }, { path: '/p/b.js' }, { path: '/p/c.js' }] }, 'src/a.js +2'],
 ];
 for (const [label, input, want] of SUMMARIES) {
   assert.equal(toolSummary(label, input), want, `${label} ${JSON.stringify(input)} reads "${want}"`);
