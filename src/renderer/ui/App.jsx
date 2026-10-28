@@ -5,7 +5,7 @@ import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } f
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, editHunks, hunkStats } from '@/components/diff-view';
-import { PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
+import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
@@ -932,7 +932,7 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           <DiffView hunks={hunks} />
-          {item.state === 'output-error' && <ToolOutput text={text} error />}
+          {failed && <ToolOutput text={text} error />}
         </ToolRow>
       );
     }
@@ -970,7 +970,8 @@ function Item({ item, agent, mark }) {
               )}
             </>
           )}>
-          <Pre>{JSON.stringify(item.input, null, 2)}</Pre>
+          {failed && text && <ToolOutput text={text} error className="mt-0" />}
+          {!failed && <Pre>{JSON.stringify(item.input, null, 2)}</Pre>}
           {recording && (
             <video
               controls
@@ -986,7 +987,8 @@ function Item({ item, agent, mark }) {
               loading="lazy"
               src={imageSrc(b)} />
           ))}
-          {text && <ToolOutput text={text} error={failed} />}
+          {!failed && text && <ToolOutput text={text} />}
+          {failed && <InputFold input={item.input} />}
         </ToolRow>
       </div>
     );
