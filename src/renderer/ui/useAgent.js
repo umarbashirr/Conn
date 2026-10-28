@@ -1106,8 +1106,13 @@ export function useAgent() {
   // its folder is the thing you asked for.
   const reset = useCallback(async (project = null) => {
     const dir = project || focusedProject.current;
-    const cur = chatsRef.current.find((c) => c.key === activeRef.current);
-    if (cur && !cur.items.length && !cur.session && (cur.project || dir) === dir) return;
+    // The sidebar lists only chats with a message in them, so a second unsent
+    // chat in a folder would leave the first, and its draft, out of reach.
+    const unsent = chatsRef.current.find((c) => !c.items.length && !c.session && (c.project || dir) === dir);
+    if (unsent) {
+      if (unsent.key !== activeRef.current) switchTo(unsent.key);
+      return;
+    }
     const next = blankChat(dir, providerRef.current, startMode.current);
     chatsRef.current = [...chatsRef.current, next];
     setChats(chatsRef.current);
