@@ -130,6 +130,13 @@ export const toolText = (output) => {
   return output.map((b) => (b.type === 'image' ? '[screenshot]' : b.text ?? JSON.stringify(b))).join('\n');
 };
 
+const ROW_TEXT_LIMIT = 4000;
+
+export const cutText = (text, limit = ROW_TEXT_LIMIT) => ({
+  shown: text.slice(0, limit),
+  hidden: Math.max(0, text.length - limit),
+});
+
 // Live tool results carry a path (main strips the base64 before IPC); a replayed
 // transcript still carries the bytes for its most recent few. Handle both.
 export const toolImages = (output) =>
