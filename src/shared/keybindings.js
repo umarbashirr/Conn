@@ -29,6 +29,7 @@ const BINDINGS = [
   { id: 'cycleMode', command: 'cycleMode', label: 'Next permission mode', category: 'Chat', keys: 'Shift+Tab', owner: 'composer', scope: 'composer', steal: false },
   { id: 'stopTurn', command: 'stop', label: 'Stop the turn', category: 'Chat', keys: 'Escape', owner: 'composer', scope: 'composer', steal: false },
   { id: 'dictate', command: 'dictate', label: 'Dictate into the chat box', category: 'Chat', keys: 'CmdOrCtrl+D', owner: 'renderer', scope: 'app', steal: true },
+  { id: 'jumpPermission', command: 'jumpPermission', label: 'Jump to the waiting permission', category: 'Chat', keys: 'CmdOrCtrl+Shift+A', owner: 'renderer', scope: 'app', steal: true },
 
   { id: 'rail', command: 'rail', label: 'Sessions', category: 'View', keys: 'CmdOrCtrl+B', owner: 'renderer', scope: 'app', steal: true },
   { id: 'terminal', command: 'terminal', label: 'Terminal', category: 'View', keys: 'CmdOrCtrl+`', owner: 'renderer', scope: 'app', steal: true },

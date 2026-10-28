@@ -368,6 +368,10 @@ export default function App() {
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
       dictate: dictation.toggle,
+      jumpPermission: () => {
+        const oldest = document.querySelector('[data-perm-card]');
+        (oldest?.querySelector('[data-perm-allow]') || oldest?.querySelector('button, input, [tabindex]'))?.focus();
+      },
       // A shortcut for typing $canvas, and the canvas opens to show what comes back.
       design: () => {
         setText((t) => (mentionsIn(t).has('canvas') ? t : `${t}${t && !/\s$/.test(t) ? ' ' : ''}$canvas `));
@@ -1001,11 +1005,13 @@ function Item({ item, agent, mark }) {
     // A question is not a permission, whatever the transport says.
     if (item.tool === 'AskUserQuestion') {
       return (
-        <QuestionCard
-          input={item.input}
-          onAnswer={(answers, annotations) =>
-            onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
-          onSkip={() => onDecide(item.id, 'deny')} />
+        <div data-perm-card={item.id}>
+          <QuestionCard
+            input={item.input}
+            onAnswer={(answers, annotations) =>
+              onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
+            onSkip={() => onDecide(item.id, 'deny')} />
+        </div>
       );
     }
     return (
@@ -1043,7 +1049,10 @@ function Item({ item, agent, mark }) {
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
           )}
           <div className="ml-auto flex gap-1.5">
-            <Button size="sm" className="h-7" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
+            {/* Focus lands here from a script, which Chromium leaves without a
+                focus-visible ring after a mouse click, and a click on it
+                answers the card anyway. */}
+            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
             <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
             <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
           </div>
