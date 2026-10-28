@@ -840,7 +840,7 @@ function TurnErrorRow({ item, agent }) {
   const left = latest && action === 'wait' && retryAt ? retryAt - Date.now() : 0;
   useTick(left > 0);
   return (
-    <div data-turn-error={kind} className="flex flex-col items-start gap-1.5 py-1">
+    <div data-turn-error={kind} role="alert" className="flex flex-col items-start gap-1.5 py-1">
       <div className="text-[13px] text-destructive">
         {message.split('`').map((part, i) => (i % 2 ? <code key={i} className="rounded bg-muted px-1 font-mono text-foreground text-xs">{part}</code> : part))}
       </div>
@@ -875,7 +875,7 @@ function Item({ item, agent, mark }) {
 
   if (item.kind === 'assistant') {
     return (
-      <Message from="assistant" className="mt-1.5">
+      <Message from="assistant" aria-busy={item.streaming || undefined} className="mt-1.5">
         <MessageContent>
           {/* The caret rides the last paragraph while text is still coming.
               Prose that pauses for a second between chunks looks finished
