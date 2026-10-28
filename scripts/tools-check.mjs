@@ -10,7 +10,7 @@ import './renderer-esm.mjs';
 const require = createRequire(import.meta.url);
 const { z } = require('zod');
 const { browserTools, BROWSER_LABEL, BROWSER_BY_ROUTE } = require('../src/shared/browser-tools.js');
-const { toolLabel, toolName, toolSummary, bucketOf, toolImages, imageSrc } = await import('../src/renderer/ui/lib/tools.js');
+const { toolLabel, toolName, toolSummary, bucketOf, toolImages, imageSrc, cutText } = await import('../src/renderer/ui/lib/tools.js');
 await import('../src/renderer/ui/lib/subagents.js');
 
 const TOOLS = browserTools(z);
@@ -138,6 +138,16 @@ assert.deepEqual(
 assert.deepEqual(toolImages('plain output'), [], 'a string result has no images');
 assert.equal(imageSrc(live), 'file:///tmp/conn%20shots/a.png', 'a live screenshot loads from its file');
 assert.equal(imageSrc(replayed), 'data:image/gif;base64,R0lGOD', 'a replayed screenshot loads from its bytes');
+
+const long = cutText('x'.repeat(9000));
+assert.equal(long.shown.length, 4000, 'cutText keeps the first 4000 characters of 9000');
+assert.equal(long.hidden, 5000, 'cutText counts the 5000 it left out');
+assert.equal(cutText('x'.repeat(4000)).hidden, 0, 'exactly 4000 characters hides nothing');
+assert.equal(cutText('x'.repeat(4000)).shown.length, 4000, 'exactly 4000 characters shows all of them');
+assert.equal(cutText('x'.repeat(4001)).hidden, 1, 'one character over the limit hides one');
+assert.deepEqual(cutText('short'), { shown: 'short', hidden: 0 }, 'short text passes through');
+assert.deepEqual(cutText(''), { shown: '', hidden: 0 }, 'empty text passes through');
+assert.deepEqual(cutText('abcdef', 4), { shown: 'abcd', hidden: 2 }, 'cutText takes the limit as an argument');
 
 const icons = read('src/renderer/ui/components/tool-row.jsx').match(/const ICONS = \{([\s\S]*?)\n\};/)?.[1] ?? '';
 const iconKeys = new Set([...icons.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
