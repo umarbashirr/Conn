@@ -990,6 +990,7 @@ export function Composer({
 
   const queueState = queueStateOf(agent);
   const next = nextOf(agent.queued);
+  const stopChord = formatChord(currentKey('stopTurn'));
 
   const onKeyDown = useCallback((e) => {
     if (menu) {
@@ -1159,6 +1160,7 @@ export function Composer({
               className="size-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               disabled={!agent.busy && !text.trim() && !attachments.length}
               status={agent.busy ? 'streaming' : undefined}
+              title={agent.busy ? (stopChord ? `Stop (${stopChord})` : 'Stop') : undefined}
               onClick={agent.busy ? (e) => { e.preventDefault(); agent.interrupt(); } : undefined}>
               {agent.busy ? <SquareIcon className="size-3.5 fill-current" /> : <ArrowUpIcon className="size-4" />}
             </PromptInputSubmit>
