@@ -36,11 +36,13 @@ function valueOf(root) {
   return out;
 }
 
-// Only text nodes and token spans belong in here. Anything else means the
-// browser has been editing the structure and the box needs redrawing.
+// Only text nodes and token spans belong in here, plus the <br> render puts
+// after a trailing newline. Anything else means the browser has been editing
+// the structure and the box needs redrawing.
 function canonical(root) {
   for (const child of root.childNodes) {
     if (child.nodeType === 3 || isToken(child)) continue;
+    if (child.nodeName === 'BR' && child === root.lastChild && child.previousSibling?.nodeValue?.endsWith('\n')) continue;
     return false;
   }
   return true;
@@ -55,6 +57,10 @@ function render(root, text) {
   // A badge in last place leaves the caret nowhere ordinary to land, so there
   // is always a text node after it to click into.
   if (!root.lastChild || isToken(root.lastChild)) root.appendChild(doc.createTextNode(''));
+  // Chromium lays out no empty last line after a trailing newline in pre-wrap
+  // text, so a caret placed after it is drawn before it and typing lands on
+  // the line above. A <br> after it gives that line a box to sit in.
+  if (text.endsWith('\n')) root.appendChild(doc.createElement('br'));
 }
 
 // Where the caret is, counted in characters of the string rather than in DOM
@@ -346,6 +352,18 @@ export const TokenInput = forwardRef(function TokenInput({
       const text = valueOf(box);
       const offset = caretOffset(box) ?? text.length;
       apply(`${text.slice(0, offset)}\n${text.slice(offset)}`, offset + 1);
+      return;
+    }
+
+    // Text with a newline in it is one more: Chromium splits it into a <div>
+    // per line after the first, and the loose line in front of that <div>
+    // reads back with no break after it. React delivers it as Chromium's
+    // textInput event, which has the text but no inputType.
+    if (e.data?.includes('\n')) {
+      e.preventDefault();
+      const text = valueOf(box);
+      const { start, end } = selectionSpan(box, text);
+      apply(text.slice(0, start) + e.data + text.slice(end), start + e.data.length);
     }
   }, [apply]);
 
