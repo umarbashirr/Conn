@@ -248,6 +248,9 @@ function focusIsIdle() {
 
 const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
 
+const permAnnouncement = (item) =>
+  item.tool === 'AskUserQuestion' ? 'Question from the agent' : `Permission needed: ${toolName(toolLabel(item.tool))}`;
+
 const permTitleId = (id) => `perm-title-${id}`;
 
 export default function App() {
@@ -415,14 +418,15 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [agent.busy, agent.interrupt, customizeAt]);
 
-  // An answered card passes focus to the next one, then to the composer.
-  const cards = useMemo(
-    () => agent.items.filter((it) => it.kind === 'perm' && !it.decided && it.tool !== 'AskUserQuestion').map((it) => it.id),
-    [agent.items],
-  );
-  const cardsKey = cards.join('\n');
-  const seenCards = useRef({ chat: null, ids: [] });
+  // A card that arrives in the chat on screen is announced, and takes focus
+  // when focus is idle. An answered card passes focus to the next one, then to
+  // the composer.
+  const waiting = useMemo(() => agent.items.filter((it) => it.kind === 'perm' && !it.decided), [agent.items]);
+  const cards = useMemo(() => waiting.filter((it) => it.tool !== 'AskUserQuestion').map((it) => it.id), [waiting]);
+  const waitingKey = waiting.map((it) => it.id).join('\n');
+  const seenCards = useRef({ chat: null, ids: [], waiting: [] });
   const cardFocus = useRef(null);
+  const [announcement, setAnnouncement] = useState('');
   useEffect(() => {
     const track = (e) => { cardFocus.current = e.target.closest?.('[data-perm-card]')?.dataset.permCard ?? null; };
     document.addEventListener('focusin', track);
@@ -430,8 +434,13 @@ export default function App() {
   }, []);
   useEffect(() => {
     const prev = seenCards.current;
-    seenCards.current = { chat: agent.activeKey, ids: cards };
+    seenCards.current = { chat: agent.activeKey, ids: cards, waiting: waiting.map((it) => it.id) };
     const switchedChat = prev.chat !== agent.activeKey;
+    const arrived = switchedChat ? undefined : waiting.findLast((it) => !prev.waiting.includes(it.id));
+    const next = arrived ? permAnnouncement(arrived) : '';
+    // A live region speaks only when its text changes, so a second card for the
+    // same tool flips a trailing no-break space to be heard at all.
+    setAnnouncement((said) => (next && said === next ? `${next} ` : next));
     if (switchedChat) return;
     const answered = prev.ids.includes(cardFocus.current) && !cards.includes(cardFocus.current);
     if (answered && (!document.activeElement || document.activeElement === document.body)) {
@@ -441,7 +450,7 @@ export default function App() {
     } else if (cards.some((id) => !prev.ids.includes(id)) && focusIsIdle()) {
       allowButton(cards[0])?.focus();
     }
-  }, [agent.activeKey, cardsKey]);
+  }, [agent.activeKey, waitingKey]);
 
   // A release that landed while the window was open, said where the person
   // already is. Update starts the download; Install is a second toast once the
@@ -646,6 +655,8 @@ export default function App() {
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}
+
+      <div className="sr-only" aria-live="assertive" aria-atomic="true" data-perm-announcer>{announcement}</div>
     </div>
   );
 }
