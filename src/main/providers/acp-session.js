@@ -9,6 +9,7 @@ const { READS } = require('../pane-lease');
 const { INSTRUCTIONS } = require('../../shared/browser-tools');
 const { classify } = require('../../shared/turn-error');
 const shellEnv = require('../shell-env');
+const { acpFiles } = require('../../shared/unified-diff');
 
 const CLIENT = {
   name: 'conn',
@@ -62,6 +63,9 @@ const textOf = (v) => {
   if (typeof v === 'string') return v;
   if (Array.isArray(v)) return v.map(textOf).filter(Boolean).join('\n');
   if (typeof v === 'object') {
+    // An edit's diff content, which is the whole file twice. The row has the
+    // diff; what the result can usefully say is which file.
+    if (v.type === 'diff' && typeof v.path === 'string') return v.path;
     if (typeof v.text === 'string') return v.text;
     if (v.content) return textOf(v.content);
     try { return JSON.stringify(v); } catch { return String(v); }
@@ -79,7 +83,8 @@ function mcpEnv(env) {
    kind "other" used to become "Tool" and skip browser READS auto-allow.
    The kind is what the row is called. The file and the title have to ride
    along on the input, or that row is just the word "Edit": ACP puts the
-   path on `locations` or `path`, not on `file_path`. */
+   path on `locations` or `path`, not on `file_path`. Diff content becomes
+   `files`, which is what the panel draws an edit from. */
 function callInput(update) {
   const raw = update?.rawInput && typeof update.rawInput === 'object' ? { ...update.rawInput } : {};
   const locations = Array.isArray(update?.locations) ? update.locations : [];
@@ -87,6 +92,8 @@ function callInput(update) {
   const loc = locations.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
   if (loc && !raw.file_path && !raw.path && !raw.filePath) raw.path = String(loc);
   if (typeof update?.title === 'string' && update.title && raw.title == null) raw.title = update.title;
+  const files = acpFiles(update?.content);
+  if (files.length) raw.files = files;
   return raw;
 }
 
@@ -100,6 +107,8 @@ function toolOf(call) {
   for (const name of named) {
     if (browserTool(name) || BROWSER_NAME.test(name)) return name;
   }
+  // Content that is a diff is an edit whatever the agent called it.
+  if (acpFiles(call?.content).length) return KIND_TOOL.edit;
   const kind = call?.kind;
   if (kind && kind !== 'other' && KIND_TOOL[kind]) return KIND_TOOL[kind];
   return title || KIND_TOOL[kind] || 'Tool';
