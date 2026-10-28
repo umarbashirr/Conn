@@ -5,6 +5,7 @@ import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
+import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
@@ -592,6 +593,8 @@ export function useAgent() {
 
     offs.push(conn().agent.onReady(({ chat, sessionId, model: m, mode: sessionMode }) => {
       if (!chat) return;
+      const unsent = chatsRef.current.find((c) => c.key === chat && !c.session);
+      if (sessionId && unsent) moveDraft(ownedStorageKey(chatsRef.current, unsent), sessionId);
       let pendingTitle = null;
       edit(chat, (c) => {
         // Renamed before the session existed. The name has to be written down
