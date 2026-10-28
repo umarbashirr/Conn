@@ -79,7 +79,7 @@ function fitAsks(asks) {
 
 function touched(input) {
   const paths = [input?.file_path, input?.notebook_path];
-  if (Array.isArray(input?.changes)) paths.push(...input.changes.map((c) => c?.path || c?.file));
+  if (Array.isArray(input?.files)) paths.push(...input.files.flatMap((f) => [f?.path, f?.movePath]));
   return paths.filter((p) => typeof p === 'string' && p);
 }
 
