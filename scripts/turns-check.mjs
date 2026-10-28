@@ -1,11 +1,12 @@
 /* How the transcript's flat items read, under plain node. A decided permission
    is drawn as a mark on the row of the call it let through, and only that one:
    an answered question, a pending card and a perm whose row lives somewhere
-   else stay lines of their own. */
+   else stay lines of their own. A turn's footer lists the files it changed,
+   counted from the edits that went through. */
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 
-const { attachPerms } = await import('../src/renderer/ui/lib/turns.js');
+const { attachPerms, hunksOf, turnEdits } = await import('../src/renderer/ui/lib/turns.js');
 
 const call = (id, name) => ({ id, kind: 'tool', name, input: {}, state: 'output-available' });
 const perm = (id, tool, extra) => ({ id, kind: 'perm', tool, input: {}, agent: null, ...extra });
@@ -137,6 +138,94 @@ const WAIT = 'mcp__preview__browser_wait';
   const got = attachPerms(items);
   assert.equal(got.marks.size, 0, 'a list with no perms marks nothing');
   assert.deepEqual(ids(got.rest), ids(items), 'and comes back the same length in the same order');
+}
+
+const edit = (id, file_path, old_string, new_string, extra) => ({ id, kind: 'tool', name: 'Edit', input: { file_path, old_string, new_string }, state: 'output-available', ...extra });
+const write = (id, file_path, content, extra) => ({ id, kind: 'tool', name: 'Write', input: { file_path, content }, state: 'output-available', ...extra });
+const codex = (id, files, extra) => ({ id, kind: 'tool', name: 'Edit', input: { files }, state: 'output-available', ...extra });
+const counts = (turn) => turn.files.map((f) => `${f.path} +${f.added} -${f.removed}`);
+
+{
+  const items = [
+    user('u1'),
+    edit('e1', '/a.js', 'one', 'uno'),
+    edit('e2', '/a.js', 'two\nthree', 'dos'),
+    note('n1'),
+  ];
+  const got = turnEdits(items);
+  assert.equal(got.length, 1, 'one user item is one turn');
+  assert.deepEqual([got[0].userId, got[0].end], ['u1', 'n1'], 'the turn runs from its user item to its last item');
+  assert.deepEqual(counts(got[0]), ['/a.js +2 -3'], 'two edits to one file sum into one entry');
+  assert.deepEqual(got[0].files[0].calls, ['e1', 'e2'], 'and name both calls');
+}
+
+{
+  const got = turnEdits([user('u1'), write('w1', '/new.txt', 'a\nb\nc\n')]);
+  assert.deepEqual(counts(got[0]), ['/new.txt +3 -0'], 'a Write counts its whole content as added');
+}
+
+{
+  const got = turnEdits([user('u1'), { id: 'a1', kind: 'assistant', text: 'hi' }, call('tb1', 'Bash'), note('n1'), user('u2'), edit('e1', '/b.js', 'x', 'y')]);
+  assert.deepEqual(got.map((t) => [t.userId, t.end, t.files.length]), [['u1', 'n1', 0], ['u2', 'e1', 1]], 'a turn with no edits has no files, and the next one starts at its user item');
+}
+
+{
+  const items = [
+    user('u1'),
+    edit('ok', '/a.js', 'x', 'y'),
+    edit('bad', '/b.js', 'x', 'y', { state: 'output-error' }),
+    edit('run', '/c.js', 'x', 'y', { state: 'input-available' }),
+    edit('denied', '/d.js', 'x', 'y', { state: 'output-denied' }),
+  ];
+  assert.deepEqual(counts(turnEdits(items)[0]), ['/a.js +1 -1'], 'only an edit that went through is listed');
+}
+
+{
+  const files = [
+    { path: '/x.js', kind: 'update', hunks: [{ before: 'a', after: 'b\nc' }] },
+    { path: '/y.js', kind: 'add', hunks: [{ before: '', after: 'new' }] },
+  ];
+  const items = [user('u1'), codex('c1', files), edit('e1', '/x.js', 'p', 'q')];
+  assert.deepEqual(counts(turnEdits(items)[0]), ['/x.js +3 -2', '/y.js +1 -0'], 'a files edit gives one entry per file, in first-seen order, and sums with a later edit');
+  assert.deepEqual(turnEdits(items)[0].files.map((f) => f.calls), [['c1', 'e1'], ['c1']], 'each file names the calls that touched it');
+}
+
+{
+  const items = [
+    user('u1'),
+    { id: 'ag1', kind: 'agent', children: [edit('e1', '/sub.js', 'x', 'y')] },
+    edit('e2', '/sub.js', 'p', 'q', { parent: 'ag1' }),
+    note('n1'),
+  ];
+  assert.deepEqual(counts(turnEdits(items)[0]), ['/sub.js +2 -2'], "a subagent's edits count, nested under its row or flat with a parent");
+}
+
+{
+  const got = turnEdits([edit('e0', '/early.js', 'x', 'y'), { id: 'n0', kind: 'note', text: 'opening' }, user('u1'), edit('e1', '/a.js', 'x', 'y')]);
+  assert.equal(got.length, 1, 'items before the first user item belong to no turn');
+  assert.deepEqual(counts(got[0]), ['/a.js +1 -1'], 'and are not counted in the next one');
+}
+
+{
+  const files = [
+    { path: '/x.js', hunks: [{ before: 'a', after: 'b' }] },
+    { path: '/y.js', hunks: [{ before: '', after: 'new' }] },
+  ];
+  const items = [
+    user('u1'),
+    codex('c1', files),
+    { id: 'ag1', kind: 'agent', children: [edit('e1', '/x.js', 'p', 'q')] },
+    edit('e2', '/x.js', 'r', 's'),
+  ];
+  assert.deepEqual(hunksOf(items, ['c1', 'e1'], '/x.js'), [{ before: 'a', after: 'b' }, { before: 'p', after: 'q' }], 'the hunks of the named calls to one path, a subagent row included and other calls and files left out');
+}
+
+{
+  const moved = [{ path: '/src/a.js', kind: 'update', movePath: '/lib/a.js', hunks: [{ before: 'x', after: 'y' }] }];
+  const items = [user('u1'), codex('c1', moved)];
+  const [turn] = turnEdits(items);
+  assert.deepEqual(turn.files.map((f) => f.path), ['/lib/a.js'], 'a moved file is listed where it lives now');
+  assert.deepEqual(hunksOf(items, ['c1'], '/lib/a.js'), [{ before: 'x', after: 'y' }], 'and its diff is found under that path');
 }
 
 console.log('turns-check: all passed');
