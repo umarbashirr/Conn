@@ -1005,7 +1005,7 @@ export function Composer({
       if (dictation.view.kind === 'listening') dictation.toggle();
       return;
     }
-    if (matches(e, 'stop') && agent.busy) { e.preventDefault(); return agent.interrupt(); }
+    if (matches(e, 'stopTurn') && agent.busy) { e.preventDefault(); return agent.interrupt(); }
     if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
   }, [menu, rows, cursor, pick, cycleMode, agent.interrupt, agent.busy, dictation]);
 
