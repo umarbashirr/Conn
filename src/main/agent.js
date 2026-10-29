@@ -143,6 +143,10 @@ class AgentSession extends EventEmitter {
         // No setter for this one, so it is settled when the session starts and
         // a change means the next session rather than this one.
         ...(this.effort ? { effort: this.effort } : {}),
+        // Asks for thinking text, which an omitted display streams none of,
+        // and leaves thinking on or off to the person's settings. The SDK's
+        // `thinking` option sets the display only along with a mode.
+        extraArgs: { 'thinking-display': 'summarized' },
         canUseTool: (name, input, opts) => this.#permission(name, input, opts),
         // Continue an earlier session in place. forkSession stays off so the
         // transcript keeps one id and one file on disk.

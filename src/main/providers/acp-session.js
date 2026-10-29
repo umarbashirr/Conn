@@ -143,7 +143,7 @@ class AcpSession extends EventEmitter {
     this.openCalls = new Set();
     this.sessionId = null;
     this.rpc = null;
-    this.streaming = false;
+    this.block = null;            // 'text' | 'thinking': the one block open
     // Browser instructions ride ahead of the first turn only, the same way
     // Codex puts them on thread/start.
     this.preface = this.mcp ? ACP_INSTRUCTIONS : null;
@@ -269,7 +269,7 @@ class AcpSession extends EventEmitter {
       .then((res) => this.#promptDone(res))
       .catch((e) => {
         this.busy = false;
-        this.#closeStream();
+        this.#close();
         this.#emit({
           type: 'result',
           subtype: 'error',
@@ -281,7 +281,7 @@ class AcpSession extends EventEmitter {
   }
 
   #promptDone(res) {
-    this.#closeStream();
+    this.#close();
     this.openCalls.clear();
     this.busy = false;
     this.prompting = null;
@@ -390,15 +390,21 @@ class AcpSession extends EventEmitter {
     });
   }
 
-  #openStream() {
-    if (this.streaming) return;
-    this.streaming = true;
-    this.#stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+  // One block open at a time, the way the renderer's stream slot reads them.
+  #open(kind) {
+    if (this.block === kind) return;
+    this.#close();
+    this.block = kind;
+    this.#stream({
+      type: 'content_block_start',
+      index: 0,
+      content_block: kind === 'text' ? { type: 'text', text: '' } : { type: 'thinking', thinking: '' },
+    });
   }
 
-  #closeStream() {
-    if (!this.streaming) return;
-    this.streaming = false;
+  #close() {
+    if (!this.block) return;
+    this.block = null;
     this.#stream({ type: 'content_block_stop', index: 0 });
   }
 
@@ -409,12 +415,19 @@ class AcpSession extends EventEmitter {
     if (kind === 'agent_message_chunk') {
       const text = textOf(update.content);
       if (!text) return;
-      this.#openStream();
+      this.#open('text');
       this.#stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } });
       return;
     }
+    if (kind === 'agent_thought_chunk') {
+      const thinking = textOf(update.content);
+      if (!thinking) return;
+      this.#open('thinking');
+      this.#stream({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking } });
+      return;
+    }
     if (kind === 'tool_call') {
-      this.#closeStream();
+      this.#close();
       const id = update.toolCallId;
       this.openCalls.add(id);
       const name = toolOf(update);
