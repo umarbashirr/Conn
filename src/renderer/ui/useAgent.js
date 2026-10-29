@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
+import { settle } from '@/lib/reasoning';
 import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
@@ -34,17 +35,22 @@ const toastEnd = (chat, failed) => toast(`${chat.title} ${failed ? 'ended with a
 
 const OPEN_CALL = new Set(['input-streaming', 'input-available']);
 
+// The ids of what outlives the turn: background work and every row under it.
+function outliving(items) {
+  const out = new Set();
+  for (const it of items) if (outlivesTurn(it) || out.has(it.parent)) out.add(it.id);
+  return out;
+}
+
 // A blocking agent ends with the turn that was waiting on it, as `agentEnd`.
 function endTurn(items, agentEnd) {
-  const outlives = new Set();
+  const outlives = outliving(items);
+  const now = Date.now();
   return items.map((it) => {
-    if (outlivesTurn(it) || outlives.has(it.parent)) {
-      outlives.add(it.id);
-      return it;
-    }
+    if (outlives.has(it.id)) return it;
     if (it.kind === 'agent' && it.status === 'running') return { ...it, status: agentEnd, waiting: false };
     if (it.kind === 'tool' && OPEN_CALL.has(it.state)) return { ...it, state: 'output-error', output: 'interrupted' };
-    return it;
+    return settle(it, now);
   });
 }
 
@@ -90,6 +96,9 @@ function replay(messages, parent) {
       for (const b of content) {
         if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
         else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${own}${out.length}`, kind: 'assistant', text: b.text, ...base });
+        // Most saved thinking is a signature with its text left out, and live
+        // never draws one of those either.
+        else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${own}${out.length}`, kind: 'reasoning', text: b.thinking, ...base });
       }
       continue;
     }
@@ -304,13 +313,15 @@ export function useAgent() {
   // each keeps its own buffer: the block being written to, the chunk waiting
   // for the next frame, and the text already rendered from a non-streamed
   // block. A subagent streams alongside the thread that spawned it, so the
-  // buffer is per chat and per agent, not per chat.
+  // buffer is per chat and per agent, not per chat. `open` is the one block
+  // being written: null, { id, kind: 'assistant' }, or { id, kind:
+  // 'reasoning', at, shown }, where `shown` says its row has been pushed.
   const streams = useRef(new Map());
   const streamKey = (chat, parent) => `${chat}\0${parent || ''}`;
   const streamOf = useCallback((chat, parent) => {
     const k = streamKey(chat, parent);
     let st = streams.current.get(k);
-    if (!st) { st = { id: null, pending: '', raf: 0, seen: new Set() }; streams.current.set(k, st); }
+    if (!st) { st = { open: null, pending: '', raf: 0, seen: new Set() }; streams.current.set(k, st); }
     return st;
   }, []);
 
@@ -330,7 +341,7 @@ export function useAgent() {
     const st = streamOf(key, parent);
     st.raf = 0;
     const chunk = st.pending;
-    const id = st.id;
+    const id = st.open?.id;
     st.pending = '';
     if (!chunk || !id) return;
     edit(key, (c) => ({
@@ -362,19 +373,37 @@ export function useAgent() {
       if (msg.type === 'stream_event') {
         const ev = msg.event;
         if (ev?.type?.startsWith('message_')) edit(chat, (c) => ({ ...c, usage: account(c.usage, msg) }));
-        if (ev?.type === 'content_block_start' && ev.content_block?.type === 'text') {
+        const block = ev?.content_block?.type;
+        if (ev?.type === 'content_block_start' && block === 'text') {
           flushStream(chat, parent);
-          const id = uid('a');
-          st.id = id;
-          push(chat, { id, kind: 'assistant', text: '', streaming: true, parent });
-        } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && st.id) {
+          st.open = { id: uid('a'), kind: 'assistant' };
+          push(chat, { id: st.open.id, kind: 'assistant', text: '', streaming: true, parent });
+        } else if (ev?.type === 'content_block_start' && block === 'thinking') {
+          flushStream(chat, parent);
+          // No row until there is text to put in it. Most thinking arrives with
+          // its text left out, and an empty row would break the tool run and
+          // hide the shimmer for nothing. `at` is taken now, so the wait before
+          // the first word still counts toward how long it thought.
+          st.open = { id: uid('r'), kind: 'reasoning', at: Date.now(), shown: false };
+        } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && st.open?.kind === 'assistant') {
           appendStream(chat, parent, ev.delta.text);
-        } else if (ev?.type === 'content_block_stop' && st.id) {
+        } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && st.open?.kind === 'reasoning' && ev.delta.thinking) {
+          if (!st.open.shown) {
+            st.open.shown = true;
+            push(chat, { id: st.open.id, kind: 'reasoning', parent, text: '', streaming: true, at: st.open.at });
+          }
+          appendStream(chat, parent, ev.delta.thinking);
+        } else if (ev?.type === 'content_block_stop' && st.open) {
           // Land the tail before the block closes, or the last few tokens of
           // every message go missing.
           flushStream(chat, parent);
-          patch(chat, st.id, { streaming: false });
-          st.id = null;
+          const open = st.open;
+          st.open = null;
+          if (open.kind === 'assistant') patch(chat, open.id, { streaming: false });
+          else if (open.shown) {
+            const now = Date.now();
+            edit(chat, (c) => ({ ...c, items: c.items.map((it) => (it.id === open.id ? settle(it, now) : it)) }));
+          }
         }
         return;
       }
@@ -518,7 +547,7 @@ export function useAgent() {
                 ms: 0,
               } : {}),
             });
-          } else if (b.type === 'text' && !st.id) {
+          } else if (b.type === 'text' && st.open?.kind !== 'assistant') {
             // Only render text that did not already arrive as deltas.
             const key = (b.text || '').slice(0, 80);
             if (!st.seen.has(key)) {
@@ -529,6 +558,9 @@ export function useAgent() {
               push(chat, { id: uid('t'), kind: 'assistant', text: b.text, parent });
             }
           }
+          // A thinking block here repeats one that streamed, and it can land
+          // before or after that block's stop. Thinking is only ever drawn from
+          // the stream, so there is never a second row to dedupe.
         }
         return;
       }
@@ -641,13 +673,14 @@ export function useAgent() {
     offs.push(conn().agent.onError(({ chat, error }) => {
       const key = chat || activeRef.current;
       const away = key !== activeRef.current;
+      const now = Date.now();
       edit(key, (c) => {
         const turnError = classify.text(c.provider, error);
         return {
           ...c,
           busy: false,
           endedUnseen: away,
-          items: [...c.items, { id: uid('e'), kind: 'note', ended: true, error: true, text: turnError.message, turnError }],
+          items: [...c.items.map((it) => settle(it, now)), { id: uid('e'), kind: 'note', ended: true, error: true, text: turnError.message, turnError }],
         };
       });
       const finished = away && chatsRef.current.find((c) => c.key === key);
@@ -660,15 +693,17 @@ export function useAgent() {
     // went with it. A row left saying running would count up forever.
     offs.push(conn().agent.onClosed(({ chat } = {}) => {
       if (!chat) return;
+      const now = Date.now();
       edit(chat, (c) => {
         const cut = c.items.some(isRunning);
+        const items = c.items.map((it) => settle(it, now));
         return {
           ...c,
           busy: false,
           items: cut
-            ? [...c.items.map((it) => (isRunning(it) ? { ...it, status: 'stopped', waiting: false } : it)),
+            ? [...items.map((it) => (isRunning(it) ? { ...it, status: 'stopped', waiting: false } : it)),
               { id: uid('i'), kind: 'note', text: 'the session ended, so its background work stopped' }]
-            : c.items,
+            : items,
         };
       });
     }));
@@ -1039,10 +1074,26 @@ export function useAgent() {
     }
   }, [patch]);
 
+  // Stop folds the thought that was streaming, and the CLI may go on sending
+  // it for a while. Closing its slot here sends those late deltas nowhere
+  // instead of into a row that already folded. A text slot stays open: it is
+  // what keeps Claude's trailing whole message from drawing the reply twice.
+  // Background work keeps thinking past Stop, so its slots stay too.
+  const dropThoughts = useCallback((key) => {
+    const live = outliving(chatsRef.current.find((c) => c.key === key)?.items || []);
+    for (const [k, st] of streams.current) {
+      const [chat, parent] = k.split('\0');
+      if (chat !== key || st.open?.kind !== 'reasoning' || live.has(parent)) continue;
+      flushStream(key, parent || null);
+      st.open = null;
+    }
+  }, [flushStream]);
+
   // Pending permission cards are denied here too: main does the same for the
   // SDK, and a card left clickable after Stop is a lie.
   const interrupt = useCallback(async () => {
     const key = activeRef.current;
+    dropThoughts(key);
     edit(key, (c) => ({
       ...c,
       queued: c.queued.map((m) => ({ ...m, held: true, now: false })),
@@ -1052,7 +1103,7 @@ export function useAgent() {
       items: interrupted(c.items),
     }));
     await conn().agent.interrupt(key);
-  }, [edit]);
+  }, [edit, dropThoughts]);
 
   // The message at the front, now rather than after this turn. The turn is
   // stopped and stays busy until its own result arrives, and the idle flush
@@ -1064,6 +1115,7 @@ export function useAgent() {
     const chat = chatsRef.current.find((c) => c.key === key);
     const head = chat?.queued.find((m) => !m.held);
     if (!chat?.busy || !head || head.editing || head.now) return false;
+    dropThoughts(key);
     edit(key, (c) => ({
       ...c,
       queued: c.queued.map((m) => (m.id === head.id ? { ...m, now: true } : m)),
@@ -1072,7 +1124,7 @@ export function useAgent() {
     }));
     await conn().agent.interrupt(key);
     return true;
-  }, [edit]);
+  }, [edit, dropThoughts]);
 
   // Moving to another chat. A chat nobody is waiting on does not need a process
   // sitting behind it: the transcript stays here and the next message resumes
