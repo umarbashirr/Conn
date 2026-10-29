@@ -20,18 +20,19 @@ const message = (role, content) => ({ type: role, message: { role, content } });
 
 const textOnly = (c) => (c && typeof c === 'object' && c.type && c.type !== 'text' ? '' : textOf(c));
 
-function chunk(s, role, u) {
+// `type` is 'text' or 'thinking', and names the block's text field too.
+function chunk(s, role, u, type = 'text') {
   const said = textOnly(u.content);
   if (!said) return;
   // OpenCode marks where a message ends with messageId. Cursor sends none, so
-  // there a change of role or a tool call is the only break.
+  // there a change of role or kind, or a tool call, is the only break.
   const key = u.messageId ?? null;
-  if (!(s.run && s.run.role === role && s.run.key === key)) {
-    const block = { type: 'text', text: '' };
+  if (!(s.run && s.run.role === role && s.run.type === type && s.run.key === key)) {
+    const block = { type, [type]: '' };
     s.out.push(message(role, [block]));
-    s.run = { role, key, block };
+    s.run = { role, type, key, block };
   }
-  s.run.block.text += said;
+  s.run.block[type] += said;
 }
 
 function toolStarted(s, u) {
@@ -53,6 +54,7 @@ function toolUpdated(s, u) {
 const FOLD = new Map([
   ['user_message_chunk', (s, u) => chunk(s, 'user', u)],
   ['agent_message_chunk', (s, u) => chunk(s, 'assistant', u)],
+  ['agent_thought_chunk', (s, u) => chunk(s, 'assistant', u, 'thinking')],
   ['tool_call', toolStarted],
   ['tool_call_update', toolUpdated],
 ]);
@@ -67,7 +69,7 @@ function foldUpdates(updates) {
   }
   return s.out.filter((m) => {
     const b = m.message.content[0];
-    return b.type !== 'text' || b.text.trim();
+    return (b.type !== 'text' && b.type !== 'thinking') || b[b.type].trim();
   });
 }
 

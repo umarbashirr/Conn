@@ -150,19 +150,19 @@ async function main() {
     const { ok: t, thrown } = await call(`window.conn.agent.transcript('cursor-chat-0001', ${JSON.stringify(proj)})`);
     const msgs = t?.messages || [];
     const shape = msgs.map((m) => `${m.type}:${m.message.content.map((b) => b.type).join('+')}`).join(' ');
-    check('transcript-has-the-whole-conversation', shape === 'user:text assistant:text assistant:tool_use user:tool_result assistant:text user:text', `${thrown || ''} ${shape}`);
+    check('transcript-has-the-whole-conversation', shape === 'user:text assistant:thinking assistant:text assistant:tool_use user:tool_result assistant:text user:text', `${thrown || ''} ${shape}`);
     check('first-user-text-has-no-preface', msgs[0] && textOf(msgs[0]) === 'make the button red', JSON.stringify(msgs[0]));
-    check('agent-chunks-merge-into-one-block', msgs[1] && textOf(msgs[1]) === 'Sure, I will change it.', JSON.stringify(msgs[1]));
-    check('thought-is-absent', msgs.length > 0 && !JSON.stringify(msgs).includes('css lives'), 'the thought chunk reached the transcript');
-    const use = msgs[2]?.message.content[0];
-    const result = msgs[3]?.message.content[0];
+    check('thought-is-a-thinking-block', msgs[1]?.message.content[0].thinking === 'the css lives in style.css', JSON.stringify(msgs[1]));
+    check('agent-chunks-merge-into-one-block', msgs[2] && textOf(msgs[2]) === 'Sure, I will change it.', JSON.stringify(msgs[2]));
+    const use = msgs[3]?.message.content[0];
+    const result = msgs[4]?.message.content[0];
     check('tool-row-has-its-name-and-input', use?.name === 'Edit' && use.input?.path === 'style.css', JSON.stringify(use));
     check('tool-row-has-its-result', !!use && result?.tool_use_id === use.id && result.content === 'edited style.css' && result.is_error === false, JSON.stringify(result));
     check('transcript-is-not-truncated', t?.truncated === false, JSON.stringify(t?.truncated));
     check('unadvertised-close-is-not-sent', msgs.length > 0 && !logged(path.join(bin, 'cursor.log')).some((e) => e.method === 'session/close'), 'session/close sent to an agent that did not advertise it');
 
     const { ok: o } = await call(`window.conn.agent.transcript('opencode-chat-0001', ${JSON.stringify(proj)})`);
-    check('opencode-transcript-reads', (o?.messages || []).length === 6, JSON.stringify(o?.messages?.length));
+    check('opencode-transcript-reads', (o?.messages || []).length === 7, JSON.stringify(o?.messages?.length));
     check('advertised-close-is-sent-after-the-read', logged(path.join(bin, 'opencode.log')).some((e) => e.method === 'session/close' && e.sessionId === 'opencode-chat-0001'), 'no session/close');
 
     const refused = await call(`window.conn.agent.deleteSession('cursor-chat-0002', ${JSON.stringify(proj)})`);
