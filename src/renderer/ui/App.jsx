@@ -31,6 +31,7 @@ import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
+import { FOLD_AT, runs } from '@/lib/runs';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
@@ -662,28 +663,6 @@ export default function App() {
     </div>
   );
 }
-
-// A turn is mostly tool calls, and one line each turns twenty greps into a
-// screenful of scrolling past your own work. So a run of them folds: whatever
-// is running stays a row you can read, and everything it already did becomes
-// the one line above it saying how much of what. An edit that carries a diff
-// breaks the run and keeps its own row, because that diff is something to
-// read. An edit that only names a file is a step, and a stack of those is
-// the same kind of noise as a stack of greps.
-function runs(items) {
-  const out = [];
-  for (const item of items) {
-    const label = item.kind === 'tool' ? toolLabel(item.name) : '';
-    const foldable = item.kind === 'tool' && !editHunks(label, item.input || {});
-    const last = out[out.length - 1];
-    if (foldable && last?.run) last.run.push(item);
-    else out.push(foldable ? { id: item.id, run: [item] } : { id: item.id, item });
-  }
-  return out;
-}
-
-// Two calls are not a run worth folding: it would cost a click and save a line.
-const FOLD_AT = 3;
 
 // A row landing, seen landing. Without this the transcript grows by jumping,
 // and a jump is what the window does when it redraws, not what an agent does
