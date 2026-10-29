@@ -7,7 +7,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browser-tools');
-const { claudeBinary } = require('./driver');
+const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const shellEnv = require('./shell-env');
 
@@ -23,7 +23,7 @@ const SHOT_NOTE = /^(\d+)x(\d+) saved to (.+)$/;
 const OWNER_WAIT = 400;
 
 class AgentSession extends EventEmitter {
-  constructor({ cwd, invoke, resume, model, mode, effort, settings, mcpOff, shared }) {
+  constructor({ cwd, invoke, resume, model, mode, effort, settings, mcpOff, shared, cliVersion }) {
     super();
     this.cwd = cwd;
     this.invoke = invoke;              // (bridgeTool, args, actor) => Promise<result>
@@ -43,6 +43,7 @@ class AgentSession extends EventEmitter {
     // query starts on the right model instead of switching after it is up.
     this.model = model || null;
     this.effort = effort || null;
+    this.cliVersion = cliVersion || null; // of the binary this session will spawn, when the driver has read it
     // Skills switched off and project servers rejected, in the shape the CLI's
     // own settings use. catalog.js works these out; see sessionSettings there.
     this.settings = settings && Object.keys(settings).length ? settings : null;
@@ -143,6 +144,10 @@ class AgentSession extends EventEmitter {
         // No setter for this one, so it is settled when the session starts and
         // a change means the next session rather than this one.
         ...(this.effort ? { effort: this.effort } : {}),
+        // Asks for thinking text, which an omitted display streams none of,
+        // and leaves thinking on or off to the person's settings. The SDK's
+        // `thinking` option sets the display only along with a mode.
+        ...(takesThinkingDisplay(this.cliVersion) ? { extraArgs: { 'thinking-display': 'summarized' } } : {}),
         canUseTool: (name, input, opts) => this.#permission(name, input, opts),
         // Continue an earlier session in place. forkSession stays off so the
         // transcript keeps one id and one file on disk.

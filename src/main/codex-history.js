@@ -213,10 +213,16 @@ function outputFor(item) {
 }
 
 /* One stored item as the messages the panel replays. Zero of them for anything
-   the live path also drops: reasoning, plans, review-mode markers and
-   compaction notices never reached the transcript while the chat ran, and
-   showing them now would make a replayed chat say more than it ever did. */
+   the live path also drops: plans, review-mode markers and compaction notices
+   never reached the transcript while the chat ran, and showing them now would
+   make a replayed chat say more than it ever did. */
 function messagesFor(item, at, found) {
+  if (item.type === 'reasoning') {
+    const thinking = (item.summary || []).join('\n\n');
+    if (!thinking.trim()) return [];
+    return [{ type: 'assistant', message: { role: 'assistant', content: [{ type: 'thinking', thinking }] }, at }];
+  }
+
   if (item.type === 'userMessage') {
     // Images were handed to codex as data urls and the live bubble carries only
     // the text, so this replays what was on screen rather than what was sent.

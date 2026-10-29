@@ -7,6 +7,7 @@ import { Message, MessageAction, MessageActions, MessageContent, MessageResponse
 import { DiffView, FileDiffs } from '@/components/diff-view';
 import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
+import { ReasoningRow } from '@/components/reasoning-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
 import { ChatFloor } from '@/components/working-panel';
@@ -31,6 +32,7 @@ import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
+import { FOLD_AT_CALLS, runs } from '@/lib/runs';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
@@ -113,7 +115,7 @@ const restoredDraft = (storageKey) => ({ ...EMPTY_DRAFT, text: readDraft(storage
 function stalled(items) {
   const last = items[items.length - 1];
   if (!last) return true;
-  if (last.kind === 'assistant') return !last.streaming;
+  if (last.kind === 'assistant' || last.kind === 'reasoning') return !last.streaming;
   if (last.kind === 'tool') return last.state !== 'input-available' && last.state !== 'input-streaming';
   if (last.kind === 'agent') return last.status !== 'running' || !!last.background;
   if (last.kind === 'perm') return !!last.decided;
@@ -663,28 +665,6 @@ export default function App() {
   );
 }
 
-// A turn is mostly tool calls, and one line each turns twenty greps into a
-// screenful of scrolling past your own work. So a run of them folds: whatever
-// is running stays a row you can read, and everything it already did becomes
-// the one line above it saying how much of what. An edit that carries a diff
-// breaks the run and keeps its own row, because that diff is something to
-// read. An edit that only names a file is a step, and a stack of those is
-// the same kind of noise as a stack of greps.
-function runs(items) {
-  const out = [];
-  for (const item of items) {
-    const label = item.kind === 'tool' ? toolLabel(item.name) : '';
-    const foldable = item.kind === 'tool' && !editHunks(label, item.input || {});
-    const last = out[out.length - 1];
-    if (foldable && last?.run) last.run.push(item);
-    else out.push(foldable ? { id: item.id, run: [item] } : { id: item.id, item });
-  }
-  return out;
-}
-
-// Two calls are not a run worth folding: it would cost a click and save a line.
-const FOLD_AT = 3;
-
 // A row landing, seen landing. Without this the transcript grows by jumping,
 // and a jump is what the window does when it redraws, not what an agent does
 // when it finishes a thought. The wrapper is keyed on the item, so a row that
@@ -734,20 +714,20 @@ export function Items({ items, agent, from = 0 }) {
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
   const footers = new Map(turns.flatMap((t, i) => (t.files.length && finished(i) ? [[t.end, t]] : [])));
-  return runs(rest).slice(from).map((g) => {
+  return runs(rest).slice(from).flatMap((g) => {
     const last = g.run ? g.run[g.run.length - 1] : g.item;
     const turn = footers.get(last.id);
-    // Always a keyed Fragment: if a footer arriving changed the element type
-    // here, React would remount the row and replay its conn-in animation.
     const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
-    if (!g.run) return <Fragment key={g.id}><Row><Item item={g.item} agent={agent} mark={marks.get(g.id)} /></Row>{footer}</Fragment>;
-    if (g.run.length < FOLD_AT) {
-      return (
-        <Fragment key={g.id}>
-          {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>)}
-          {footer}
+    if (!g.run || g.calls < FOLD_AT_CALLS) {
+      // Every row is a keyed Fragment, footer or not: if a footer arriving
+      // changed the element type here, React would remount the row and replay
+      // its conn-in animation.
+      return (g.run || [g.item]).map((it) => (
+        <Fragment key={it.id}>
+          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
+          {it === last && footer}
         </Fragment>
-      );
+      ));
     }
     // The last one is the live one while the turn runs, and the one that just
     // finished once it stops. Either way it is the one worth reading.
@@ -756,7 +736,7 @@ export function Items({ items, agent, from = 0 }) {
     return (
       <Fragment key={g.id}>
         <div className="flex flex-col gap-px">
-          <ToolStrip items={done}>
+          <ToolStrip items={done.filter((it) => it.kind === 'tool')}>
             {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
           </ToolStrip>
           {/* Keyed, so the row the run is currently on is a new element each
@@ -899,6 +879,8 @@ function Item({ item, agent, mark }) {
   }
 
   if (item.kind === 'user') return <UserRow item={item} agent={agent} />;
+
+  if (item.kind === 'reasoning') return <ReasoningRow item={item} />;
 
   if (item.kind === 'assistant') {
     return (

@@ -11,9 +11,9 @@
  * translation: codex items in, claude-shaped messages out. That choice is worth
  * naming because it is load-bearing. It buys the whole renderer, the transcript
  * components and the tool rows for free, and it costs us anything codex can say
- * that claude cannot. Reasoning summaries, thread sections and review mode all
- * flatten or fall on the floor here. When one of them starts mattering this is
- * the file that has to grow a real event shape.
+ * that claude cannot. Thread sections and review mode flatten or fall on the
+ * floor here. When one of them starts mattering this is the file that has to
+ * grow a real event shape.
  *
  * The preview browser is not built in the way it is for claude. codex reads MCP
  * servers from config, and Conn already ships one that reaches the pane over
@@ -137,7 +137,8 @@ class CodexSession extends EventEmitter {
     this.turnId = null;
     this.rpc = null;
     this.pending = new Map();     // permission id -> { respond, input, tool }
-    this.open = new Set();        // agentMessage item ids with a text block open
+    this.block = null;            // { item, kind: 'text' | 'thinking', summaryIndex }: the one block open
+    this.streamed = new Set();    // item ids whose text already went out as deltas this turn
     this.openCalls = new Set();
     this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
@@ -450,6 +451,7 @@ class CodexSession extends EventEmitter {
   }
 
   #tool(id, name, input) {
+    this.#close();
     this.openCalls.add(id);
     this.#emit({
       type: 'assistant',
@@ -469,15 +471,41 @@ class CodexSession extends EventEmitter {
     });
   }
 
+  #open(item, kind) {
+    this.#close();
+    this.block = { item, kind, summaryIndex: null };
+    this.#stream({
+      type: 'content_block_start',
+      index: 0,
+      content_block: kind === 'text' ? { type: 'text', text: '' } : { type: 'thinking', thinking: '' },
+    });
+  }
+
+  #close() {
+    if (!this.block) return;
+    this.block = null;
+    this.#stream({ type: 'content_block_stop', index: 0 });
+  }
+
+  #write(item, kind, said, summaryIndex = null) {
+    if (this.block?.item !== item || this.block.kind !== kind) this.#open(item, kind);
+    const text = summaryIndex !== null && this.block.summaryIndex !== null && summaryIndex !== this.block.summaryIndex ? `\n\n${said}` : said;
+    if (summaryIndex !== null) this.block.summaryIndex = summaryIndex;
+    this.streamed.add(item);
+    this.#stream({
+      type: 'content_block_delta',
+      index: 0,
+      delta: kind === 'text' ? { type: 'text_delta', text } : { type: 'thinking_delta', thinking: text },
+    });
+  }
+
   #note(method, params) {
     if (method === 'item/agentMessage/delta') {
-      const id = params.itemId;
-      if (!id) return;
-      if (!this.open.has(id)) {
-        this.open.add(id);
-        this.#stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-      }
-      this.#stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: params.delta || '' } });
+      if (params.itemId) this.#write(params.itemId, 'text', params.delta || '');
+      return;
+    }
+    if (method === 'item/reasoning/summaryTextDelta') {
+      if (params.itemId) this.#write(params.itemId, 'thinking', params.delta || '', params.summaryIndex ?? 0);
       return;
     }
 
@@ -533,6 +561,7 @@ class CodexSession extends EventEmitter {
   }
 
   #itemStarted(item) {
+    if (item.type === 'reasoning') return this.#open(item.id, 'thinking');
     // Kept because the approval that follows a file change names the item and
     // says nothing about what is in it. See #askInput.
     if (item.type === 'fileChange') this.edits.set(item.id, codexFiles(item.changes));
@@ -545,13 +574,18 @@ class CodexSession extends EventEmitter {
 
   #itemDone(item) {
     this.openCalls.delete(item.id);
+    if (item.type === 'reasoning') {
+      const whole = (item.summary || []).join('\n\n');
+      if (!this.streamed.has(item.id) && whole.trim()) this.#write(item.id, 'thinking', whole);
+      if (this.block?.item === item.id) this.#close();
+      return;
+    }
     if (item.type === 'agentMessage') {
-      if (this.open.has(item.id)) {
-        this.open.delete(item.id);
-        this.#stream({ type: 'content_block_stop', index: 0 });
-      } else if (item.text) {
+      if (this.block?.item === item.id) this.#close();
+      else if (!this.streamed.has(item.id) && item.text) {
         // No deltas came for this one, so nothing is on screen yet. Happens on a
         // resumed thread and on short replies that arrive whole.
+        this.#close();
         this.#emit({
           type: 'assistant',
           message: { role: 'assistant', content: [{ type: 'text', text: item.text }] },
@@ -578,8 +612,8 @@ class CodexSession extends EventEmitter {
   #turnDone(turn) {
     // A block still open means the last message never got its stop event, and
     // the renderer would leave that bubble spinning for the rest of the chat.
-    for (const _ of this.open) this.#stream({ type: 'content_block_stop', index: 0 });
-    this.open.clear();
+    this.#close();
+    this.streamed.clear();
     // An interrupt ends the turn without an item/completed for the command it
     // cut short (codex 0.158.0), so that row would run for the rest of the chat.
     for (const id of this.openCalls) this.#result(id, 'interrupted', true);

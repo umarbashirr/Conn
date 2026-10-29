@@ -41,7 +41,27 @@ const said = (m) => m.message.content[0].text;
     { sessionUpdate: 'constructor' },
     agent('a'), text('agent_thought_chunk', 'more secret'), agent('b'),
   ]);
-  check('other-kinds-are-dropped', shape(out) === 'assistant:text' && said(out[0]) === 'ab' && !JSON.stringify(out).includes('secret'), JSON.stringify(out));
+  const thought = (m) => m.message.content[0].thinking;
+  check(
+    'thoughts-become-thinking-blocks',
+    shape(out) === 'assistant:thinking assistant:text assistant:thinking assistant:text'
+      && thought(out[0]) === 'secret' && said(out[1]) === 'a' && thought(out[2]) === 'more secret' && said(out[3]) === 'b',
+    JSON.stringify(out),
+  );
+}
+{
+  const out = foldUpdates([
+    { sessionUpdate: 'available_commands_update', availableCommands: [] },
+    { sessionUpdate: 'usage_update', used: 1, size: 2 },
+    { sessionUpdate: 'plan', entries: [] },
+    { sessionUpdate: 'constructor' },
+    agent('a'), agent('b'),
+  ]);
+  check('other-kinds-are-dropped', shape(out) === 'assistant:text' && said(out[0]) === 'ab', JSON.stringify(out));
+}
+{
+  const out = foldUpdates([text('agent_thought_chunk', ''), text('agent_thought_chunk', '  \n'), agent('a')]);
+  check('empty-thought-makes-no-block', shape(out) === 'assistant:text' && said(out[0]) === 'a', JSON.stringify(out));
 }
 {
   const typed = 'make it red';
