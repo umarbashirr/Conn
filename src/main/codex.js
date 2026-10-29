@@ -137,8 +137,8 @@ class CodexSession extends EventEmitter {
     this.turnId = null;
     this.rpc = null;
     this.pending = new Map();     // permission id -> { respond, input, tool }
-    this.block = null;
-    this.streamed = new Set();
+    this.block = null;            // { item, kind: 'text' | 'thinking', summaryIndex }: the one block open
+    this.streamed = new Set();    // item ids whose text already went out as deltas this turn
     this.openCalls = new Set();
     this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals

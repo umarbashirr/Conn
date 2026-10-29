@@ -719,6 +719,9 @@ export function Items({ items, agent, from = 0 }) {
     const turn = footers.get(last.id);
     const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
     if (!g.run || g.calls < FOLD_AT_CALLS) {
+      // Every row is a keyed Fragment, footer or not: if a footer arriving
+      // changed the element type here, React would remount the row and replay
+      // its conn-in animation.
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
           <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
