@@ -23,6 +23,9 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // A prompt plays back what a real agent sent for one turn, from a capture in
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
+// A prompt alternates thought and message chunks around a tool call. A prompt
+// with "hang" thinks once and waits for session/cancel.
+const THINK = process.env.MOCK_ACP_THINK === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
@@ -67,6 +70,31 @@ function chunk(sessionId, text) {
       content: { type: 'text', text },
     },
   });
+}
+
+function thought(sessionId, text) {
+  notify('session/update', {
+    sessionId,
+    update: {
+      sessionUpdate: 'agent_thought_chunk',
+      content: { type: 'text', text },
+    },
+  });
+}
+
+function thinkTurn(id, sessionId, text) {
+  thought(sessionId, '');
+  thought(sessionId, 'Looking ');
+  if (/\bhang\b/i.test(text)) return;
+  thought(sessionId, 'around');
+  chunk(sessionId, 'Found it.');
+  thought(sessionId, 'Now run it');
+  tool(sessionId, 't1', 'echo', 'execute', { command: 'echo hi' });
+  toolDone(sessionId, 't1', 'hi\n', false);
+  thought(sessionId, 'It worked');
+  chunk(sessionId, 'Done.');
+  result(id, { stopReason: 'end_turn' });
+  promptId = null;
 }
 
 function tool(sessionId, id, title, kind, input) {
@@ -227,6 +255,7 @@ async function handlePrompt(id, params) {
     replay = { frames: JSON.parse(require('fs').readFileSync(REPLAY, 'utf8')).frames, at: 0, sessionId, permId: null };
     return replayStep();
   }
+  if (THINK) return thinkTurn(id, sessionId, text);
 
   if (/\bhang\b/i.test(text)) {
     tool(sessionId, 't-hang', 'sleep', 'execute', { command: 'sleep 600' });

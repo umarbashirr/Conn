@@ -4,7 +4,9 @@
    items of every kind, both arrive as tool_use rows and permission requests
    carrying `{ files: [{ path, kind, movePath, hunks: [{ before, after }] }] }`,
    and a Codex chat read back from history carries the same files as the one
-   that ran. Runs the real sessions against the mock CLIs; no window needed. */
+   that ran. Codex reasoning and ACP thoughts reach it as Claude's thinking
+   stream events (CUX-14), with at most one block open at a time. Runs the real
+   sessions against the mock CLIs; no window needed. */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -34,6 +36,50 @@ const toolUses = (seen) => seen.flatMap((m) => (m.type === 'assistant' ? m.messa
 const resultOf = (seen, id) => seen
   .flatMap((m) => (m.type === 'user' ? m.message.content : []))
   .find((b) => b.type === 'tool_result' && b.tool_use_id === id);
+
+function blocks(msgs) {
+  return msgs.flatMap((m) => {
+    const e = m.event;
+    if (m.type === 'stream_event' && e.type === 'content_block_start') return [`start:${e.content_block.type}`];
+    if (m.type === 'stream_event' && e.type === 'content_block_stop') return ['stop'];
+    if (m.type === 'stream_event' && e.type === 'content_block_delta') {
+      return [e.delta.type === 'thinking_delta' ? `d:thinking:${e.delta.thinking}` : `d:text:${e.delta.text}`];
+    }
+    if (m.type === 'assistant') return m.message.content.filter((b) => b.type === 'tool_use').map(() => 'tool_use');
+    if (m.type === 'user') return m.message.content.filter((b) => b.type === 'tool_result').map(() => 'tool_result');
+    if (m.type === 'result') return ['result'];
+    return [];
+  });
+}
+
+function balanced(tokens) {
+  let open = null;
+  tokens.forEach((t, i) => {
+    const [what, kind] = t.split(':', 2);
+    if (what === 'start') {
+      assert.strictEqual(open, null, `${t} at ${i} while ${open} is open`);
+      open = kind;
+    } else if (what === 'stop') {
+      assert.ok(open, `stop at ${i} with nothing open`);
+      open = null;
+    } else if (what === 'd') {
+      assert.strictEqual(open, kind, `${kind} delta at ${i} inside ${open}`);
+    } else if (what === 'tool_use' || what === 'result') {
+      assert.strictEqual(open, null, `${what} at ${i} while ${open} is open`);
+    }
+  });
+}
+
+// Where `run` sits in `tokens` as one unbroken stretch, or -1.
+const find = (tokens, run) => tokens.findIndex((_, i) => run.every((t, j) => tokens[i + j] === t));
+const thinking = (tokens) => tokens.filter((t) => t.startsWith('d:thinking:')).map((t) => t.slice('d:thinking:'.length));
+// Each block as `kind:text`, its deltas joined.
+const said = (tokens) => tokens.reduce((out, t) => {
+  const [what, kind] = t.split(':', 2);
+  if (what === 'start') out.push(`${kind}:`);
+  if (what === 'd') out[out.length - 1] += t.slice(`d:${kind}:`.length);
+  return out;
+}, []);
 
 async function acp() {
   const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
@@ -164,6 +210,125 @@ async function codex() {
   }
 }
 
+async function acpThink() {
+  const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-think-acp-'));
+  const spec = {
+    id: 'cursor',
+    cli: 'agent',
+    argv: [path.join(ROOT, 'scripts/mock-acp-cli.js'), 'acp'],
+    modes: Object.fromEntries(['ask', 'edit', 'plan', 'bypass'].map((m) => [m, { env: { MOCK_ACP_THINK: '1' } }])),
+    binary: () => process.execPath,
+  };
+  const session = new AcpSession({ spec, cwd, mode: 'ask', model: 'mock-1' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  try {
+    await session.start();
+    session.send('think it through');
+    await until(() => seen.some((m) => m.type === 'result'));
+
+    await check('acp-thought-and-message-alternate', () => {
+      const tokens = blocks(seen);
+      assert.deepStrictEqual(tokens, [
+        'start:thinking', 'd:thinking:Looking ', 'd:thinking:around', 'stop',
+        'start:text', 'd:text:Found it.', 'stop',
+        'start:thinking', 'd:thinking:Now run it', 'stop',
+        'tool_use', 'tool_result',
+        'start:thinking', 'd:thinking:It worked', 'stop',
+        'start:text', 'd:text:Done.', 'stop',
+        'result',
+      ]);
+      balanced(tokens);
+    });
+    await check('acp-tool-call-closes-an-open-thought', () => {
+      const tokens = blocks(seen);
+      assert.ok(find(tokens, ['d:thinking:Now run it', 'stop', 'tool_use']) >= 0, tokens.join(' | '));
+    });
+
+    const mark = seen.length;
+    session.send('think hang');
+    await check('acp-stop-mid-thought', async () => {
+      await until(() => blocks(seen.slice(mark)).includes('d:thinking:Looking '));
+      await session.interrupt();
+      await until(() => seen.slice(mark).some((m) => m.type === 'result'));
+      const tokens = blocks(seen.slice(mark));
+      assert.deepStrictEqual(tokens, ['start:thinking', 'd:thinking:Looking ', 'stop', 'result']);
+      assert.strictEqual(seen.at(-1).subtype, 'cancelled');
+      balanced(tokens);
+    });
+  } finally {
+    session.stop();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+async function codexReason() {
+  const { CodexSession } = require(path.join(ROOT, 'src/main/codex.js'));
+  const { preferBinary } = require(path.join(ROOT, 'src/main/codex-driver.js'));
+  const history = require(path.join(ROOT, 'src/main/codex-history.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-reason-codex-'));
+  const bin = path.join(cwd, 'codex');
+  fs.writeFileSync(bin, `#!/bin/sh\nMOCK_CODEX_REASON=1 exec "${process.execPath}" "${path.join(ROOT, 'scripts/mock-codex-cli.js')}" "$@"\n`);
+  fs.chmodSync(bin, 0o755);
+  preferBinary(bin);
+  const session = new CodexSession({ cwd, mode: 'ask' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  try {
+    await session.start();
+    session.send('think it through');
+    await until(() => seen.some((m) => m.type === 'result'));
+    const tokens = blocks(seen);
+    const shown = tokens.join(' | ');
+
+    await check('codex-reasoning-streams-then-message', () => {
+      const first = ['start:thinking', 'd:thinking:Reading ', 'd:thinking:the file', 'd:thinking:\n\nThen edit', 'stop', 'start:text'];
+      assert.strictEqual(find(tokens, first), 0, shown);
+      balanced(tokens);
+    });
+    await check('codex-reasoning-without-deltas-arrives-whole', () => {
+      assert.ok(find(tokens, ['start:thinking', 'd:thinking:Whole', 'stop']) >= 0, shown);
+      assert.strictEqual(thinking(tokens).filter((t) => t === 'Whole').length, 1, shown);
+    });
+    await check('codex-empty-reasoning-has-no-text', () => {
+      assert.ok(find(tokens, ['d:thinking:Whole', 'stop', 'start:thinking', 'stop', 'start:thinking']) >= 0, shown);
+      assert.ok(!thinking(tokens).includes(''), 'an empty thinking delta went out');
+    });
+    await check('codex-force-closed-thought-is-not-repeated', () => {
+      assert.deepStrictEqual(tokens.slice(-6), ['start:thinking', 'd:thinking:Peek', 'stop', 'tool_use', 'tool_result', 'result'], shown);
+    });
+    await check('codex-no-thinking-in-assistant-messages', () => {
+      assert.ok(thinking(tokens).length, 'no thinking reached the stream');
+      const whole = seen.filter((m) => m.type === 'assistant').flatMap((m) => m.message.content).filter((b) => b.type === 'thinking');
+      assert.deepStrictEqual(whole, []);
+    });
+    await check('codex-reasoning-replay-matches-live', async () => {
+      const { messages } = await history.readSession(cwd, '00000000-0000-4000-8000-000000000000');
+      const replayed = messages.flatMap((m) => m.message.content)
+        .map((b) => (b.type === 'thinking' ? `thinking:${b.thinking}` : `${b.type}:${b.text}`));
+      assert.deepStrictEqual(replayed, ['thinking:Reading the file\n\nThen edit', 'text:Done editing.']);
+      assert.deepStrictEqual(said(tokens).slice(0, 2), replayed, 'replayed blocks equal the live ones');
+    });
+
+    const mark = seen.length;
+    session.send('hang');
+    await check('codex-stop-mid-reasoning', async () => {
+      await until(() => blocks(seen.slice(mark)).includes('d:thinking:Halfway'));
+      await session.interrupt();
+      await until(() => seen.slice(mark).some((m) => m.type === 'result'));
+      const tail = blocks(seen.slice(mark));
+      assert.deepStrictEqual(tail, ['start:thinking', 'd:thinking:Halfway', 'stop', 'result']);
+      balanced(tail);
+    });
+  } finally {
+    session.stop();
+    history.close();
+    preferBinary(null);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 async function realAgent(name) {
   const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
   const fixture = path.join(ROOT, 'scripts/fixtures/acp-real', `${name}.json`);
@@ -220,6 +385,8 @@ async function realAgent(name) {
   }
   await acp().catch((e) => { console.log(`FAIL acp: ${e.message}`); failures.push('acp'); });
   await codex().catch((e) => { console.log(`FAIL codex: ${e.message}`); failures.push('codex'); });
+  await acpThink().catch((e) => { console.log(`FAIL acp-think: ${e.message}`); failures.push('acp-think'); });
+  await codexReason().catch((e) => { console.log(`FAIL codex-reason: ${e.message}`); failures.push('codex-reason'); });
   if (failures.length) {
     console.log(`\n${failures.length} failure(s)`);
     process.exit(1);

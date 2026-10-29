@@ -7,6 +7,10 @@ const fs = require('fs');
 // A turn changes four files (an add, a delete, a move and an update) and asks
 // to apply the last one.
 const EDITS = process.env.MOCK_CODEX_EDITS === '1';
+// A turn reasons four ways: summary deltas over two paragraphs, a summary that
+// arrives whole, no summary at all, and deltas cut short by a command. A prompt
+// with "hang" reasons once and waits for turn/interrupt.
+const REASON = process.env.MOCK_CODEX_REASON === '1';
 const readline = require('readline');
 
 // A probe spawns this twice, once per arm of #probe()'s Promise.all: once for
@@ -58,6 +62,45 @@ function editTurn() {
   }
 }
 
+const TURN = { threadId: 'mock-thread', turnId: 'mock-turn' };
+const reasoning = (id, summary = []) => ({ type: 'reasoning', id, summary, content: [] });
+const R1 = reasoning('r1', ['Reading the file', 'Then edit']);
+const M1 = { type: 'agentMessage', id: 'm1', text: 'Done editing.' };
+
+function reasonTurn(hang) {
+  const started = (item) => notify('item/started', { ...TURN, item });
+  const completed = (item) => notify('item/completed', { ...TURN, item });
+  const part = (itemId, summaryIndex) => notify('item/reasoning/summaryPartAdded', { ...TURN, itemId, summaryIndex });
+  const said = (itemId, summaryIndex, delta) => notify('item/reasoning/summaryTextDelta', { ...TURN, itemId, summaryIndex, delta });
+  if (hang) {
+    started(reasoning('r4'));
+    return said('r4', 0, 'Halfway');
+  }
+  started(reasoning('r1'));
+  part('r1', 0);
+  said('r1', 0, 'Reading ');
+  notify('item/reasoning/textDelta', { ...TURN, itemId: 'r1', contentIndex: 0, delta: 'raw chain of thought' });
+  said('r1', 0, 'the file');
+  part('r1', 1);
+  said('r1', 1, 'Then edit');
+  completed(R1);
+  started({ ...M1, text: '' });
+  notify('item/agentMessage/delta', { ...TURN, itemId: 'm1', delta: 'Done ' });
+  notify('item/agentMessage/delta', { ...TURN, itemId: 'm1', delta: 'editing.' });
+  completed(M1);
+  started(reasoning('r2'));
+  completed(reasoning('r2', ['Whole']));
+  started(reasoning('r3'));
+  completed(reasoning('r3'));
+  started(reasoning('r5'));
+  said('r5', 0, 'Peek');
+  const ls = { type: 'commandExecution', id: 'c1', command: 'ls', status: 'inProgress' };
+  started(ls);
+  completed({ ...ls, status: 'completed', exitCode: 0, aggregatedOutput: '' });
+  completed(reasoning('r5', ['Peek']));
+  notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'completed' } });
+}
+
 function onMessage(msg) {
   if (approving && msg && msg.id === 'mock-approval' && !msg.method) {
     const item = { type: 'fileChange', id: approving, changes: CHANGES[approving], status: 'completed' };
@@ -89,6 +132,16 @@ function onMessage(msg) {
       result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },
     });
   }
+  if (REASON && msg.method === 'thread/list') {
+    const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], updatedAt: 1 };
+    return send({ jsonrpc: '2.0', id: msg.id, result: { data: [row] } });
+  }
+  if (REASON && msg.method === 'thread/read') {
+    return send({
+      jsonrpc: '2.0', id: msg.id,
+      result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items: [R1, M1] }] } },
+    });
+  }
   if (msg.method === 'turn/start') {
     send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'mock-turn', status: 'inProgress' } } });
     if (/limit/i.test(JSON.stringify(msg.params?.input || ''))) {
@@ -98,6 +151,7 @@ function onMessage(msg) {
       return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'failed', error } });
     }
     if (EDITS) return editTurn();
+    if (REASON) return reasonTurn(/hang/i.test(JSON.stringify(msg.params?.input || '')));
     return notify('item/started', {
       threadId: 'mock-thread',
       turnId: 'mock-turn',
