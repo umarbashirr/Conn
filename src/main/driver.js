@@ -100,6 +100,12 @@ const modelsFor = (version) => CATALOG.filter(
   (m) => !m.since || (version && compareVersions(version, m.since) >= 0),
 ).map(({ value, displayName, legacy }) => ({ value, displayName, ...(legacy ? { legacy } : {}) }));
 
+// A CLI older than this stops at `error: unknown option` when handed
+// --thinking-display, so passing it to every binary would fail every chat on
+// one that predates it. An unknown version gets no flag for the same reason.
+const THINKING_DISPLAY_SINCE = '2.1.183';
+const takesThinkingDisplay = (version) => !!version && compareVersions(version, THINKING_DISPLAY_SINCE) >= 0;
+
 /* Claude Code names the long-context variant of a model by suffixing its id:
    `opus` is the ordinary window, `opus[1m]` is the million-token one. The CLI
    lists whichever it defaults to and not both, so a person who wants the other
@@ -464,7 +470,7 @@ class Driver {
 
 module.exports = {
   Driver, claudeBinary, systemBinary, preferBinary,
-  modelsFor, compareVersions, parseVersion, probeVersion, probeModels,
+  modelsFor, compareVersions, parseVersion, probeVersion, probeModels, takesThinkingDisplay,
   isLong, withLong, withoutLong, hasLong, withVariants,
   endpoint, CATALOG,
 };

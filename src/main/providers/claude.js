@@ -31,6 +31,9 @@ function create({ cacheDir, settings }) {
       settings: opts.settings,
       mcpOff: opts.mcpOff,
       shared: opts.shared,
+      // The driver's cached probe, so a session costs no second `--version`
+      // spawn. A version read off another binary says nothing about this one.
+      cliVersion: driver.snapshot.binaryPath === claudeBinary() ? driver.snapshot.version : null,
     }),
     has: () => true,
     install: 'npm install -g @anthropic-ai/claude-code',
