@@ -316,7 +316,7 @@ export function useAgent() {
   const streamOf = useCallback((chat, parent) => {
     const k = streamKey(chat, parent);
     let st = streams.current.get(k);
-    if (!st) { st = { open: null, pending: '', raf: 0, seen: new Set() }; streams.current.set(k, st); }
+    if (!st) { st = { chat, parent: parent || null, open: null, pending: '', raf: 0, seen: new Set() }; streams.current.set(k, st); }
     return st;
   }, []);
 
@@ -351,6 +351,29 @@ export function useAgent() {
     if (!st.raf) st.raf = requestAnimationFrame(() => flushStream(key, parent));
   }, [flushStream, streamOf]);
 
+  // A thought is over once anything else takes its slot, whether or not its
+  // stop ever arrives.
+  const endThought = useCallback((key, parent) => {
+    const st = streamOf(key, parent);
+    const open = st.open;
+    if (open?.kind !== 'reasoning') return;
+    flushStream(key, parent);
+    st.open = null;
+    if (!open.pushed) return;
+    const now = Date.now();
+    edit(key, (c) => ({ ...c, items: c.items.map((it) => (it.id === open.id ? settle(it, now) : it)) }));
+  }, [edit, flushStream, streamOf]);
+
+  // Ends the chat's thoughts with its turn, so a delta that lands late cannot
+  // grow a row that already folded. A background agent outlives the turn, and
+  // so does its thought.
+  const dropThoughts = useCallback((key) => {
+    const live = outlivingIds(chatsRef.current.find((c) => c.key === key)?.items || []);
+    for (const st of streams.current.values()) {
+      if (st.chat === key && !live.has(st.parent)) endThought(key, st.parent);
+    }
+  }, [endThought]);
+
   useEffect(() => {
     const offs = [];
 
@@ -370,15 +393,18 @@ export function useAgent() {
         if (ev?.type?.startsWith('message_')) edit(chat, (c) => ({ ...c, usage: account(c.usage, msg) }));
         const block = ev?.content_block?.type;
         if (ev?.type === 'content_block_start' && block === 'text') {
+          endThought(chat, parent);
           flushStream(chat, parent);
           st.open = { id: uid('a'), kind: 'assistant' };
           push(chat, { id: st.open.id, kind: 'assistant', text: '', streaming: true, parent });
         } else if (ev?.type === 'content_block_start' && block === 'thinking') {
+          endThought(chat, parent);
           flushStream(chat, parent);
           st.open = { id: uid('r'), kind: 'reasoning', at: Date.now(), pushed: false };
         } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && st.open?.kind === 'assistant') {
           appendStream(chat, parent, ev.delta.text);
-        } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && st.open?.kind === 'reasoning' && ev.delta.thinking) {
+        } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'thinking_delta' && st.open?.kind === 'reasoning' && ev.delta.thinking
+          && (st.open.pushed || ev.delta.thinking.trim())) {
           if (!st.open.pushed) {
             st.open.pushed = true;
             push(chat, { id: st.open.id, kind: 'reasoning', parent, text: '', streaming: true, at: st.open.at });
@@ -388,13 +414,10 @@ export function useAgent() {
           // Land the tail before the block closes, or the last few tokens of
           // every message go missing.
           flushStream(chat, parent);
-          const open = st.open;
-          st.open = null;
-          if (open.kind === 'assistant') patch(chat, open.id, { streaming: false });
-          else if (open.pushed) {
-            const now = Date.now();
-            edit(chat, (c) => ({ ...c, items: c.items.map((it) => (it.id === open.id ? settle(it, now) : it)) }));
-          }
+          if (st.open.kind === 'assistant') {
+            patch(chat, st.open.id, { streaming: false });
+            st.open = null;
+          } else endThought(chat, parent);
         }
         return;
       }
@@ -513,6 +536,7 @@ export function useAgent() {
         // came back from. A subagent has a window of its own, so only the main
         // thread says anything about this conversation.
         if (!parent && msg.message?.usage) edit(chat, (c) => ({ ...c, usage: account(c.usage, msg) }));
+        if ((msg.message?.content || []).some((b) => b.type === 'tool_use' || b.type === 'text')) endThought(chat, parent);
         for (const b of msg.message?.content || []) {
           if (b.type === 'tool_use') {
             // An Agent call is a container, not a step: its own rows arrive
@@ -662,6 +686,7 @@ export function useAgent() {
       const key = chat || activeRef.current;
       const away = key !== activeRef.current;
       const now = Date.now();
+      dropThoughts(key);
       edit(key, (c) => {
         const turnError = classify.text(c.provider, error);
         return {
@@ -714,7 +739,7 @@ export function useAgent() {
       offs.forEach((off) => { try { off?.(); } catch {} });
       for (const st of streams.current.values()) if (st.raf) cancelAnimationFrame(st.raf);
     };
-  }, [push, patch, edit, appendStream, flushStream, streamOf]);
+  }, [push, patch, edit, appendStream, flushStream, streamOf, endThought, dropThoughts]);
 
   // The model list comes from the driver cache, not from a live session: asking
   // the SDK would spawn the agent binary just to draw a dropdown.
@@ -1061,16 +1086,6 @@ export function useAgent() {
       // Not written yet, or not a Claude agent. The pane keeps saying so.
     }
   }, [patch]);
-
-  const dropThoughts = useCallback((key) => {
-    const live = outlivingIds(chatsRef.current.find((c) => c.key === key)?.items || []);
-    for (const [k, st] of streams.current) {
-      const [chat, parent] = k.split('\0');
-      if (chat !== key || st.open?.kind !== 'reasoning' || live.has(parent)) continue;
-      flushStream(key, parent || null);
-      st.open = null;
-    }
-  }, [flushStream]);
 
   // Pending permission cards are denied here too: main does the same for the
   // SDK, and a card left clickable after Stop is a lie.
