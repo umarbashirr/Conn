@@ -7,6 +7,7 @@ import { Message, MessageAction, MessageActions, MessageContent, MessageResponse
 import { DiffView, FileDiffs } from '@/components/diff-view';
 import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
+import { ReasoningRow } from '@/components/reasoning-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
 import { ChatFloor } from '@/components/working-panel';
@@ -114,7 +115,7 @@ const restoredDraft = (storageKey) => ({ ...EMPTY_DRAFT, text: readDraft(storage
 function stalled(items) {
   const last = items[items.length - 1];
   if (!last) return true;
-  if (last.kind === 'assistant') return !last.streaming;
+  if (last.kind === 'assistant' || last.kind === 'reasoning') return !last.streaming;
   if (last.kind === 'tool') return last.state !== 'input-available' && last.state !== 'input-streaming';
   if (last.kind === 'agent') return last.status !== 'running' || !!last.background;
   if (last.kind === 'perm') return !!last.decided;
@@ -713,29 +714,31 @@ export function Items({ items, agent, from = 0 }) {
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
   const footers = new Map(turns.flatMap((t, i) => (t.files.length && finished(i) ? [[t.end, t]] : [])));
-  return runs(rest).slice(from).map((g) => {
+  return runs(rest).slice(from).flatMap((g) => {
     const last = g.run ? g.run[g.run.length - 1] : g.item;
     const turn = footers.get(last.id);
-    // Always a keyed Fragment: if a footer arriving changed the element type
-    // here, React would remount the row and replay its conn-in animation.
     const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
-    if (!g.run) return <Fragment key={g.id}><Row><Item item={g.item} agent={agent} mark={marks.get(g.id)} /></Row>{footer}</Fragment>;
-    if (g.run.length < FOLD_AT) {
-      return (
-        <Fragment key={g.id}>
-          {g.run.map((it) => <Row key={it.id}><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>)}
-          {footer}
+    // One keyed Fragment per row, whether or not it is in a run. If a footer
+    // arriving changed the element type here, React would remount the row and
+    // replay its conn-in animation, and the same goes for a thought moving
+    // into a run when the call after it lands.
+    if (!g.run || g.calls < FOLD_AT) {
+      return (g.run || [g.item]).map((it) => (
+        <Fragment key={it.id}>
+          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
+          {it === last && footer}
         </Fragment>
-      );
+      ));
     }
     // The last one is the live one while the turn runs, and the one that just
-    // finished once it stops. Either way it is the one worth reading.
+    // finished once it stops. Either way it is the one worth reading. The
+    // strip's line counts calls; opened, it shows the thoughts between them.
     const done = g.run.slice(0, -1);
     const current = g.run[g.run.length - 1];
     return (
       <Fragment key={g.id}>
         <div className="flex flex-col gap-px">
-          <ToolStrip items={done}>
+          <ToolStrip items={done.filter((it) => it.kind === 'tool')}>
             {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
           </ToolStrip>
           {/* Keyed, so the row the run is currently on is a new element each
@@ -878,6 +881,8 @@ function Item({ item, agent, mark }) {
   }
 
   if (item.kind === 'user') return <UserRow item={item} agent={agent} />;
+
+  if (item.kind === 'reasoning') return <ReasoningRow item={item} />;
 
   if (item.kind === 'assistant') {
     return (
