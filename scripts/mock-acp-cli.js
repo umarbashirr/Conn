@@ -23,8 +23,6 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // A prompt plays back what a real agent sent for one turn, from a capture in
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
-// A prompt alternates thought and message chunks around a tool call. A prompt
-// with "hang" thinks once and waits for session/cancel.
 const THINK = process.env.MOCK_ACP_THINK === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';

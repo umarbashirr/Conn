@@ -1,5 +1,3 @@
-// What the agent thought on its way to the answer: open while it is being
-// written, one line once it is done, and one click to read it again.
 import { useEffect, useRef, useState } from 'react';
 import { BrainIcon, ChevronRightIcon } from 'lucide-react';
 
@@ -14,8 +12,6 @@ import { cn } from '@/lib/utils';
 export function ReasoningRow({ item }) {
   const streaming = !!item.streaming;
   const [open, setOpen] = useState(streaming);
-  // It folds by itself when it ends, unless the reader has already opened or
-  // shut it, and then it stays the way they left it.
   const touched = useRef(false);
   useEffect(() => { if (!touched.current) setOpen(streaming); }, [streaming]);
   useTick(streaming);

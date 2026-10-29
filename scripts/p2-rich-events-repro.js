@@ -4,9 +4,7 @@
    items of every kind, both arrive as tool_use rows and permission requests
    carrying `{ files: [{ path, kind, movePath, hunks: [{ before, after }] }] }`,
    and a Codex chat read back from history carries the same files as the one
-   that ran. Codex reasoning and ACP thoughts reach it as Claude's thinking
-   stream events (CUX-14), with at most one block open at a time. Runs the real
-   sessions against the mock CLIs; no window needed. */
+   that ran. Runs the real sessions against the mock CLIs; no window needed. */
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -70,11 +68,9 @@ function balanced(tokens) {
   });
 }
 
-// Where `run` sits in `tokens` as one unbroken stretch, or -1.
-const find = (tokens, run) => tokens.findIndex((_, i) => run.every((t, j) => tokens[i + j] === t));
+const indexOfRun = (tokens, run) => tokens.findIndex((_, i) => run.every((t, j) => tokens[i + j] === t));
 const thinking = (tokens) => tokens.filter((t) => t.startsWith('d:thinking:')).map((t) => t.slice('d:thinking:'.length));
-// Each block as `kind:text`, its deltas joined.
-const said = (tokens) => tokens.reduce((out, t) => {
+const blockTexts = (tokens) => tokens.reduce((out, t) => {
   const [what, kind] = t.split(':', 2);
   if (what === 'start') out.push(`${kind}:`);
   if (what === 'd') out[out.length - 1] += t.slice(`d:${kind}:`.length);
@@ -243,7 +239,7 @@ async function acpThink() {
     });
     await check('acp-tool-call-closes-an-open-thought', () => {
       const tokens = blocks(seen);
-      assert.ok(find(tokens, ['d:thinking:Now run it', 'stop', 'tool_use']) >= 0, tokens.join(' | '));
+      assert.ok(indexOfRun(tokens, ['d:thinking:Now run it', 'stop', 'tool_use']) >= 0, tokens.join(' | '));
     });
 
     const mark = seen.length;
@@ -284,15 +280,15 @@ async function codexReason() {
 
     await check('codex-reasoning-streams-then-message', () => {
       const first = ['start:thinking', 'd:thinking:Reading ', 'd:thinking:the file', 'd:thinking:\n\nThen edit', 'stop', 'start:text'];
-      assert.strictEqual(find(tokens, first), 0, shown);
+      assert.strictEqual(indexOfRun(tokens, first), 0, shown);
       balanced(tokens);
     });
     await check('codex-reasoning-without-deltas-arrives-whole', () => {
-      assert.ok(find(tokens, ['start:thinking', 'd:thinking:Whole', 'stop']) >= 0, shown);
+      assert.ok(indexOfRun(tokens, ['start:thinking', 'd:thinking:Whole', 'stop']) >= 0, shown);
       assert.strictEqual(thinking(tokens).filter((t) => t === 'Whole').length, 1, shown);
     });
     await check('codex-empty-reasoning-has-no-text', () => {
-      assert.ok(find(tokens, ['d:thinking:Whole', 'stop', 'start:thinking', 'stop', 'start:thinking']) >= 0, shown);
+      assert.ok(indexOfRun(tokens, ['d:thinking:Whole', 'stop', 'start:thinking', 'stop', 'start:thinking']) >= 0, shown);
       assert.ok(!thinking(tokens).includes(''), 'an empty thinking delta went out');
     });
     await check('codex-force-closed-thought-is-not-repeated', () => {
@@ -308,7 +304,7 @@ async function codexReason() {
       const replayed = messages.flatMap((m) => m.message.content)
         .map((b) => (b.type === 'thinking' ? `thinking:${b.thinking}` : `${b.type}:${b.text}`));
       assert.deepStrictEqual(replayed, ['thinking:Reading the file\n\nThen edit', 'text:Done editing.']);
-      assert.deepStrictEqual(said(tokens).slice(0, 2), replayed, 'replayed blocks equal the live ones');
+      assert.deepStrictEqual(blockTexts(tokens).slice(0, 2), replayed, 'replayed blocks equal the live ones');
     });
 
     const mark = seen.length;

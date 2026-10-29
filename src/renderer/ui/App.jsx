@@ -32,7 +32,7 @@ import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
-import { FOLD_AT, runs } from '@/lib/runs';
+import { FOLD_AT_CALLS, runs } from '@/lib/runs';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
@@ -718,11 +718,7 @@ export function Items({ items, agent, from = 0 }) {
     const last = g.run ? g.run[g.run.length - 1] : g.item;
     const turn = footers.get(last.id);
     const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
-    // One keyed Fragment per row, whether or not it is in a run. If a footer
-    // arriving changed the element type here, React would remount the row and
-    // replay its conn-in animation, and the same goes for a thought moving
-    // into a run when the call after it lands.
-    if (!g.run || g.calls < FOLD_AT) {
+    if (!g.run || g.calls < FOLD_AT_CALLS) {
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
           <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
@@ -731,8 +727,7 @@ export function Items({ items, agent, from = 0 }) {
       ));
     }
     // The last one is the live one while the turn runs, and the one that just
-    // finished once it stops. Either way it is the one worth reading. The
-    // strip's line counts calls; opened, it shows the thoughts between them.
+    // finished once it stops. Either way it is the one worth reading.
     const done = g.run.slice(0, -1);
     const current = g.run[g.run.length - 1];
     return (

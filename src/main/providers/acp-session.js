@@ -143,7 +143,7 @@ class AcpSession extends EventEmitter {
     this.openCalls = new Set();
     this.sessionId = null;
     this.rpc = null;
-    this.block = null;            // 'text' | 'thinking': the one block open
+    this.block = null;
     // Browser instructions ride ahead of the first turn only, the same way
     // Codex puts them on thread/start.
     this.preface = this.mcp ? ACP_INSTRUCTIONS : null;
@@ -390,7 +390,6 @@ class AcpSession extends EventEmitter {
     });
   }
 
-  // One block open at a time, the way the renderer's stream slot reads them.
   #open(kind) {
     if (this.block === kind) return;
     this.#close();

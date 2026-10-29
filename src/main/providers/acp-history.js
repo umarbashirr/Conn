@@ -20,7 +20,6 @@ const message = (role, content) => ({ type: role, message: { role, content } });
 
 const textOnly = (c) => (c && typeof c === 'object' && c.type && c.type !== 'text' ? '' : textOf(c));
 
-// `type` is 'text' or 'thinking', and names the block's text field too.
 function chunk(s, role, u, type = 'text') {
   const said = textOnly(u.content);
   if (!said) return;

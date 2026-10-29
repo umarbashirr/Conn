@@ -7,9 +7,6 @@ const fs = require('fs');
 // A turn changes four files (an add, a delete, a move and an update) and asks
 // to apply the last one.
 const EDITS = process.env.MOCK_CODEX_EDITS === '1';
-// A turn reasons four ways: summary deltas over two paragraphs, a summary that
-// arrives whole, no summary at all, and deltas cut short by a command. A prompt
-// with "hang" reasons once and waits for turn/interrupt.
 const REASON = process.env.MOCK_CODEX_REASON === '1';
 const readline = require('readline');
 

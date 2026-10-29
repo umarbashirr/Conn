@@ -1,12 +1,7 @@
-/* How a transcript's rows group into runs, under plain node. Tool calls that
-   carry no diff run together and fold once there are FOLD_AT calls. A thought
-   between two calls joins their run instead of breaking it, so summarized
-   Claude thinking still folds; a thought before the first call or after the
-   last stays a row of its own, and the row kept out of a strip is a call. */
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 
-const { runs, FOLD_AT } = await import('../src/renderer/ui/lib/runs.js');
+const { runs, FOLD_AT_CALLS } = await import('../src/renderer/ui/lib/runs.js');
 
 const tool = (id, name = 'Read') => ({ id, kind: 'tool', name, input: { file_path: `/${id}` }, state: 'output-available' });
 const edit = (id) => ({ id, kind: 'tool', name: 'Edit', input: { file_path: '/a.js', old_string: 'x', new_string: 'y' }, state: 'output-available' });
@@ -14,7 +9,7 @@ const thought = (id, extra) => ({ id, kind: 'reasoning', parent: null, text: 'hm
 const reply = (id) => ({ id, kind: 'assistant', text: 'ok' });
 const shape = (groups) => groups.map((g) => (g.run ? { run: g.run.map((it) => it.id), calls: g.calls } : g.item.id));
 
-assert.equal(FOLD_AT, 3, 'three calls is where a run folds');
+assert.equal(FOLD_AT_CALLS, 3, 'three calls is where a run folds');
 
 assert.deepEqual(shape(runs([tool('t1'), tool('t2'), tool('t3')])), [{ run: ['t1', 't2', 't3'], calls: 3 }],
   'tool calls alone group as before');

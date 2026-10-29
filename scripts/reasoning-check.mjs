@@ -1,7 +1,3 @@
-/* A thought's close and its folded label, under plain node. Settling stamps
-   how long the row streamed, once; every later close (a late stop, a result
-   after Stop, an error) leaves it as it was. A replayed row has no clock and
-   says so rather than inventing one. */
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 

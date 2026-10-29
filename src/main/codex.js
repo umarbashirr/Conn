@@ -12,9 +12,8 @@
  * naming because it is load-bearing. It buys the whole renderer, the transcript
  * components and the tool rows for free, and it costs us anything codex can say
  * that claude cannot. Thread sections and review mode flatten or fall on the
- * floor here, and reasoning summaries pass as claude's thinking blocks. When
- * one of them starts mattering this is the file that has to grow a real event
- * shape.
+ * floor here. When one of them starts mattering this is the file that has to
+ * grow a real event shape.
  *
  * The preview browser is not built in the way it is for claude. codex reads MCP
  * servers from config, and Conn already ships one that reaches the pane over
@@ -138,8 +137,8 @@ class CodexSession extends EventEmitter {
     this.turnId = null;
     this.rpc = null;
     this.pending = new Map();     // permission id -> { respond, input, tool }
-    this.block = null;            // { item, kind: 'text' | 'thinking', part }: the one block open
-    this.streamed = new Set();    // item ids whose text already went out as deltas this turn
+    this.block = null;
+    this.streamed = new Set();
     this.openCalls = new Set();
     this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
@@ -472,11 +471,9 @@ class CodexSession extends EventEmitter {
     });
   }
 
-  /* The renderer keeps one stream slot per chat, so at most one block is open
-     at a time and opening one closes whatever was open. */
   #open(item, kind) {
     this.#close();
-    this.block = { item, kind, part: null };
+    this.block = { item, kind, summaryIndex: null };
     this.#stream({
       type: 'content_block_start',
       index: 0,
@@ -490,13 +487,10 @@ class CodexSession extends EventEmitter {
     this.#stream({ type: 'content_block_stop', index: 0 });
   }
 
-  // `part` is a reasoning summaryIndex, and a new one is a new paragraph.
-  // summaryPartAdded says the same thing and is ignored, so the break never
-  // depends on two notifications arriving in order.
-  #write(item, kind, said, part = null) {
+  #write(item, kind, said, summaryIndex = null) {
     if (this.block?.item !== item || this.block.kind !== kind) this.#open(item, kind);
-    const text = part !== null && this.block.part !== null && part !== this.block.part ? `\n\n${said}` : said;
-    if (part !== null) this.block.part = part;
+    const text = summaryIndex !== null && this.block.summaryIndex !== null && summaryIndex !== this.block.summaryIndex ? `\n\n${said}` : said;
+    if (summaryIndex !== null) this.block.summaryIndex = summaryIndex;
     this.streamed.add(item);
     this.#stream({
       type: 'content_block_delta',
@@ -510,8 +504,6 @@ class CodexSession extends EventEmitter {
       if (params.itemId) this.#write(params.itemId, 'text', params.delta || '');
       return;
     }
-    // Summaries only. item/reasoning/textDelta is the raw reasoning, which codex
-    // sends only when configured to and Conn does not show.
     if (method === 'item/reasoning/summaryTextDelta') {
       if (params.itemId) this.#write(params.itemId, 'thinking', params.delta || '', params.summaryIndex ?? 0);
       return;
@@ -569,8 +561,6 @@ class CodexSession extends EventEmitter {
   }
 
   #itemStarted(item) {
-    // Opened now rather than on the first delta, so the row's clock starts
-    // when the reasoning did, including for a summary that arrives whole.
     if (item.type === 'reasoning') return this.#open(item.id, 'thinking');
     // Kept because the approval that follows a file change names the item and
     // says nothing about what is in it. See #askInput.
@@ -585,8 +575,6 @@ class CodexSession extends EventEmitter {
   #itemDone(item) {
     this.openCalls.delete(item.id);
     if (item.type === 'reasoning') {
-      // The renderer draws thinking from stream events only, so a summary that
-      // came with no deltas goes out as one.
       const whole = (item.summary || []).join('\n\n');
       if (!this.streamed.has(item.id) && whole.trim()) this.#write(item.id, 'thinking', whole);
       if (this.block?.item === item.id) this.#close();
