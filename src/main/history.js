@@ -7,7 +7,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { execFile } = require('child_process');
 const { chatTitle } = require('../shared/chat-title');
+const shellEnv = require('./shell-env');
+const { parseQuery, snippetOf } = require('./transcript-search');
 
 const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 
@@ -200,6 +203,100 @@ function deleteSession(cwd, id) {
   return gone;
 }
 
+const SCAN_BATCH = 8;
+const PARSE_BATCH = 4;
+
+// ripgrep exits 1 when nothing matched; that is an answer, not a failure.
+function rgFiles(dir, needle) {
+  return new Promise((resolve) => {
+    execFile('rg', ['--no-config', '--no-ignore', '-l', '-i', '-F', '--max-depth', '1', '-g', '*.jsonl', '-e', needle, dir],
+      { env: shellEnv.env(), timeout: 10000, maxBuffer: 8 << 20 },
+      (err, out) => {
+        if (err && err.code !== 1) return resolve(null);
+        resolve(String(out).split('\n').filter(Boolean));
+      });
+  });
+}
+
+function fileHas(file, needle) {
+  return new Promise((resolve) => {
+    const stream = fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 1 << 18 });
+    let tail = '';
+    let found = false;
+    stream.on('data', (chunk) => {
+      const hay = (tail + chunk).toLowerCase();
+      if (hay.includes(needle)) {
+        found = true;
+        stream.destroy();
+        return;
+      }
+      tail = needle.length > 1 ? hay.slice(1 - needle.length) : '';
+    });
+    stream.on('error', () => resolve(false));
+    stream.on('close', () => resolve(found));
+  });
+}
+
+async function scanFiles(dir, needle) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return []; }
+  const out = [];
+  for (let i = 0; i < names.length; i += SCAN_BATCH) {
+    const batch = names.slice(i, i + SCAN_BATCH).map((f) => path.join(dir, f));
+    const hits = await Promise.all(batch.map((f) => fileHas(f, needle)));
+    batch.forEach((f, k) => { if (hits[k]) out.push(f); });
+  }
+  return out;
+}
+
+function saidIn(o) {
+  if (o.isSidechain || o.isMeta) return '';
+  if (o.type === 'user') return humanText(o) || '';
+  if (o.type !== 'assistant' || o.isApiErrorMessage) return '';
+  const c = o.message?.content;
+  if (typeof c === 'string') return c;
+  return Array.isArray(c) ? c.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n') : '';
+}
+
+async function firstHit(file, { q, needle }) {
+  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (!line.toLowerCase().includes(needle)) continue;
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      const snippet = snippetOf(saidIn(o), q);
+      if (snippet) return snippet;
+    }
+  } catch {}
+  finally { rl.close(); }
+  return null;
+}
+
+async function search(cwd, query, limit = 20) {
+  const parsed = parseQuery(query);
+  if (!parsed) return [];
+  const dir = projectDir(cwd);
+  await shellEnv.ready();
+  const files = (await rgFiles(dir, parsed.needle)) ?? await scanFiles(dir, parsed.needle);
+
+  const dated = [];
+  for (const file of files) {
+    try { dated.push({ file, at: fs.statSync(file).mtimeMs }); } catch {}
+  }
+  dated.sort((a, b) => b.at - a.at);
+
+  const hits = [];
+  for (let i = 0; i < dated.length && hits.length < limit; i += PARSE_BATCH) {
+    const batch = dated.slice(i, i + PARSE_BATCH);
+    const snippets = await Promise.all(batch.map((d) => firstHit(d.file, parsed)));
+    batch.forEach((d, k) => {
+      if (snippets[k] && hits.length < limit) hits.push({ id: path.basename(d.file, '.jsonl'), at: d.at, snippet: snippets[k] });
+    });
+  }
+  return hits;
+}
+
 const MAX_MESSAGES = 400;
 const MAX_TEXT = 6000;
 const MAX_IMAGES = 12;
@@ -389,4 +486,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };
+module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };

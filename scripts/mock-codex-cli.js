@@ -40,6 +40,9 @@ const CHANGES = {
   }],
 };
 let approving = null;
+const saidNow = () => {
+  try { return JSON.parse(fs.readFileSync(process.env.MOCK_CODEX_SAYS, 'utf8')); } catch { return {}; }
+};
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -153,11 +156,13 @@ function onMessage(msg) {
     });
   }
   if ((REASON || PLAN) && msg.method === 'thread/list') {
-    const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], updatedAt: 1 };
+    const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], updatedAt: saidNow().updatedAt ?? 1 };
     return send({ jsonrpc: '2.0', id: msg.id, result: { data: [row] } });
   }
   if ((REASON || PLAN) && msg.method === 'thread/read') {
-    const items = PLAN ? [M1, PLAN_ITEM] : [R1, M1];
+    const now = saidNow();
+    const asked = now.asked ? [{ type: 'userMessage', id: 'u1', content: [{ type: 'text', text: now.asked, text_elements: [] }] }] : [];
+    const items = PLAN ? [M1, PLAN_ITEM] : [...asked, R1, now.text ? { ...M1, text: now.text } : M1];
     return send({
       jsonrpc: '2.0', id: msg.id,
       result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },

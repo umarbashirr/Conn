@@ -21,7 +21,8 @@
  *
  * Answers are not cached. They are cheap once the server is up, and a rail
  * still showing yesterday's list after a chat ends is the bug this exists to
- * fix.
+ * fix. The one exception is the words a search reads out of a thread, which
+ * are kept against the thread's updatedAt and so cannot outlive a write.
  */
 const fs = require('fs');
 const os = require('os');
@@ -31,6 +32,7 @@ const shellEnv = require('./shell-env');
 const { chatTitle } = require('../shared/chat-title');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
+const { parseQuery, snippetOf } = require('./transcript-search');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -146,6 +148,53 @@ async function listSessions(cwd, limit = 200) {
   return rows.slice(0, limit);
 }
 
+const READ_BATCH = 8;
+const MAX_KEPT = 400;
+// Keyed on updatedAt, so a thread that was written to is read again.
+const said = new Map();
+
+async function sayingsOf(id, at) {
+  const kept = said.get(id);
+  if (kept && kept.at === at) return kept.texts;
+  const res = await call('thread/read', { threadId: id, includeTurns: true });
+  const texts = [];
+  for (const turn of res?.thread?.turns || []) {
+    for (const item of turn.items || []) {
+      if (item.type === 'userMessage') {
+        texts.push((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n'));
+      } else if (item.type === 'agentMessage') {
+        texts.push(item.text || '');
+      }
+    }
+  }
+  if (said.size >= MAX_KEPT) said.clear();
+  said.set(id, { at, texts });
+  return texts;
+}
+
+async function search(cwd, query, limit = 20) {
+  const parsed = parseQuery(query);
+  if (!parsed) return [];
+  const rows = await listSessions(cwd);
+  const hits = [];
+  for (let i = 0; i < rows.length && hits.length < limit; i += READ_BATCH) {
+    const batch = rows.slice(i, i + READ_BATCH);
+    const snippets = await Promise.all(batch.map(async (row) => {
+      try {
+        for (const text of await sayingsOf(row.id, row.at)) {
+          const snippet = snippetOf(text, parsed.q);
+          if (snippet) return snippet;
+        }
+      } catch {}
+      return null;
+    }));
+    batch.forEach((row, k) => {
+      if (snippets[k] && hits.length < limit) hits.push({ id: row.id, at: row.at, snippet: snippets[k] });
+    });
+  }
+  return hits;
+}
+
 /* Deleting a chat for good. Same guard as history.js and for a better reason
    than symmetry: codex thread ids are UUIDv7, so anything that is not a uuid
    is a chat key or a stray path arriving where a thread id was meant. */
@@ -155,6 +204,7 @@ async function deleteSession(cwd, id) {
   if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
   const res = await call('thread/delete', { threadId: id });
   agents.delete(id);
+  said.delete(id);
   return res != null;
 }
 
@@ -306,4 +356,4 @@ async function readSubagent(cwd, session, agentId) {
   return { ...t, id: agentId };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, close };
+module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close };
