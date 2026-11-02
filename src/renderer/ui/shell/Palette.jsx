@@ -150,7 +150,7 @@ export default function Palette() {
       snippet: r.snippet,
     }))
     .slice(0, 8);
-  const titleOnly = bodies.titleOnly.filter((p) => chats.some(({ chat }) => chat.provider === p.id)).map((p) => p.label);
+  const titleOnly = bodies.titleOnly.map((p) => p.label);
 
   const folderRows = (window_.projects || []).filter((p) => hit(`${p.name} ${p.dir}`));
   const recentRows = recents.filter((r) => hit(`${r.name} ${r.path}`));
