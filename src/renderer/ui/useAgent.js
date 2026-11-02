@@ -1300,7 +1300,7 @@ export function useAgent() {
           loaded: false,
         };
       }
-      edit(chat.key, (c) => ({ ...c, items: next }));
+      edit(chat.key, (c) => ({ ...c, items: next, usage: t.usage ? account(c.usage, t.usage) : c.usage }));
     } catch (e) {
       edit(chat.key, (c) => ({
         ...c,
