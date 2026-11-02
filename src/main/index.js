@@ -40,7 +40,7 @@ const { createUsageLedger } = require('./usage-ledger');
 const { createUsageHistory } = require('./usage-history');
 const { exportChat } = require('./chat-export');
 const { LANDS_WITHIN } = require('./history');
-const { mergeResults } = require('./transcript-search');
+const { createAgentSearch } = require('./search-handler');
 const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -1758,30 +1758,11 @@ function registerIpc() {
     completed: completed.all(),
     pinned: pinned.all(),
   }));
-  const SEARCH_LIMIT = 20;
-  const searches = new Map();
-  ipcMain.handle('agent:search', async (e, { query } = {}) => {
-    searches.get(e.sender.id)?.abort();
-    const ctl = new AbortController();
-    searches.set(e.sender.id, ctl);
-    try {
-      const rows = (registry?.all() || []).filter((row) => row.hasHistory && row.has());
-      const dirs = [CHATS_DIR, ...openDirs()];
-      const lists = await Promise.all(rows.filter((row) => row.history.search).flatMap((row) => dirs.map(async (dir) => {
-        try {
-          const res = await row.history.search(dir, String(query || ''), { limit: SEARCH_LIMIT, signal: ctl.signal });
-          return { ...res, provider: row.id, project: dir };
-        } catch {
-          return { hits: [], searched: 0, left: 0, provider: row.id, project: dir };
-        }
-      })));
-      const merged = mergeResults(lists, SEARCH_LIMIT);
-      for (const r of merged.results) owners.set(r.id, r.provider);
-      return { ...merged, titleOnly: rows.filter((row) => !row.history.search).map((row) => ({ id: row.id, label: row.label })) };
-    } finally {
-      if (searches.get(e.sender.id) === ctl) searches.delete(e.sender.id);
-    }
-  });
+  ipcMain.handle('agent:search', createAgentSearch({
+    rows: () => (registry?.all() || []).filter((row) => row.hasHistory && row.has()),
+    dirs: () => [CHATS_DIR, ...openDirs()],
+    owners,
+  }));
   ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
     try {
       return { ok: true, title: chatTitles.set(id, title) };

@@ -201,6 +201,54 @@ async function merging() {
   });
 }
 
+async function handler() {
+  const { createAgentSearch } = require(path.join(ROOT, 'src/main/search-handler.js'));
+  const seen = [];
+  const slowRow = {
+    id: 'claude',
+    label: 'Claude',
+    history: {
+      search: (dir, query, { signal }) => new Promise((resolve) => {
+        const call = { query, signal };
+        seen.push(call);
+        const done = () => resolve({ hits: signal.aborted ? [] : [{ id: `chat-${query}`, title: query, at: 1, snippet: query }], searched: 1, left: 0 });
+        if (signal.aborted) return done();
+        signal.addEventListener('abort', done);
+        setTimeout(done, 150);
+      }),
+    },
+  };
+  const acpRow = { id: 'cursor', label: 'Cursor', history: {} };
+  const owners = new Map();
+  const handle = createAgentSearch({ rows: () => [slowRow, acpRow], dirs: () => ['/p'], owners });
+  const from = (id) => ({ sender: { id } });
+
+  await check('handler: a newer search from the same window aborts the older one', async () => {
+    seen.length = 0;
+    const first = handle(from(1), { query: 'one' });
+    await new Promise((r) => setTimeout(r, 20));
+    const second = handle(from(1), { query: 'two' });
+    const [a, b] = await Promise.all([first, second]);
+    assert.strictEqual(seen[0].signal.aborted, true, 'the older search was left running');
+    assert.strictEqual(seen[1].signal.aborted, false, 'the newer search was aborted');
+    assert.deepStrictEqual(a.results, []);
+    assert.deepStrictEqual(b.results.map((r) => r.id), ['chat-two']);
+  });
+  await check('handler: a search from another window is left alone', async () => {
+    seen.length = 0;
+    const first = handle(from(1), { query: 'one' });
+    const second = handle(from(2), { query: 'two' });
+    const [a, b] = await Promise.all([first, second]);
+    assert.ok(seen.every((c) => !c.signal.aborted));
+    assert.strictEqual(a.results.length + b.results.length, 2);
+  });
+  await check('handler: a hit records its provider and an unsearchable provider is named', async () => {
+    const res = await handle(from(3), { query: 'three' });
+    assert.strictEqual(owners.get('chat-three'), 'claude');
+    assert.deepStrictEqual(res.titleOnly, [{ id: 'cursor', label: 'Cursor' }]);
+  });
+}
+
 async function caching() {
   const { wordCache } = require(path.join(ROOT, 'src/main/transcript-search.js'));
   await check('cache: past its size the oldest threads go and the newest stay', () => {
@@ -294,6 +342,7 @@ async function codex() {
     await check('without rg: nothing ran ripgrep', () => assert.ok(!fs.existsSync(rgLog)));
   });
   await merging();
+  await handler();
   await caching();
   await codex();
 
