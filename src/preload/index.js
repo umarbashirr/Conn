@@ -171,6 +171,7 @@ contextBridge.exposeInMainWorld('conn', {
     allUsage: () => ipcRenderer.invoke('usage:all'),
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
+    search: (query) => ipcRenderer.invoke('agent:search', { query }),
     transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),

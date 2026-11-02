@@ -40,6 +40,7 @@ const { createUsageLedger } = require('./usage-ledger');
 const { createUsageHistory } = require('./usage-history');
 const { exportChat } = require('./chat-export');
 const { LANDS_WITHIN } = require('./history');
+const { createAgentSearch } = require('./search-handler');
 const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -1756,6 +1757,11 @@ function registerIpc() {
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
     pinned: pinned.all(),
+  }));
+  ipcMain.handle('agent:search', createAgentSearch({
+    rows: () => (registry?.all() || []).filter((row) => row.hasHistory && row.has()),
+    dirs: () => [CHATS_DIR, ...openDirs()],
+    owners,
   }));
   ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
     try {
