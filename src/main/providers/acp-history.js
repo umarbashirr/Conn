@@ -2,7 +2,7 @@
 const fs = require('fs');
 const os = require('os');
 const { AcpRpc } = require('./acp-rpc');
-const { CLIENT, ACP_INSTRUCTIONS, toolOf, callInput, textOf } = require('./acp-session');
+const { CLIENT, ACP_INSTRUCTIONS, toolOf, callInput, textOf, readingOf, readingMessage } = require('./acp-session');
 const shellEnv = require('../shell-env');
 const { chatTitle } = require('../../shared/chat-title');
 const { clip } = require('../transcript-clip');
@@ -81,6 +81,14 @@ function foldUpdates(updates) {
     const b = m.message.content[0];
     return (b.type !== 'text' && b.type !== 'thinking') || b[b.type].trim();
   });
+}
+
+function usageOf(updates) {
+  let last = null;
+  for (const u of updates) {
+    if (u?.sessionUpdate === 'usage_update') last = readingOf(u, last) || last;
+  }
+  return last && readingMessage(last);
 }
 
 const withoutPreface = (text) => (text.startsWith(ACP_INSTRUCTIONS) ? text.slice(ACP_INSTRUCTIONS.length).trimStart() : text);
@@ -227,7 +235,8 @@ function createAcpHistory({ spec, label }) {
       return true;
     });
     if (!done) throw new Error(spec.missing || `could not start ${label} to read that chat`);
-    return clip(id, foldUpdates(updates));
+    const usage = usageOf(updates);
+    return { ...clip(id, foldUpdates(updates)), ...(usage && { usage }) };
   }
 
   function readSession(cwd, id) {
@@ -260,4 +269,4 @@ function createAcpHistory({ spec, label }) {
   return { listSessions, readSession, readSubagent, listSubagents, deleteSession, close };
 }
 
-module.exports = { createAcpHistory, foldUpdates };
+module.exports = { createAcpHistory, foldUpdates, usageOf };

@@ -2,8 +2,8 @@
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const { foldUpdates } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
-const { ACP_INSTRUCTIONS } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+const { foldUpdates, usageOf } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
+const { ACP_INSTRUCTIONS, turnTokens } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
 const { clip, MAX_MESSAGES, MAX_TEXT } = require(path.join(ROOT, 'src/main/transcript-clip.js'));
 
 const failures = [];
@@ -58,6 +58,36 @@ const said = (m) => m.message.content[0].text;
     agent('a'), agent('b'),
   ]);
   check('other-kinds-are-dropped', shape(out) === 'assistant:text' && said(out[0]) === 'ab', JSON.stringify(out));
+}
+{
+  const reading = (used, extra) => ({ sessionUpdate: 'usage_update', used, size: 200000, ...extra });
+  const usd = (amount) => ({ cost: { amount, currency: 'USD' } });
+  const carried = (u) => u?.message.usage;
+  check('usage-none-gives-null', usageOf([agent('a')]) === null && usageOf([]) === null, 'a chat with no reading made a usage');
+  check('usage-last-reading-wins', carried(usageOf([reading(10), reading(30), agent('a')])).input_tokens === 30, JSON.stringify(usageOf([reading(10), reading(30)])));
+  check('usage-is-the-meters-message', JSON.stringify(usageOf([reading(10, usd(0.25))]))
+    === JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [], usage: { input_tokens: 10, context_window: 200000, cost_usd: 0.25 } }, parent_tool_use_id: null }), JSON.stringify(usageOf([reading(10, usd(0.25))])));
+  check('usage-cost-carries-to-a-later-reading', carried(usageOf([reading(10, usd(0.25)), reading(20)])).cost_usd === 0.25, JSON.stringify(usageOf([reading(10, usd(0.25)), reading(20)])));
+  const eur = carried(usageOf([reading(10, { cost: { amount: 3, currency: 'EUR' } })]));
+  check('usage-non-usd-cost-is-dropped', eur.input_tokens === 10 && !('cost_usd' in eur), JSON.stringify(eur));
+  const bad = carried(usageOf([reading(10), { sessionUpdate: 'usage_update', used: 'many', size: 5 }, { sessionUpdate: 'usage_update' }]));
+  check('usage-malformed-reading-does-not-erase-a-good-one', bad?.input_tokens === 10, JSON.stringify(bad));
+  check('usage-only-malformed-gives-null', usageOf([{ sessionUpdate: 'usage_update', used: -1, size: 5 }]) === null, 'garbage became a reading');
+}
+{
+  const apart = turnTokens({ totalTokens: 2300, inputTokens: 1200, outputTokens: 300, cachedReadTokens: 800 });
+  check('turn-tokens-cache-apart', JSON.stringify(apart) === JSON.stringify({ inputTokens: 1200, outputTokens: 300, cacheReadInputTokens: 800, cacheCreationInputTokens: 0 }), JSON.stringify(apart));
+  const inside = turnTokens({ totalTokens: 1500, inputTokens: 1200, outputTokens: 300, cachedReadTokens: 800, cachedWriteTokens: 100 });
+  check('turn-tokens-cache-inside-input', JSON.stringify(inside) === JSON.stringify({ inputTokens: 300, outputTokens: 300, cacheReadInputTokens: 800, cacheCreationInputTokens: 100 }), JSON.stringify(inside));
+  const clamped = turnTokens({ totalTokens: 100, inputTokens: 50, outputTokens: 50, cachedReadTokens: 900 });
+  check('turn-tokens-input-never-goes-negative', clamped?.inputTokens === 0, JSON.stringify(clamped));
+  const plain = turnTokens({ totalTokens: 15, inputTokens: 10, outputTokens: 5 });
+  check('turn-tokens-without-cache', JSON.stringify(plain) === JSON.stringify({ inputTokens: 10, outputTokens: 5, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }), JSON.stringify(plain));
+  const malformed = [undefined, null, 5, 'x', {}, { totalTokens: 3, inputTokens: 1 }, { totalTokens: '3', inputTokens: 1, outputTokens: 2 }, { totalTokens: 3, inputTokens: -1, outputTokens: 2 }, { totalTokens: NaN, inputTokens: 1, outputTokens: 2 }];
+  check('turn-tokens-malformed-gives-null', malformed.every((u) => turnTokens(u) === null), JSON.stringify(malformed.filter((u) => turnTokens(u) !== null)));
+  const opencode = turnTokens({ inputTokens: 24, outputTokens: 37, totalTokens: 18109, cachedReadTokens: 18048 });
+  check('turn-tokens-reads-opencode-2-0-15', JSON.stringify(opencode) === JSON.stringify({ inputTokens: 24, outputTokens: 37, cacheReadInputTokens: 18048, cacheCreationInputTokens: 0 }), JSON.stringify(opencode));
+  check('turn-tokens-all-zero-gives-null', turnTokens({ totalTokens: 0, inputTokens: 0, outputTokens: 0 }) === null, 'a zero report made a row');
 }
 {
   const out = foldUpdates([text('agent_thought_chunk', ''), text('agent_thought_chunk', '  \n'), agent('a')]);

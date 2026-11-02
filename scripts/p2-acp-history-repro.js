@@ -159,6 +159,7 @@ async function main() {
     check('tool-row-has-its-name-and-input', use?.name === 'Edit' && use.input?.path === 'style.css', JSON.stringify(use));
     check('tool-row-has-its-result', !!use && result?.tool_use_id === use.id && result.content === 'edited style.css' && result.is_error === false, JSON.stringify(result));
     check('transcript-is-not-truncated', t?.truncated === false, JSON.stringify(t?.truncated));
+    check('transcript-carries-the-stored-reading', JSON.stringify(t?.usage?.message?.usage) === JSON.stringify({ input_tokens: 10, context_window: 100, cost_usd: 0.42 }) && t.usage.message.content.length === 0 && t.usage.parent_tool_use_id === null, JSON.stringify(t?.usage));
     check('unadvertised-close-is-not-sent', msgs.length > 0 && !logged(path.join(bin, 'cursor.log')).some((e) => e.method === 'session/close'), 'session/close sent to an agent that did not advertise it');
 
     const { ok: o } = await call(`window.conn.agent.transcript('opencode-chat-0001', ${JSON.stringify(proj)})`);
