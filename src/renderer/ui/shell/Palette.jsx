@@ -104,8 +104,8 @@ export default function Palette() {
      keystroke. Both go out from the one timer. */
   const live = useRef(0);
   useEffect(() => {
-    if (!open || !query.trim()) { setFiles([]); setBodies(NO_BODIES); return undefined; }
     const seq = ++live.current;
+    if (!open || !query.trim()) { setFiles([]); setBodies(NO_BODIES); return undefined; }
     const timer = setTimeout(async () => {
       const text = query.trim();
       const inChats = window.conn.agent.search(text).catch(() => null);
@@ -221,9 +221,9 @@ export default function Palette() {
               </CommandGroup>
             )}
 
-            {bodies.left > 0 && (
+            {bodies.searched > 0 && bodies.left > 0 && (
               <div className="px-3 py-1.5 text-muted-foreground text-xs">
-                Searched the {bodies.searched} most recent chats. {bodies.left} older {bodies.left === 1 ? 'chat was' : 'chats were'} left out.
+                Searched the {bodies.searched === 1 ? 'most recent chat' : `${bodies.searched} most recent chats`}. {bodies.left} older {bodies.left === 1 ? 'chat was' : 'chats were'} left out.
               </div>
             )}
 
