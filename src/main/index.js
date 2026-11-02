@@ -1917,6 +1917,7 @@ function registerIpc() {
         title,
         project: dir,
         lastText,
+        dropsCommands: (owners.get(id) || provider) === 'claude',
         landsWithin: LANDS_WITHIN,
         read: () => ownerOf(id).readSession(dir, id, { whole: true }),
         pick: async (name) => {

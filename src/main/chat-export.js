@@ -110,8 +110,10 @@ const TAIL = 120;
 const CLIPPED = '\n… truncated';
 const COMMAND = /^\/[A-Za-z0-9][\w:.-]*(\s|$)/;
 
-function wanted(lastText) {
-  if (!lastText || COMMAND.test(lastText)) return '';
+// Only claude's reader drops a slash-command prompt, so only there is it never
+// coming. Codex and ACP keep "/tmp is full" as text like any other prompt.
+function wanted(lastText, dropsCommands) {
+  if (!lastText || (dropsCommands && COMMAND.test(lastText))) return '';
   const cut = lastText.indexOf(CLIPPED);
   return cut < 0 ? squash(lastText).slice(-TAIL) : squash(lastText.slice(0, cut)).slice(0, TAIL);
 }
@@ -135,11 +137,11 @@ async function readLanded({ read, want, landsWithin, every }) {
   return messages;
 }
 
-async function exportChat({ title, project, lastText, read, pick, landsWithin = 3000, every = 250 }) {
+async function exportChat({ title, project, lastText, dropsCommands = false, read, pick, landsWithin = 3000, every = 250 }) {
   const file = await pick(fileNameFor(title));
   if (!file) return { canceled: true };
 
-  const want = wanted(lastText);
+  const want = wanted(lastText, dropsCommands);
   const messages = await readLanded({ read, want, landsWithin, every });
   await fs.promises.writeFile(file, toMarkdown({ title, project, messages }));
   return want && !landed(messages, want) ? { path: file, incomplete: true } : { path: file };

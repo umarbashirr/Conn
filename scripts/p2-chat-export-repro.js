@@ -108,10 +108,10 @@ fs.writeFileSync(path.join(dir, `${SESSION}.jsonl`), lines.map((o) => JSON.strin
 
   const user = (text) => ({ type: 'user', message: { content: text } });
   const assistantSays = (text, extra) => ({ type: 'assistant', message: { content: [{ type: 'text', text }] }, ...extra });
-  const settled = async (messages, lastText) => {
+  const settled = async (messages, lastText, dropsCommands = true) => {
     let reads = 0;
     const res = await exportChat({
-      title: 'Settled', project: cwd, lastText, landsWithin: 200, every: 10,
+      title: 'Settled', project: cwd, lastText, dropsCommands, landsWithin: 200, every: 10,
       read: async () => { reads += 1; return { messages }; },
       pick: async () => path.join(home, 'settled.md'),
     });
@@ -127,6 +127,9 @@ fs.writeFileSync(path.join(dir, `${SESSION}.jsonl`), lines.map((o) => JSON.strin
 
   const command = await settled([user('first'), assistantSays('Earlier reply')], '/pstack:poteto-mode do the thing');
   check('slash-command-last-message-is-not-waited-for', command.reads === 1 && !command.incomplete, JSON.stringify(command));
+
+  const codexCommand = await settled([user('first'), assistantSays('Earlier reply')], '/tmp is full', false);
+  check('a-slash-prompt-is-waited-for-where-the-reader-keeps-it', codexCommand.incomplete === true && codexCommand.reads > 1, JSON.stringify(codexCommand));
 
   const path_ = await settled([user('first'), assistantSays('Earlier reply')], '/home/me/app.js is broken');
   check('a-path-is-not-mistaken-for-a-slash-command', path_.incomplete === true, JSON.stringify(path_));
