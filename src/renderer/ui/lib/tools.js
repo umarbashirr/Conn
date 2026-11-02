@@ -24,6 +24,7 @@ const SUMMARY = {
   Agent: (i) => i.description,
   Task: (i) => i.description,
   Skill: (i) => i.skill,
+  ExitPlanMode: nothing,
   browser_navigate: (i) => bareUrl(i.url),
   browser_snapshot: nothing,
   browser_text: nothing,
@@ -81,9 +82,11 @@ export function toolLabel(name) {
   return BROWSER_BY_ROUTE.get(bare.slice('browser_'.length)) ?? bare;
 }
 
+const NAMES = new Map([['ExitPlanMode', 'Proposed plan']]);
+
 // What a person calls it: "Screenshot", not browser_screenshot.
 export const toolName = (label) =>
-  BROWSER_LABEL.get(label) ?? String(label || '').replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
+  BROWSER_LABEL.get(label) ?? NAMES.get(label) ?? String(label || '').replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
 
 export function toolSummary(name, input) {
   const i = input || {};

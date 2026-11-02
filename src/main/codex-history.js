@@ -213,9 +213,9 @@ function outputFor(item) {
 }
 
 /* One stored item as the messages the panel replays. Zero of them for anything
-   the live path also drops: plans, review-mode markers and compaction notices
-   never reached the transcript while the chat ran, and showing them now would
-   make a replayed chat say more than it ever did. */
+   the live path also drops: review-mode markers and compaction notices never
+   reached the transcript while the chat ran, and showing them now would make a
+   replayed chat say more than it ever did. */
 function messagesFor(item, at, found) {
   if (item.type === 'reasoning') {
     const thinking = (item.summary || []).join('\n\n');
@@ -250,6 +250,11 @@ function messagesFor(item, at, found) {
       });
     }
     return [];
+  }
+
+  if (item.type === 'plan') {
+    if (!item.text?.trim()) return [];
+    return [toolUse(item.id, 'ExitPlanMode', { plan: item.text }, at), toolResult(item.id, 'updated', false, at)];
   }
 
   const name = TOOL_NAME[item.type]

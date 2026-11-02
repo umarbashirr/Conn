@@ -29,6 +29,7 @@ const { INSTRUCTIONS, TOOL_PREFIX } = require('../shared/browser-tools');
 const { CODEX_MODE, isMode, normalizeMode, decideCodex } = require('./modes');
 const { classify } = require('../shared/turn-error');
 const { codexFiles } = require('../shared/unified-diff');
+const { todoInput } = require('../shared/plan');
 const shellEnv = require('./shell-env');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -140,6 +141,7 @@ class CodexSession extends EventEmitter {
     this.block = null;            // { item, kind: 'text' | 'thinking', summaryIndex }: the one block open
     this.streamed = new Set();    // item ids whose text already went out as deltas this turn
     this.openCalls = new Set();
+    this.planSeq = 0;
     this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
     this.window = 0;              // how many tokens this model's window holds
@@ -471,6 +473,12 @@ class CodexSession extends EventEmitter {
     });
   }
 
+  #settled(id, name, input) {
+    this.#tool(id, name, input);
+    this.openCalls.delete(id);
+    this.#result(id, 'updated', false);
+  }
+
   #open(item, kind) {
     this.#close();
     this.block = { item, kind, summaryIndex: null };
@@ -538,6 +546,12 @@ class CodexSession extends EventEmitter {
 
     if (method === 'turn/completed') return this.#turnDone(params.turn || {});
 
+    if (method === 'turn/plan/updated') {
+      const input = todoInput((params.plan || []).map((p) => ({ content: p.step, status: p.status })), params.explanation);
+      if (!input.todos.length) return;
+      return this.#settled(`plan-${params.turnId || this.turnId}-${++this.planSeq}`, 'TodoWrite', input);
+    }
+
     /* A turn that went wrong says so twice: this, and then turn/completed with
        a status of failed. Only the second one ends the turn, so while a turn
        runs this is kept for turn/completed to carry and touches nothing else.
@@ -593,6 +607,10 @@ class CodexSession extends EventEmitter {
         });
       }
       return;
+    }
+
+    if (item.type === 'plan') {
+      return item.text?.trim() ? this.#settled(item.id, 'ExitPlanMode', { plan: item.text }) : undefined;
     }
 
     if (item.type === 'commandExecution') {

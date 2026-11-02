@@ -60,6 +60,7 @@ assert.equal(toolLabel('browser_unheardOf'), 'browser_unheardOf', 'an unknown br
 
 for (const t of TOOLS) assert.equal(toolName(t.name), t.label, `${t.name} shows as ${t.label}`);
 assert.equal(toolName('Bash'), 'Bash', 'a tool with no label shows its own name');
+assert.equal(toolName('ExitPlanMode'), 'Proposed plan', 'a proposed plan is named for what it is, on Codex too');
 assert.equal(toolName('conn-review'), 'review', 'toolName drops the conn- prefix');
 assert.equal(toolName('github: create_issue'), 'create_issue', 'toolName drops a server: prefix');
 
@@ -150,6 +151,8 @@ assert.equal(cutText('x'.repeat(4001)).hidden, 1, 'one character over the limit 
 assert.deepEqual(cutText('short'), { shown: 'short', hidden: 0 }, 'short text passes through');
 assert.deepEqual(cutText(''), { shown: '', hidden: 0 }, 'empty text passes through');
 assert.deepEqual(cutText('abcdef', 4), { shown: 'abcd', hidden: 2 }, 'cutText takes the limit as an argument');
+
+assert.equal(toolSummary('ExitPlanMode', { plan: '# Plan\n\nDo the thing in several steps.' }), '', 'a proposed plan is not clipped into the header');
 
 const icons = read('src/renderer/ui/components/tool-row.jsx').match(/const ICONS = \{([\s\S]*?)\n\};/)?.[1] ?? '';
 const iconKeys = new Set([...icons.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));

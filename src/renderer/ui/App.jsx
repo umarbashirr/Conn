@@ -7,6 +7,7 @@ import { Message, MessageAction, MessageActions, MessageContent, MessageResponse
 import { DiffView, FileDiffs } from '@/components/diff-view';
 import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
+import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
 import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
@@ -882,6 +883,8 @@ function Item({ item, agent, mark }) {
 
   if (item.kind === 'reasoning') return <ReasoningRow item={item} />;
 
+  if (item.kind === 'plan') return <PlanRow item={item} />;
+
   if (item.kind === 'assistant') {
     return (
       <Message from="assistant" aria-busy={item.streaming || undefined} className="mt-1.5">
@@ -906,6 +909,24 @@ function Item({ item, agent, mark }) {
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
+
+    if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
+      return (
+        <div id={`row-${item.id}`}>
+          <ToolRow
+            name={label}
+            input={item.input}
+            state={item.state}
+            at={item.at}
+            defaultOpen
+            right={mark && <PermMark perm={mark} />}>
+            <MessageResponse className="ml-1 border-l pl-3 text-[13px] [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-[13px]">
+              {item.input.plan}
+            </MessageResponse>
+          </ToolRow>
+        </div>
+      );
+    }
 
     // A file edit is a diff. Showing it as JSON with two long strings in it is
     // the same information in the shape nobody can read.

@@ -325,6 +325,132 @@ async function codexReason() {
   }
 }
 
+const todoCalls = (seen) => toolUses(seen).filter((b) => b.name === 'TodoWrite');
+const statuses = (call) => call.input.todos.map((t) => t.status);
+
+function answeredAtOnce(seen, calls) {
+  calls.forEach((call) => {
+    const at = seen.findIndex((m) => m.type === 'assistant' && m.message.content.some((b) => b.id === call.id));
+    const next = seen[at + 1]?.message?.content?.[0];
+    assert.ok(next?.type === 'tool_result' && next.tool_use_id === call.id, `no result straight after ${call.id}`);
+    assert.strictEqual(next.is_error, false);
+  });
+}
+
+async function acpPlan() {
+  const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+  const { foldUpdates } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-plan-acp-'));
+  const spec = {
+    id: 'cursor',
+    cli: 'agent',
+    argv: [path.join(ROOT, 'scripts/mock-acp-cli.js'), 'acp'],
+    modes: Object.fromEntries(['ask', 'edit', 'plan', 'bypass'].map((m) => [m, { env: { MOCK_ACP_PLAN: '1' } }])),
+    binary: () => process.execPath,
+  };
+  const session = new AcpSession({ spec, cwd, mode: 'ask', model: 'mock-1' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  try {
+    await session.start();
+    session.send('plan it');
+    await until(() => seen.some((m) => m.type === 'result'));
+    const calls = todoCalls(seen);
+
+    await check('acp-plan-update-is-a-todowrite-per-update', () => {
+      assert.strictEqual(calls.length, 2, JSON.stringify(calls));
+      assert.strictEqual(new Set(calls.map((c) => c.id)).size, 2, 'the two updates share a call id');
+      assert.deepStrictEqual(calls[0].input.todos[0], { content: 'Read the config', status: 'pending', priority: 'high' });
+      assert.ok(!('explanation' in calls[0].input), 'an explanation appeared from nowhere');
+    });
+    await check('acp-plan-second-update-carries-the-ticked-state', () => {
+      assert.deepStrictEqual(statuses(calls[0]), ['pending', 'pending', 'pending']);
+      assert.deepStrictEqual(statuses(calls[1]), ['completed', 'in_progress', 'pending']);
+    });
+    await check('acp-plan-update-is-answered-at-once', () => answeredAtOnce(seen, calls));
+    await check('acp-plan-keeps-the-token-stream-balanced', () => {
+      const tokens = blocks(seen);
+      assert.deepStrictEqual(tokens, ['tool_use', 'tool_result', 'tool_use', 'tool_result', 'start:text', 'd:text:Working on it.', 'stop', 'result']);
+      balanced(tokens);
+    });
+    await check('acp-plan-replay-folds-the-same-calls', () => {
+      const frames = (entries) => ({ sessionUpdate: 'plan', entries });
+      const folded = foldUpdates([
+        frames(calls[0].input.todos), frames(calls[1].input.todos),
+        { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Working on it.' } },
+      ]);
+      const uses = folded.flatMap((m) => m.message.content).filter((b) => b.type === 'tool_use');
+      assert.deepStrictEqual(uses.map((b) => [b.name, b.input]), calls.map((c) => ['TodoWrite', c.input]));
+      assert.deepStrictEqual(folded.map((m) => m.message.content[0].type), ['tool_use', 'tool_result', 'tool_use', 'tool_result', 'text']);
+    });
+  } finally {
+    session.stop();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+async function codexPlan() {
+  const { CodexSession } = require(path.join(ROOT, 'src/main/codex.js'));
+  const { preferBinary } = require(path.join(ROOT, 'src/main/codex-driver.js'));
+  const history = require(path.join(ROOT, 'src/main/codex-history.js'));
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-plan-codex-'));
+  const bin = path.join(cwd, 'codex');
+  fs.writeFileSync(bin, `#!/bin/sh\nMOCK_CODEX_PLAN=1 exec "${process.execPath}" "${path.join(ROOT, 'scripts/mock-codex-cli.js')}" "$@"\n`);
+  fs.chmodSync(bin, 0o755);
+  preferBinary(bin);
+  const session = new CodexSession({ cwd, mode: 'ask' });
+  const seen = [];
+  session.on('message', (m) => seen.push(m));
+  try {
+    await session.start();
+    session.send('plan it');
+    await until(() => seen.some((m) => m.type === 'result'));
+    const calls = todoCalls(seen);
+    const proposed = toolUses(seen).filter((b) => b.name === 'ExitPlanMode');
+
+    await check('codex-plan-update-is-a-todowrite-per-update', () => {
+      assert.strictEqual(calls.length, 2, JSON.stringify(calls));
+      assert.strictEqual(new Set(calls.map((c) => c.id)).size, 2, 'the two updates share a call id');
+      assert.deepStrictEqual(calls[0].input.todos[0], { content: 'Read the config', status: 'pending' });
+      assert.strictEqual(calls[0].input.explanation, 'Start with the config');
+      assert.ok(!('explanation' in calls[1].input), 'an absent explanation was invented');
+    });
+    await check('codex-plan-in-progress-arrives-as-in_progress', () => {
+      assert.deepStrictEqual(statuses(calls[0]), ['pending', 'pending', 'pending']);
+      assert.deepStrictEqual(statuses(calls[1]), ['completed', 'in_progress', 'pending']);
+    });
+    await check('codex-plan-update-is-answered-at-once', () => answeredAtOnce(seen, calls));
+    await check('codex-plan-keeps-the-token-stream-balanced', () => {
+      const tokens = blocks(seen);
+      assert.deepStrictEqual(tokens, [
+        'tool_use', 'tool_result', 'tool_use', 'tool_result',
+        'start:text', 'd:text:Done ', 'd:text:editing.', 'stop',
+        'tool_use', 'tool_result', 'result',
+      ]);
+      balanced(tokens);
+    });
+    await check('codex-plan-item-arrives-as-exitplanmode-with-the-full-text', () => {
+      assert.strictEqual(proposed.length, 1, 'the plan item arrived more or less than once');
+      assert.strictEqual(proposed[0].input.plan.split('\n').length, 7);
+      assert.ok(proposed[0].input.plan.startsWith('# Proposed plan\n\n1. Read the config'), proposed[0].input.plan);
+      assert.ok(proposed[0].input.plan.endsWith('- add a test'));
+      answeredAtOnce(seen, proposed);
+    });
+    await check('codex-plan-replay-matches-live', async () => {
+      const { messages } = await history.readSession(cwd, '00000000-0000-4000-8000-000000000000');
+      const replayed = messages.flatMap((m) => m.message.content).filter((b) => b.type === 'tool_use');
+      assert.deepStrictEqual(replayed.map((b) => [b.name, b.input]), proposed.map((b) => [b.name, b.input]));
+      const result = messages.flatMap((m) => m.message.content).find((b) => b.type === 'tool_result');
+      assert.strictEqual(result?.tool_use_id, replayed[0].id);
+    });
+  } finally {
+    session.stop();
+    history.close();
+    preferBinary(null);
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
 async function realAgent(name) {
   const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
   const fixture = path.join(ROOT, 'scripts/fixtures/acp-real', `${name}.json`);
@@ -383,6 +509,8 @@ async function realAgent(name) {
   await codex().catch((e) => { console.log(`FAIL codex: ${e.message}`); failures.push('codex'); });
   await acpThink().catch((e) => { console.log(`FAIL acp-think: ${e.message}`); failures.push('acp-think'); });
   await codexReason().catch((e) => { console.log(`FAIL codex-reason: ${e.message}`); failures.push('codex-reason'); });
+  await acpPlan().catch((e) => { console.log(`FAIL acp-plan: ${e.message}`); failures.push('acp-plan'); });
+  await codexPlan().catch((e) => { console.log(`FAIL codex-plan: ${e.message}`); failures.push('codex-plan'); });
   if (failures.length) {
     console.log(`\n${failures.length} failure(s)`);
     process.exit(1);

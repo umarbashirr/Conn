@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
+import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
 import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
@@ -74,7 +75,7 @@ const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, 
 // Stored messages back into items. Used for a whole chat and again for one
 // subagent's transcript, where `parent` is the Agent row they belong under.
 function replay(messages, parent) {
-  const out = [];
+  let out = [];
   const own = parent ? `${parent}:` : 'h';
   for (const m of messages) {
     const content = m.message?.content;
@@ -93,7 +94,9 @@ function replay(messages, parent) {
         continue;
       }
       for (const b of content) {
-        if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
+        const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
+        if (plan) out = withPlan(out, { parent, ...plan });
+        else if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
         else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${own}${out.length}`, kind: 'assistant', text: b.text, ...base });
         else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${own}${out.length}`, kind: 'reasoning', text: b.thinking, ...base });
       }
@@ -538,7 +541,10 @@ export function useAgent() {
         if (!parent && msg.message?.usage) edit(chat, (c) => ({ ...c, usage: account(c.usage, msg) }));
         if ((msg.message?.content || []).some((b) => b.type === 'tool_use' || b.type === 'text')) endThought(chat, parent);
         for (const b of msg.message?.content || []) {
-          if (b.type === 'tool_use') {
+          const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
+          if (plan) {
+            edit(chat, (c) => ({ ...c, items: withPlan(c.items, { parent, ...plan }) }));
+          } else if (b.type === 'tool_use') {
             // An Agent call is a container, not a step: its own rows arrive
             // later carrying its id as their parent.
             const agent = b.name === 'Agent' || b.name === 'Task';

@@ -24,6 +24,7 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
 const THINK = process.env.MOCK_ACP_THINK === '1';
+const PLAN = process.env.MOCK_ACP_PLAN === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
@@ -91,6 +92,21 @@ function thinkTurn(id, sessionId, text) {
   toolDone(sessionId, 't1', 'hi\n', false);
   thought(sessionId, 'It worked');
   chunk(sessionId, 'Done.');
+  result(id, { stopReason: 'end_turn' });
+  promptId = null;
+}
+
+const STEPS = [
+  { content: 'Read the config', priority: 'high', status: 'pending' },
+  { content: 'Patch the parser', priority: 'medium', status: 'pending' },
+  { content: 'Run the tests', priority: 'low', status: 'pending' },
+];
+
+function planTurn(id, sessionId) {
+  const plan = (entries) => notify('session/update', { sessionId, update: { sessionUpdate: 'plan', entries } });
+  plan(STEPS);
+  plan(STEPS.map((e, i) => (i === 0 ? { ...e, status: 'completed' } : i === 1 ? { ...e, status: 'in_progress' } : e)));
+  chunk(sessionId, 'Working on it.');
   result(id, { stopReason: 'end_turn' });
   promptId = null;
 }
@@ -254,6 +270,7 @@ async function handlePrompt(id, params) {
     return replayStep();
   }
   if (THINK) return thinkTurn(id, sessionId, text);
+  if (PLAN) return planTurn(id, sessionId);
 
   if (/\bhang\b/i.test(text)) {
     tool(sessionId, 't-hang', 'sleep', 'execute', { command: 'sleep 600' });

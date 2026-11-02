@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIcon, AppWindowIcon, ArrowLeftIcon, ArrowRightIcon, ArrowRightLeftIcon, BracesIcon, CameraIcon,
-  ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
+  ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListChecksIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
   GlobeIcon, HighlighterIcon, HourglassIcon, InfoIcon, KeyboardIcon, LogsIcon, MonitorSmartphoneIcon,
   MousePointer2Icon, MousePointerClickIcon, MoveVerticalIcon, PanelRightIcon, RotateCwIcon, ScanTextIcon,
   SearchIcon, ShieldCheckIcon, ShieldXIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon,
@@ -30,6 +30,7 @@ const ICONS = {
   WebFetch: GlobeIcon,
   WebSearch: SearchIcon,
   Skill: SparklesIcon,
+  ExitPlanMode: ListChecksIcon,
   browser_navigate: GlobeIcon,
   browser_snapshot: ScanTextIcon,
   browser_text: TextIcon,

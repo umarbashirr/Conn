@@ -27,6 +27,14 @@ assert.deepEqual(shape(runs([tool('t1'), edit('e1'), tool('t2')])),
   [{ run: ['t1'], calls: 1 }, 'e1', { run: ['t2'], calls: 1 }],
   'an edit with a diff still breaks a run');
 
+assert.deepEqual(shape(runs([tool('t1'), { id: 'p1', kind: 'tool', name: 'ExitPlanMode', input: { plan: '# Plan' } }, tool('t2')])),
+  [{ run: ['t1'], calls: 1 }, 'p1', { run: ['t2'], calls: 1 }],
+  'a proposed plan breaks a run and keeps its row');
+
+assert.deepEqual(shape(runs([tool('t1'), { id: 'plan:u1', kind: 'plan', entries: [] }, tool('t2')])),
+  [{ run: ['t1'], calls: 1 }, 'plan:u1', { run: ['t2'], calls: 1 }],
+  'a checklist breaks a run too');
+
 assert.deepEqual(shape(runs([tool('t1'), thought('r1'), edit('e1')])),
   [{ run: ['t1'], calls: 1 }, 'r1', 'e1'],
   'a thought followed by a diff edit stays out of the run before it');

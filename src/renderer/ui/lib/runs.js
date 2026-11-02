@@ -25,7 +25,7 @@ export function runs(items) {
       continue;
     }
     const label = item.kind === 'tool' ? toolLabel(item.name) : '';
-    const foldable = item.kind === 'tool' && !editHunks(label, item.input || {});
+    const foldable = item.kind === 'tool' && label !== 'ExitPlanMode' && !editHunks(label, item.input || {});
     if (foldable && last?.run) {
       last.run.push(...thoughts, item);
       last.calls += 1;

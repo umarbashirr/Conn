@@ -6,6 +6,7 @@ const { CLIENT, ACP_INSTRUCTIONS, toolOf, callInput, textOf } = require('./acp-s
 const shellEnv = require('../shell-env');
 const { chatTitle } = require('../../shared/chat-title');
 const { clip } = require('../transcript-clip');
+const { todoInput } = require('../../shared/plan');
 
 // Grok's initialize can take over thirty seconds and Cursor replays a long
 // chat in about ten, so these sit well past the shared handshake.
@@ -50,16 +51,26 @@ function toolUpdated(s, u) {
   s.out.push(message('user', [{ type: 'tool_result', tool_use_id: u.toolCallId, content: output, is_error: u.status === 'failed' }]));
 }
 
+function planned(s, u) {
+  s.run = null;
+  const input = todoInput(u.entries);
+  if (!input.todos.length) return;
+  const id = `plan-${++s.plans}`;
+  s.out.push(message('assistant', [{ type: 'tool_use', id, name: 'TodoWrite', input }]));
+  s.out.push(message('user', [{ type: 'tool_result', tool_use_id: id, content: 'updated', is_error: false }]));
+}
+
 const FOLD = new Map([
   ['user_message_chunk', (s, u) => chunk(s, 'user', u)],
   ['agent_message_chunk', (s, u) => chunk(s, 'assistant', u)],
   ['agent_thought_chunk', (s, u) => chunk(s, 'assistant', u, 'thinking')],
   ['tool_call', toolStarted],
   ['tool_call_update', toolUpdated],
+  ['plan', planned],
 ]);
 
 function foldUpdates(updates) {
-  const s = { out: [], run: null, tools: new Map() };
+  const s = { out: [], run: null, tools: new Map(), plans: 0 };
   for (const u of updates) FOLD.get(u?.sessionUpdate)?.(s, u);
 
   for (const m of s.out) {
