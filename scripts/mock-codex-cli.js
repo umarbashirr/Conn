@@ -8,6 +8,8 @@ const fs = require('fs');
 // to apply the last one.
 const EDITS = process.env.MOCK_CODEX_EDITS === '1';
 const REASON = process.env.MOCK_CODEX_REASON === '1';
+// A turn updates its plan twice, answers, and proposes a plan of its own.
+const PLAN = process.env.MOCK_CODEX_PLAN === '1';
 const readline = require('readline');
 
 // A probe spawns this twice, once per arm of #probe()'s Promise.all: once for
@@ -63,6 +65,28 @@ const TURN = { threadId: 'mock-thread', turnId: 'mock-turn' };
 const reasoning = (id, summary = []) => ({ type: 'reasoning', id, summary, content: [] });
 const R1 = reasoning('r1', ['Reading the file', 'Then edit']);
 const M1 = { type: 'agentMessage', id: 'm1', text: 'Done editing.' };
+
+const PLAN_TEXT = '# Proposed plan\n\n1. Read the config\n2. Patch the parser\n\n- keep `strict` on\n- add a test';
+const PLAN_ITEM = { type: 'plan', id: 'plan-item-1', text: PLAN_TEXT };
+const STEPS = [
+  { step: 'Read the config', status: 'pending' },
+  { step: 'Patch the parser', status: 'pending' },
+  { step: 'Run the tests', status: 'pending' },
+];
+
+function planTurn() {
+  const plan = (steps, explanation) => notify('turn/plan/updated', { ...TURN, ...(explanation ? { explanation } : {}), plan: steps });
+  plan(STEPS, 'Start with the config');
+  plan(STEPS.map((s, i) => (i === 0 ? { ...s, status: 'completed' } : i === 1 ? { ...s, status: 'inProgress' } : s)));
+  notify('item/started', { ...TURN, item: { ...M1, text: '' } });
+  notify('item/agentMessage/delta', { ...TURN, itemId: 'm1', delta: 'Done ' });
+  notify('item/agentMessage/delta', { ...TURN, itemId: 'm1', delta: 'editing.' });
+  notify('item/completed', { ...TURN, item: M1 });
+  notify('item/started', { ...TURN, item: { ...PLAN_ITEM, text: '' } });
+  notify('item/plan/delta', { ...TURN, itemId: 'plan-item-1', delta: '# Proposed plan' });
+  notify('item/completed', { ...TURN, item: PLAN_ITEM });
+  notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'completed' } });
+}
 
 function reasonTurn(hang) {
   const started = (item) => notify('item/started', { ...TURN, item });
@@ -129,14 +153,15 @@ function onMessage(msg) {
       result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },
     });
   }
-  if (REASON && msg.method === 'thread/list') {
+  if ((REASON || PLAN) && msg.method === 'thread/list') {
     const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], updatedAt: 1 };
     return send({ jsonrpc: '2.0', id: msg.id, result: { data: [row] } });
   }
-  if (REASON && msg.method === 'thread/read') {
+  if ((REASON || PLAN) && msg.method === 'thread/read') {
+    const items = PLAN ? [M1, PLAN_ITEM] : [R1, M1];
     return send({
       jsonrpc: '2.0', id: msg.id,
-      result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items: [R1, M1] }] } },
+      result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },
     });
   }
   if (msg.method === 'turn/start') {
@@ -148,6 +173,7 @@ function onMessage(msg) {
       return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'failed', error } });
     }
     if (EDITS) return editTurn();
+    if (PLAN) return planTurn();
     if (REASON) return reasonTurn(/hang/i.test(JSON.stringify(msg.params?.input || '')));
     return notify('item/started', {
       threadId: 'mock-thread',

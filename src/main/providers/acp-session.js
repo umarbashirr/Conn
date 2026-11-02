@@ -10,6 +10,7 @@ const { INSTRUCTIONS } = require('../../shared/browser-tools');
 const { classify } = require('../../shared/turn-error');
 const shellEnv = require('../shell-env');
 const { acpFiles } = require('../../shared/unified-diff');
+const { todoInput } = require('../../shared/plan');
 
 const CLIENT = {
   name: 'conn',
@@ -141,6 +142,7 @@ class AcpSession extends EventEmitter {
     this.busy = false;
     this.pending = new Map();
     this.openCalls = new Set();
+    this.plans = 0;               // plan updates so far, to give each its own call id
     this.sessionId = null;
     this.rpc = null;
     this.block = null;
@@ -436,6 +438,19 @@ class AcpSession extends EventEmitter {
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] },
         parent_tool_use_id: null,
       });
+      return;
+    }
+    if (kind === 'plan') {
+      const input = todoInput(update.entries);
+      if (!input.todos.length) return;
+      this.#close();
+      const id = `plan-${++this.plans}`;
+      this.#emit({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'TodoWrite', input }] },
+        parent_tool_use_id: null,
+      });
+      this.#result(id, 'updated', false);
       return;
     }
     if (kind === 'tool_call_update') {
