@@ -434,7 +434,6 @@ function Chats({ folder, active, onDelete, onRename }) {
   );
 }
 
-/* What the picker offers for words that name no folder. */
 function StartWithText({ onStart }) {
   const search = useCommandState((s) => s.search).trim();
   const matches = useCommandState((s) => s.filtered.count);
@@ -732,7 +731,6 @@ export default function Rail() {
               <SquarePenIcon />
               <span>New chat</span>
             </SidebarMenuButton>
-            {/* The picker, for a folder other than this one. */}
             <SidebarMenuAction showOnHover title="New chat in…" aria-label="New chat in…" onClick={() => setStarting(true)}>
               <FolderIcon />
             </SidebarMenuAction>
