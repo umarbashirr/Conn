@@ -854,6 +854,8 @@ export function runCommand(name, arg) {
     }
     case 'newChat': return window.connChat?.newChat();
     case 'newChatNoFolder': return window.conn.project.info().then((i) => window.connChat?.newChat(i.chats));
+    case 'exportChat': return window.connChat?.exportChat?.();
+    case 'copyLastReply': return window.connChat?.copyLastReply?.();
     case 'copyMcp': return copyMcpCommand();
     case 'about': return toast(
       'Conn',

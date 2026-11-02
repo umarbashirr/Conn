@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ArrowUpCircleIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
+import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -22,6 +22,7 @@ import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
 import { TurnEdits } from '@/components/turn-edits';
+import { CopyButton } from '@/components/copy-button';
 import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
 import { Button } from '@/components/ui/button';
 import {
@@ -47,6 +48,7 @@ import { canvasState, onSelection, select, setBoard } from './shell/canvas-store
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
 import { mentionsIn } from './lib/tokens.js';
+import { plainText } from '../../shared/attachments.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -305,6 +307,36 @@ export default function App() {
     setUsageOpen(false);
     setCustomizeAt(null);
   }, []);
+  const agentRef = useRef(agent);
+  agentRef.current = agent;
+  const exporting = useRef(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const exportChat = useCallback(async () => {
+    const now = agentRef.current;
+    if (!now.session) return toast('Nothing to export yet', 'Send a message first.');
+    if (now.busy) return toast('Export when the reply ends', 'The transcript on disk does not have this turn yet.');
+    if (exporting.current) return undefined;
+    exporting.current = true;
+    setExportBusy(true);
+    const last = now.items.findLast((it) => !it.parent && (it.kind === 'user' || it.kind === 'assistant') && it.text);
+    const res = await window.conn.chat.export(now.session, now.project, now.title, last?.text).catch((e) => ({ error: e.message }));
+    exporting.current = false;
+    setExportBusy(false);
+    if (res?.error) toast('Could not export the chat', res.error);
+    else if (res?.incomplete) toast('Chat exported without its last message', `The transcript on disk did not have it yet. ${res.path}`);
+    else if (res?.path) toast('Chat exported', res.path);
+    return undefined;
+  }, []);
+  const copyLastReply = useCallback(async () => {
+    const reply = agentRef.current.items.findLast((it) => !it.parent && it.kind === 'assistant' && it.text && !it.streaming);
+    if (!reply) return toast('Nothing to copy yet', 'The assistant has not replied.');
+    try {
+      await navigator.clipboard.writeText(reply.text);
+    } catch (e) {
+      return toast('Could not copy the reply', e.message);
+    }
+    return toast('Copied the last reply', '');
+  }, []);
   // A half-typed message belongs to the chat it was typed in, so drafts are
   // kept per chat rather than following you around the rail.
   const [drafts, setDrafts] = useState({});
@@ -388,6 +420,8 @@ export default function App() {
       settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
+      exportChat,
+      copyLastReply,
       dictate: dictation.toggle,
       jumpPermission: () => {
         const oldest = document.querySelector('[data-perm-card]');
@@ -403,7 +437,7 @@ export default function App() {
       deselectFrames: () => select([]),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
 
   // Escape also stops the turn when focus is nowhere or in the transcript.
   // Customize hides the chat, and its own Escape only runs with focus inside
@@ -598,18 +632,32 @@ export default function App() {
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
-        {/* Stays for as long as there is a newer Conn, so a toast waved away
-            or never seen is not the only place the news was. */}
-        {updates.app.behind && (
-          <Button
-            size="xs"
-            className="ml-auto shrink-0 rounded-full"
-            title={`You are on ${updates.app.current}`}
-            onClick={() => customize('updates')}>
-            <ArrowUpCircleIcon />
-            Update to {updates.app.latest}
-          </Button>
-        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {!empty && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Export chat"
+              title="Export this chat as Markdown"
+              disabled={agent.busy || exportBusy}
+              className="text-muted-foreground"
+              onClick={exportChat}>
+              <FileDownIcon />
+            </Button>
+          )}
+          {/* Stays for as long as there is a newer Conn, so a toast waved away
+              or never seen is not the only place the news was. */}
+          {updates.app.behind && (
+            <Button
+              size="xs"
+              className="rounded-full"
+              title={`You are on ${updates.app.current}`}
+              onClick={() => customize('updates')}>
+              <ArrowUpCircleIcon />
+              Update to {updates.app.latest}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
@@ -752,6 +800,16 @@ export function Items({ items, agent, from = 0 }) {
   });
 }
 
+function useMountOnHover() {
+  const [hot, setHot] = useState(false);
+  return [hot, {
+    onPointerEnter: () => setHot(true),
+    onPointerLeave: () => setHot(false),
+    onFocus: () => setHot(true),
+    onBlur: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setHot(false); },
+  }];
+}
+
 const RESENT = { retry: 'Sent again as a new message', edit: 'Edited and sent again as a new message' };
 
 // The actions sit beside the bubble rather than under it, so having them makes
@@ -762,7 +820,7 @@ function UserRow({ item, agent }) {
   const editing = draft !== null;
   const images = item.images || [];
   const [shownOffer, setShownOffer] = useState(null);
-  const { offer, bind } = useEditsOffer(item, agent, editing || !!shownOffer);
+  const { offer, bind, hot } = useEditsOffer(item, agent, editing || !!shownOffer);
 
   useEffect(() => {
     if (editing) input.current?.focus();
@@ -780,7 +838,7 @@ function UserRow({ item, agent }) {
     <>
       <Message from="user" className="mt-1.5 flex-row items-end" {...bind}>
         {!editing && (
-          <MessageActions className="ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <MessageActions className="relative ml-auto shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             {offer && (
               <MessageAction label="Undo edits" title={`Undo edits to ${fileCount(offer.files.length)} from this message on`} size="xs" onClick={() => setShownOffer(offer)}>
                 <Undo2Icon className="size-3.5" />{offer.files.length}
@@ -797,6 +855,7 @@ function UserRow({ item, agent }) {
               onClick={() => agent.redo(item.id, 'retry', item.text, images)}>
               <RotateCcwIcon className="size-3.5" />
             </MessageAction>
+            {hot && item.text && <CopyButton text={plainText(item.text)} label="Copy" className="absolute top-1/2 right-full -translate-y-1/2" />}
           </MessageActions>
         )}
         <MessageContent className={editing ? 'w-full' : 'whitespace-pre-wrap group-[.is-user]:ml-0'}>
@@ -862,6 +921,29 @@ function TurnErrorRow({ item, agent }) {
   );
 }
 
+function AssistantRow({ item }) {
+  const [hot, bind] = useMountOnHover();
+  return (
+    <Message from="assistant" aria-busy={item.streaming || undefined} className="relative mt-1.5 w-fit" {...bind}>
+      <MessageContent>
+        {/* The caret rides the last paragraph while text is still coming.
+            Prose that pauses for a second between chunks looks finished
+            without it, and the reader reaches for the composer mid-answer. */}
+        <MessageResponse
+          className={item.streaming ? 'conn-streaming' : undefined}
+          isAnimating={item.streaming}>
+          {item.text}
+        </MessageResponse>
+      </MessageContent>
+      {hot && !item.streaming && item.text && (
+        <span className="absolute top-0 left-full pl-1 animate-in fade-in-0">
+          <CopyButton text={item.text} label="Copy" />
+        </span>
+      )}
+    </Message>
+  );
+}
+
 function Item({ item, agent, mark }) {
   const onDecide = agent.decide;
 
@@ -885,22 +967,7 @@ function Item({ item, agent, mark }) {
 
   if (item.kind === 'plan') return <PlanRow item={item} />;
 
-  if (item.kind === 'assistant') {
-    return (
-      <Message from="assistant" aria-busy={item.streaming || undefined} className="mt-1.5">
-        <MessageContent>
-          {/* The caret rides the last paragraph while text is still coming.
-              Prose that pauses for a second between chunks looks finished
-              without it, and the reader reaches for the composer mid-answer. */}
-          <MessageResponse
-            className={item.streaming ? 'conn-streaming' : undefined}
-            isAnimating={item.streaming}>
-            {item.text}
-          </MessageResponse>
-        </MessageContent>
-      </Message>
-    );
-  }
+  if (item.kind === 'assistant') return <AssistantRow item={item} />;
 
   if (item.kind === 'tool') {
     const label = toolLabel(item.name);
