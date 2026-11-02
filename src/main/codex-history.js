@@ -120,7 +120,9 @@ const iso = (sec) => (typeof sec === 'number' ? new Date(sec * 1000).toISOString
 
 // The rail groups by day and searches the lot, so the limit is high for the
 // same reason it is in history.js.
-async function listSessions(cwd, limit = 200) {
+// `stamp` is codex's own updatedAt and nothing else. `at` falls back to times
+// that never change, which would make a thread look unwritten to.
+async function threads(cwd, limit) {
   let res;
   try {
     res = await call('thread/list', { cwd: cwdFilter(cwd), limit, sortKey: 'updated_at' });
@@ -142,17 +144,23 @@ async function listSessions(cwd, limit = 200) {
     // to find an attachment block.
     const title = chatTitle(t.name || t.preview);
     if (!title) continue;
-    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
+    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt), stamp: t.updatedAt });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
 }
 
+async function listSessions(cwd, limit = 200) {
+  return (await threads(cwd, limit)).map(({ stamp, ...row }) => row);
+}
+
 const READ_BATCH = 8;
+// updatedAt counts seconds, so a write in the same second as a read is not seen
+// until the next write.
 const said = wordCache(32 << 20);
 
-async function sayingsOf(id, at) {
-  const kept = said.get(id, at);
+async function sayingsOf(id, stamp) {
+  const kept = said.get(id, stamp);
   if (kept) return kept;
   const res = await call('thread/read', { threadId: id, includeTurns: true });
   const texts = [];
@@ -165,7 +173,7 @@ async function sayingsOf(id, at) {
       }
     }
   }
-  said.set(id, at, texts);
+  said.set(id, stamp, texts);
   return texts;
 }
 
@@ -173,13 +181,13 @@ async function search(cwd, query, { limit = 20, signal } = {}) {
   const parsed = parseQuery(query);
   const none = { hits: [], searched: 0, left: 0 };
   if (!parsed) return none;
-  const rows = await listSessions(cwd);
+  const rows = await threads(cwd, 200);
   const hits = [];
   for (let i = 0; i < rows.length && hits.length < limit && !signal?.aborted; i += READ_BATCH) {
     const batch = rows.slice(i, i + READ_BATCH);
     const snippets = await Promise.all(batch.map(async (row) => {
       try {
-        for (const text of await sayingsOf(row.id, row.at)) {
+        for (const text of await sayingsOf(row.id, row.stamp)) {
           const snippet = snippetOf(text, parsed.q);
           if (snippet) return snippet;
         }

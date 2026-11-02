@@ -156,7 +156,7 @@ function onMessage(msg) {
     });
   }
   if ((REASON || PLAN) && msg.method === 'thread/list') {
-    const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], updatedAt: saidNow().updatedAt ?? 1 };
+    const row = { id: '019a0000-0000-7000-8000-000000000002', preview: 'think it through', cwd: msg.params?.cwd?.[0], createdAt: 1, ...(saidNow().updatedAt === null ? {} : { updatedAt: saidNow().updatedAt ?? 1 }) };
     return send({ jsonrpc: '2.0', id: msg.id, result: { data: [row] } });
   }
   if ((REASON || PLAN) && msg.method === 'thread/read') {

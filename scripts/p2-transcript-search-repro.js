@@ -300,11 +300,13 @@ async function codex() {
       assert.strictEqual(((await codexHistory.search(project, 'wombat', { limit: 10 })).hits).length, 1);
       assert.deepStrictEqual((await codexHistory.search(project, 'editing the config', { limit: 10 })).hits, []);
     });
-    await check('codex: a thread with no updatedAt is read again every time', async () => {
-      write({ updatedAt: 0, asked: 'tune the quokka cache', text: 'First words.' });
-      assert.strictEqual((await codexHistory.search(project, 'first words', { limit: 10 })).hits.length, 1);
-      write({ updatedAt: 0, asked: 'tune the quokka cache', text: 'Second words.' });
-      assert.strictEqual((await codexHistory.search(project, 'second words', { limit: 10 })).hits.length, 1);
+    await check('codex: a thread codex gives no updatedAt for is read again every time', async () => {
+      for (const [updatedAt, word] of [[0, 'first'], [null, 'third']]) {
+        write({ updatedAt, asked: 'tune the quokka cache', text: `The ${word} words.` });
+        assert.strictEqual((await codexHistory.search(project, `${word} words`, { limit: 10 })).hits.length, 1);
+        write({ updatedAt, asked: 'tune the quokka cache', text: `The ${word}-changed words.` });
+        assert.strictEqual((await codexHistory.search(project, `${word}-changed words`, { limit: 10 })).hits.length, 1, `stale for updatedAt ${updatedAt}`);
+      }
     });
   } finally {
     codexHistory.close();
