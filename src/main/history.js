@@ -389,4 +389,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir };
+module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };
