@@ -16,7 +16,7 @@
    are all in memory, so the list is whole from the first keystroke. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ClipboardIcon, DownloadIcon, FileIcon, FolderIcon, FolderPlusIcon, FolderTreeIcon,
+  ClipboardIcon, CopyIcon, DownloadIcon, FileDownIcon, FileIcon, FolderIcon, FolderPlusIcon, FolderTreeIcon,
   GitCompareIcon, GlobeIcon, InfoIcon, MaximizeIcon, MessageSquareIcon, PaletteIcon,
   PlusIcon, SettingsIcon, SquarePenIcon, SquareTerminalIcon, SunMoonIcon, TerminalIcon,
 } from 'lucide-react';
@@ -52,6 +52,8 @@ const COMMANDS = [
   { name: 'settings', bind: 'settings', label: 'Settings', icon: SettingsIcon },
   { name: 'copyMcp', bind: 'copyMcp', label: 'Copy MCP command', icon: ClipboardIcon },
   { name: 'updates', bind: 'updates', label: 'Check for updates', icon: DownloadIcon },
+  { name: 'exportChat', bind: 'exportChat', label: 'Export chat', icon: FileDownIcon },
+  { name: 'copyLastReply', bind: 'copyLastReply', label: 'Copy last reply', icon: CopyIcon },
   { name: 'about', bind: 'about', label: 'About Conn', icon: InfoIcon },
 ];
 

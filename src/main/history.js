@@ -236,7 +236,7 @@ function slimBlock(b, budget) {
 }
 
 // Replayable messages for one session, oldest first.
-async function readSession(cwd, id) {
+async function readSession(cwd, id, { whole } = {}) {
   const file = path.join(projectDir(cwd), `${id}.jsonl`);
   if (!fs.existsSync(file)) throw new Error(`no transcript for session ${id}`);
 
@@ -256,6 +256,8 @@ async function readSession(cwd, id) {
     const failed = o.isApiErrorMessage ? { error: o.error || 'unknown' } : {};
     out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...failed, ...(agent ? { agent } : {}) });
   }
+
+  if (whole) return { id, truncated: false, messages: out };
 
   const budget = { images: MAX_IMAGES };
   const tail = out.slice(-MAX_MESSAGES);
@@ -387,4 +389,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir };
+module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };

@@ -30,7 +30,7 @@ export function useEditsOffer(item, agent, paused) {
     onFocus: () => setHot(true),
     onBlur: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) cool(); },
   };
-  return { offer: ask ? offer : null, bind };
+  return { offer: ask ? offer : null, bind, hot };
 }
 
 export function UndoEditsDialog({ offer, undo, onClose }) {

@@ -38,6 +38,8 @@ const { reuseLive } = require('../shared/run-choice');
 const { ensurePrivateDir } = require('./private-dir');
 const { createUsageLedger } = require('./usage-ledger');
 const { createUsageHistory } = require('./usage-history');
+const { exportChat } = require('./chat-export');
+const { LANDS_WITHIN } = require('./history');
 const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -1904,6 +1906,29 @@ function registerIpc() {
     try {
       await fs.promises.writeFile(res.filePath, String(text ?? ''));
       return { path: res.filePath };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('chat:export', async (_e, { id, project, title, lastText } = {}) => {
+    const dir = project && known(project) ? project : focusedCwd();
+    try {
+      return await exportChat({
+        title,
+        project: dir,
+        lastText,
+        dropsCommands: (owners.get(id) || provider) === 'claude',
+        landsWithin: LANDS_WITHIN,
+        read: () => ownerOf(id).readSession(dir, id, { whole: true }),
+        pick: async (name) => {
+          const res = await dialog.showSaveDialog(win, {
+            title: 'Export chat',
+            defaultPath: path.join(dir, name),
+            filters: [{ name: 'MARKDOWN', extensions: ['md'] }],
+          });
+          return res.canceled ? null : res.filePath || null;
+        },
+      });
     } catch (e) {
       return { error: e.message };
     }
