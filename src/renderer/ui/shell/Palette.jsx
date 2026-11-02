@@ -34,7 +34,7 @@ import { useSettings } from '../useSettings';
 import { shortPath, useProject } from '../useProject.js';
 import { getRailVersion, grouped, refreshRail, relative, subscribeRail } from './rail-store';
 
-const NO_BODIES = { results: [], titleOnly: [] };
+const NO_BODIES = { results: [], titleOnly: [], searched: 0, left: 0 };
 /* The commands worth reaching by name. Everything runCommand answers to is not
    the same list: the zoom steps and the folder pickers have chords and buttons
    of their own, and a palette that lists every branch of a switch statement is
@@ -91,7 +91,8 @@ export default function Palette() {
   useEffect(() => subscribeRail(() => bump(getRailVersion())), []);
   useEffect(() => { if (open) refreshRail(); }, [open]);
 
-  const chats = grouped().flatMap((folder) =>
+  const folders = grouped();
+  const chats = folders.flatMap((folder) =>
     [...folder.rows, ...folder.done].map((chat) => ({ chat, folder })));
 
   const here = new Set((window_.projects || []).map((p) => p.dir));
@@ -139,9 +140,18 @@ export default function Palette() {
 
   const shown = new Set(chatRows.map(({ chat }) => chat.id));
   const byId = new Map(chats.map((c) => [c.chat.id, c]));
+  /* A chat the rail does not list (older than its two hundred, or with nothing
+     a person typed to title it) is still a chat main found, and opens from its
+     id and folder like any other. */
   const mentionRows = bodies.results
-    .filter((r) => !shown.has(r.id) && byId.has(r.id))
-    .map((r) => ({ ...byId.get(r.id), snippet: r.snippet }))
+    .filter((r) => !shown.has(r.id))
+    .map((r) => ({
+      ...(byId.get(r.id) || {
+        chat: { id: r.id, project: r.project, provider: r.provider, title: r.title || 'Untitled chat', at: r.at },
+        folder: folders.find((f) => f.dir === r.project) || { name: r.project.split(/[/\\]/).filter(Boolean).pop() },
+      }),
+      snippet: r.snippet,
+    }))
     .slice(0, 8);
   const titleOnly = bodies.titleOnly.filter((p) => chats.some(({ chat }) => chat.provider === p.id)).map((p) => p.label);
 
@@ -204,7 +214,7 @@ export default function Palette() {
                     <MessageSquareIcon />
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate">{chat.title}</span>
-                      <span className="truncate text-muted-foreground text-xs">{marked(snippet, q)}</span>
+                      <span className="truncate text-muted-foreground text-xs">{marked(snippet, q.replace(/\s+/g, ' '))}</span>
                     </span>
                     <span className="ml-auto shrink-0 text-muted-foreground text-xs">
                       {folder.name} · {relative(chat.at)}
@@ -212,6 +222,12 @@ export default function Palette() {
                   </CommandItem>
                 ))}
               </CommandGroup>
+            )}
+
+            {bodies.left > 0 && (
+              <div className="px-3 py-1.5 text-muted-foreground text-xs">
+                Searched the {bodies.searched} most recent chats. {bodies.left} older {bodies.left === 1 ? 'chat was' : 'chats were'} left out.
+              </div>
             )}
 
             {!!titleOnly.length && (
