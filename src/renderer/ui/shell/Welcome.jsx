@@ -6,15 +6,15 @@ import { useEffect, useState } from 'react';
 import { FolderIcon, FolderOpenIcon, MessageSquareIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
-import { activeProject, subscribeRail } from './rail-store';
+import { needsFolder, onProject, openFolder, openRecent, project, shortPath } from '../../project.js';
+import { subscribeRail } from './rail-store';
 
 export default function Welcome() {
   const [, bump] = useState(0);
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
   useEffect(() => subscribeRail(() => bump((n) => n + 1)), []);
 
-  if (project.chosen || (project.chats && activeProject() === project.chats)) return null;
+  if (!needsFolder()) return null;
 
   const recents = project.recents.slice(0, 6);
 
