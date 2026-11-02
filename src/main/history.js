@@ -205,17 +205,13 @@ function deleteSession(cwd, id) {
 
 const SCAN_BATCH = 8;
 const PARSE_BATCH = 4;
-// What one search may read. ripgrep and the Node scan both look at every
-// candidate file in full, and the parse that follows reads each match line by
-// line, so the cost of a search is the size of the transcripts it is given.
-// A word printed by a tool matches files without being a hit, and without a
-// bound one such word cost 4.9 s over 963 MB. The newest chats go first.
+// A word a tool printed matches a file without being a hit, so a search reads
+// every candidate in full. This bounds that read, newest chats first.
 const SEARCH_BYTES = 64 << 20;
 const SEARCH_FILES = 500;
 
 const aborted = (signal) => !!signal?.aborted;
 
-// Null when ripgrep is missing or failed, which sends the caller to the scan.
 // ripgrep exits 1 when nothing matched; that is an answer, not a failure.
 function rgFiles(files, needle, signal) {
   return new Promise((resolve) => {
@@ -257,7 +253,6 @@ async function scanFiles(files, needle, signal) {
   return out;
 }
 
-// The transcripts of one project, newest first, as many as the budget allows.
 function recent(dir, bytes) {
   let names = [];
   try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return { kept: [], total: 0 }; }
@@ -267,7 +262,7 @@ function recent(dir, bytes) {
     try {
       const st = fs.statSync(file);
       if (st.size) all.push({ file, size: st.size, at: st.mtimeMs });
-    } catch { /* deleted since */ }
+    } catch {}
   }
   all.sort((a, b) => b.at - a.at);
   const kept = [];
@@ -282,9 +277,6 @@ function recent(dir, bytes) {
   return { kept, total: all.length };
 }
 
-// What a person or the assistant said on one line. Tool calls, tool output,
-// thinking, subagent traffic and bookkeeping are not what anyone remembers
-// writing, so a word that only appears there is not a hit.
 function saidIn(o) {
   if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
   if (o.type === 'user') return humanText(o) || '';
@@ -313,10 +305,6 @@ async function firstHit(file, { q, needle }, signal) {
   return null;
 }
 
-/* One hit per chat, newest chat first, at most `limit` of them, out of the
-   newest transcripts that fit in `bytes`. `left` is how many chats were not
-   looked at. A newer search aborts this one through `signal`, which kills the
-   ripgrep child and stops the reads. */
 async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } = {}) {
   const parsed = parseQuery(query);
   const none = { hits: [], searched: 0, left: 0 };

@@ -24,10 +24,8 @@ function snippetOf(text, q) {
   return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`;
 }
 
-// The answers of every provider in every project as one list: newest first,
-// each chat once, at most `limit`. Two open folders can share one transcript
-// directory (/a/b.c and /a/b-c slug alike), and then both answer for the same
-// chats.
+// Two open folders can share one transcript directory (/a/b.c and /a/b-c slug
+// alike), and then both answer for the same chats.
 function mergeResults(lists, limit) {
   const seen = new Map();
   for (const { hits, provider, project } of lists) {
@@ -43,9 +41,6 @@ function mergeResults(lists, limit) {
   };
 }
 
-// The words of a thread against the updatedAt they were read at, with the oldest
-// entries dropped first once they pass `maxChars`. A thread with no updatedAt
-// has no way to say it was written to, so it is never kept.
 function wordCache(maxChars) {
   const kept = new Map();
   let chars = 0;

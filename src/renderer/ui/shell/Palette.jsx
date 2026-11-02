@@ -140,9 +140,6 @@ export default function Palette() {
 
   const shown = new Set(chatRows.map(({ chat }) => chat.id));
   const byId = new Map(chats.map((c) => [c.chat.id, c]));
-  /* A chat the rail does not list (older than its two hundred, or with nothing
-     a person typed to title it) is still a chat main found, and opens from its
-     id and folder like any other. */
   const mentionRows = bodies.results
     .filter((r) => !shown.has(r.id))
     .map((r) => ({
