@@ -8,8 +8,14 @@
    where they were started. */
 'use strict';
 import { toast } from './app.js';
+import { activeProject } from './ui/shell/rail-store.js';
 
 export const project = { dir: '', name: '', chosen: false, home: '', recents: [], projects: [], focused: '' };
+
+// The window has no folder to work in yet, which only a bare launch reaches:
+// main refuses to close the last one. A chat with no folder needs none, so it
+// stands the question down.
+export const needsFolder = () => !project.chosen && !(project.chats && activeProject() === project.chats);
 
 const listeners = new Set();
 export const onProject = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };

@@ -852,7 +852,7 @@ export function runCommand(name, arg) {
       if (tab) activateTab(state.focused, tab.id);
       return undefined;
     }
-    case 'newChat': return window.connChat?.newChat();
+    case 'newChat': return window.connRail?.newChat?.();
     case 'newChatNoFolder': return window.conn.project.info().then((i) => window.connChat?.newChat(i.chats));
     case 'exportChat': return window.connChat?.exportChat?.();
     case 'copyLastReply': return window.connChat?.copyLastReply?.();
