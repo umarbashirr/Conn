@@ -7,7 +7,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { execFile } = require('child_process');
 const { chatTitle } = require('../shared/chat-title');
+const shellEnv = require('./shell-env');
+const { parseQuery, snippetOf } = require('./transcript-search');
 
 const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 
@@ -200,6 +203,137 @@ function deleteSession(cwd, id) {
   return gone;
 }
 
+const SCAN_BATCH = 8;
+const PARSE_BATCH = 4;
+// A word a tool printed matches a file without being a hit, so a search reads
+// every candidate in full. This bounds that read, newest chats first.
+const SEARCH_BYTES = 64 << 20;
+const SEARCH_FILES = 500;
+
+const aborted = (signal) => !!signal?.aborted;
+
+// ripgrep exits 1 when nothing matched; that is an answer, not a failure.
+function rgFiles(files, needle, signal) {
+  return new Promise((resolve) => {
+    execFile('rg', ['--no-config', '--no-ignore', '-l', '-i', '-F', '-e', needle, '--', ...files],
+      { env: shellEnv.env(), timeout: 10000, maxBuffer: 8 << 20, signal },
+      (err, out) => {
+        if (err && err.code !== 1) return resolve(null);
+        resolve(new Set(String(out).split('\n').filter(Boolean)));
+      });
+  });
+}
+
+function fileHas(file, needle, signal) {
+  return new Promise((resolve) => {
+    const stream = fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 1 << 18 });
+    let tail = '';
+    let found = false;
+    stream.on('data', (chunk) => {
+      const hay = (tail + chunk).toLowerCase();
+      if (aborted(signal) || hay.includes(needle)) {
+        found = !aborted(signal);
+        stream.destroy();
+        return;
+      }
+      tail = needle.length > 1 ? hay.slice(1 - needle.length) : '';
+    });
+    stream.on('error', () => resolve(false));
+    stream.on('close', () => resolve(found));
+  });
+}
+
+async function scanFiles(files, needle, signal) {
+  const out = new Set();
+  for (let i = 0; i < files.length && !aborted(signal); i += SCAN_BATCH) {
+    const batch = files.slice(i, i + SCAN_BATCH);
+    const hits = await Promise.all(batch.map((f) => fileHas(f, needle, signal)));
+    batch.forEach((f, k) => { if (hits[k]) out.add(f); });
+  }
+  return out;
+}
+
+function recent(dir, bytes) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return { kept: [], total: 0 }; }
+  const all = [];
+  for (const f of names) {
+    const file = path.join(dir, f);
+    try {
+      const st = fs.statSync(file);
+      if (st.size) all.push({ file, size: st.size, at: st.mtimeMs });
+    } catch {}
+  }
+  all.sort((a, b) => b.at - a.at);
+  const kept = [];
+  let used = 0;
+  for (const f of all) {
+    if (kept.length >= SEARCH_FILES) break;
+    if (f.size > bytes) continue;
+    if (used + f.size > bytes) break;
+    kept.push(f);
+    used += f.size;
+  }
+  return { kept, total: all.length };
+}
+
+function saidIn(o) {
+  if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
+  if (o.type === 'user') return humanText(o) || '';
+  if (o.type !== 'assistant' || o.isApiErrorMessage) return '';
+  const c = o.message?.content;
+  if (typeof c === 'string') return c;
+  return Array.isArray(c) ? c.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n') : '';
+}
+
+async function firstHit(file, { q, needle }, signal) {
+  const stream = fs.createReadStream(file);
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+  try {
+    for await (const line of rl) {
+      if (aborted(signal)) return null;
+      if (!line.toLowerCase().includes(needle)) continue;
+      let o;
+      try { o = JSON.parse(line); } catch { continue; }
+      const snippet = snippetOf(saidIn(o), q);
+      if (snippet) return snippet;
+    }
+  } catch {} finally {
+    rl.close();
+    stream.destroy();
+  }
+  return null;
+}
+
+async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } = {}) {
+  const parsed = parseQuery(query);
+  const none = { hits: [], searched: 0, left: 0 };
+  if (!parsed) return none;
+  await shellEnv.ready();
+  const { kept, total } = recent(projectDir(cwd), bytes);
+  if (!kept.length) return { ...none, left: total };
+  const names = kept.map((f) => f.file);
+  const matched = (await rgFiles(names, parsed.needle, signal)) ?? await scanFiles(names, parsed.needle, signal);
+
+  const candidates = kept.filter((f) => matched.has(f.file));
+  const hits = [];
+  for (let i = 0; i < candidates.length && hits.length < limit && !aborted(signal); i += PARSE_BATCH) {
+    const batch = candidates.slice(i, i + PARSE_BATCH);
+    const snippets = await Promise.all(batch.map((f) => firstHit(f.file, parsed, signal)));
+    batch.forEach((f, k) => {
+      if (!snippets[k] || hits.length >= limit) return;
+      const title = titleOf(f.file, f.size);
+      hits.push({
+        id: path.basename(f.file, '.jsonl'),
+        title: title ? chatTitle(title).slice(0, 120) : '',
+        at: f.at,
+        snippet: snippets[k],
+      });
+    });
+  }
+  return aborted(signal) ? none : { hits, searched: kept.length, left: total - kept.length };
+}
+
 const MAX_MESSAGES = 400;
 const MAX_TEXT = 6000;
 const MAX_IMAGES = 12;
@@ -389,4 +523,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };
+module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };

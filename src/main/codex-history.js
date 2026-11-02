@@ -21,7 +21,8 @@
  *
  * Answers are not cached. They are cheap once the server is up, and a rail
  * still showing yesterday's list after a chat ends is the bug this exists to
- * fix.
+ * fix. The one exception is the words a search reads out of a thread, which
+ * are kept against the thread's updatedAt and so cannot outlive a write.
  */
 const fs = require('fs');
 const os = require('os');
@@ -31,6 +32,7 @@ const shellEnv = require('./shell-env');
 const { chatTitle } = require('../shared/chat-title');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
+const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -118,7 +120,9 @@ const iso = (sec) => (typeof sec === 'number' ? new Date(sec * 1000).toISOString
 
 // The rail groups by day and searches the lot, so the limit is high for the
 // same reason it is in history.js.
-async function listSessions(cwd, limit = 200) {
+// `stamp` is codex's own updatedAt and nothing else. `at` falls back to times
+// that never change, which would make a thread look unwritten to.
+async function threads(cwd, limit) {
   let res;
   try {
     res = await call('thread/list', { cwd: cwdFilter(cwd), limit, sortKey: 'updated_at' });
@@ -140,10 +144,61 @@ async function listSessions(cwd, limit = 200) {
     // to find an attachment block.
     const title = chatTitle(t.name || t.preview);
     if (!title) continue;
-    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt) });
+    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt), stamp: t.updatedAt });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);
+}
+
+async function listSessions(cwd, limit = 200) {
+  return (await threads(cwd, limit)).map(({ stamp, ...row }) => row);
+}
+
+const READ_BATCH = 8;
+// updatedAt counts seconds, so a write in the same second as a read is not seen
+// until the next write.
+const said = wordCache(32 << 20);
+
+async function sayingsOf(id, stamp) {
+  const kept = said.get(id, stamp);
+  if (kept) return kept;
+  const res = await call('thread/read', { threadId: id, includeTurns: true });
+  const texts = [];
+  for (const turn of res?.thread?.turns || []) {
+    for (const item of turn.items || []) {
+      if (item.type === 'userMessage') {
+        texts.push((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n'));
+      } else if (item.type === 'agentMessage') {
+        texts.push(item.text || '');
+      }
+    }
+  }
+  said.set(id, stamp, texts);
+  return texts;
+}
+
+async function search(cwd, query, { limit = 20, signal } = {}) {
+  const parsed = parseQuery(query);
+  const none = { hits: [], searched: 0, left: 0 };
+  if (!parsed) return none;
+  const rows = await threads(cwd, 200);
+  const hits = [];
+  for (let i = 0; i < rows.length && hits.length < limit && !signal?.aborted; i += READ_BATCH) {
+    const batch = rows.slice(i, i + READ_BATCH);
+    const snippets = await Promise.all(batch.map(async (row) => {
+      try {
+        for (const text of await sayingsOf(row.id, row.stamp)) {
+          const snippet = snippetOf(text, parsed.q);
+          if (snippet) return snippet;
+        }
+      } catch {}
+      return null;
+    }));
+    batch.forEach((row, k) => {
+      if (snippets[k] && hits.length < limit) hits.push({ id: row.id, title: row.title, at: row.at, snippet: snippets[k] });
+    });
+  }
+  return signal?.aborted ? none : { hits, searched: rows.length, left: 0 };
 }
 
 /* Deleting a chat for good. Same guard as history.js and for a better reason
@@ -155,6 +210,7 @@ async function deleteSession(cwd, id) {
   if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
   const res = await call('thread/delete', { threadId: id });
   agents.delete(id);
+  said.delete(id);
   return res != null;
 }
 
@@ -306,4 +362,4 @@ async function readSubagent(cwd, session, agentId) {
   return { ...t, id: agentId };
 }
 
-module.exports = { listSessions, readSession, readSubagent, listSubagents, deleteSession, close };
+module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close };

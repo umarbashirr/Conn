@@ -6,6 +6,7 @@
    its structure and its palette. The folders fold on their own, which is a
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCommandState } from 'cmdk';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
   FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
@@ -45,10 +46,10 @@ import {
   SidebarMenuItem,
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
-import { closeProject, openFolder } from '../../project.js';
+import { closeProject, needsFolder, openFolder, project } from '../../project.js';
 import { shortPath, useProject } from '../useProject.js';
 import {
-  activeKey, canMarkDone, doneOpen, forgetPin, getRailVersion, grouped, isDone, isPinned, isSaved, markAllDone, markDone,
+  activeKey, activeProject, canMarkDone, doneOpen, forgetPin, getRailVersion, grouped, isDone, isPinned, isSaved, markAllDone, markDone,
   pinChat, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
@@ -68,6 +69,11 @@ function startChatIn(dir) {
   window.connChat?.newChat(dir);
   focusComposer();
 }
+
+/* The folder New chat means: the one the chat on screen runs in, which is not
+   always the one the window is focused on. A chat with no folder counts, so
+   New chat from one starts another. */
+const hereDir = () => activeProject() || project.focused || project.dir;
 
 function useRail() {
   useSyncExternalStore(subscribeRail, getRailVersion, getRailVersion);
@@ -428,13 +434,24 @@ function Chats({ folder, active, onDelete, onRename }) {
   );
 }
 
-/* Starting a chat, and saying where.
+function StartWithText({ onStart }) {
+  const search = useCommandState((s) => s.search).trim();
+  const matches = useCommandState((s) => s.filtered.count);
+  if (!search || matches) return null;
 
-   New chat used to mean "here", and here was whichever folder the window
-   happened to be looking at. That is fine until the two come apart, which they
-   do the moment you read a chat from another project, and then the chat you
-   started lands somewhere you were not looking with nothing to say it had. The
-   folder is the question, so the button asks it.
+  return (
+    <CommandItem forceMount value={`start a chat with ${search}`} onSelect={() => onStart(search)}>
+      <SquarePenIcon />
+      <span className="truncate">Start a chat with “{search}”</span>
+    </CommandItem>
+  );
+}
+
+/* Starting a chat somewhere other than here.
+
+   New chat goes to the folder the chat on screen runs in, with no question.
+   This is the question, for when that is not the folder you meant, and for a
+   window that has no folder yet.
 
    Three ways to answer, in the order they are worth offering: a folder this
    window already holds, one you had open recently, or one you go and find. The
@@ -466,6 +483,15 @@ function NewChatDialog({ open, onOpenChange }) {
     startChatIn(res.focused || res.dir || dir);
   };
 
+  // Words that name no folder are taken as the first message, sent in the
+  // folder New chat would have used, or with no folder at all when the window
+  // has none yet.
+  const startWith = (text) => {
+    onOpenChange(false);
+    startChatIn(needsFolder() ? window_.chats : hereDir());
+    window.sendToAgent?.(text);
+  };
+
   return (
     <CommandDialog
       open={open}
@@ -475,6 +501,7 @@ function NewChatDialog({ open, onOpenChange }) {
       <CommandInput placeholder="Search folders" />
       <CommandList>
         <CommandEmpty>No folder by that name.</CommandEmpty>
+        <StartWithText onStart={startWith} />
 
         {/* This one leaves the window where it is, because a chat with no
             folder has no files or shells to put beside it. */}
@@ -652,6 +679,15 @@ export default function Rail() {
   const [naming, setNaming] = useState(null);
   const [leaving, setLeaving] = useState(null);
   const [starting, setStarting] = useState(false);
+
+  // Without a folder the chat has nowhere to run, so the picker opens instead.
+  // Everywhere else New chat goes straight to a composer in the current folder.
+  // The palette and the menu reach this through runCommand.
+  useEffect(() => {
+    window.connRail.newChat = () => (needsFolder() ? setStarting(true) : startChatIn(hereDir()));
+    return () => { window.connRail.newChat = null; };
+  }, []);
+
   const all = grouped();
   const chats = all.find((f) => f.folderless);
   const folders = all.filter((f) => !f.folderless);
@@ -691,10 +727,13 @@ export default function Rail() {
         {/* Where you start from, as rows rather than buttons. */}
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton className={NAV} title="Start a chat" onClick={() => setStarting(true)}>
+            <SidebarMenuButton className={NAV} title="Start a chat in this folder" onClick={() => window.connRail.newChat()}>
               <SquarePenIcon />
               <span>New chat</span>
             </SidebarMenuButton>
+            <SidebarMenuAction showOnHover title="New chat in…" aria-label="New chat in…" onClick={() => setStarting(true)}>
+              <FolderIcon />
+            </SidebarMenuAction>
           </SidebarMenuItem>
           <SidebarMenuItem>
             {/* The palette, which finds chats, folders, files and commands in
