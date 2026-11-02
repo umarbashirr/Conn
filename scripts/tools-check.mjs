@@ -151,6 +151,8 @@ assert.deepEqual(cutText('short'), { shown: 'short', hidden: 0 }, 'short text pa
 assert.deepEqual(cutText(''), { shown: '', hidden: 0 }, 'empty text passes through');
 assert.deepEqual(cutText('abcdef', 4), { shown: 'abcd', hidden: 2 }, 'cutText takes the limit as an argument');
 
+assert.equal(toolSummary('ExitPlanMode', { plan: '# Plan\n\nDo the thing in several steps.' }), '', 'a proposed plan is not clipped into the header');
+
 const icons = read('src/renderer/ui/components/tool-row.jsx').match(/const ICONS = \{([\s\S]*?)\n\};/)?.[1] ?? '';
 const iconKeys = new Set([...icons.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
 for (const name of [...TOOLS.map((t) => t.name), 'Skill']) assert.ok(iconKeys.has(name), `ICONS has an icon for ${name}`);

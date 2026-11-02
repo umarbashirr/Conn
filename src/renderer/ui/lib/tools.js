@@ -24,6 +24,8 @@ const SUMMARY = {
   Agent: (i) => i.description,
   Task: (i) => i.description,
   Skill: (i) => i.skill,
+  // The plan is the row's body. Clipped to a line it is the start of a document.
+  ExitPlanMode: nothing,
   browser_navigate: (i) => bareUrl(i.url),
   browser_snapshot: nothing,
   browser_text: nothing,

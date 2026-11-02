@@ -4,7 +4,8 @@
 // the one line above it saying how much of what. An edit that carries a diff
 // breaks the run and keeps its own row, because that diff is something to
 // read. An edit that only names a file is a step, and a stack of those is
-// the same kind of noise as a stack of greps.
+// the same kind of noise as a stack of greps. A proposed plan is the other
+// thing a person is asked to read, so it keeps its row as well.
 import { editHunks } from './diff.js';
 import { toolLabel } from './tools.js';
 
@@ -25,7 +26,7 @@ export function runs(items) {
       continue;
     }
     const label = item.kind === 'tool' ? toolLabel(item.name) : '';
-    const foldable = item.kind === 'tool' && !editHunks(label, item.input || {});
+    const foldable = item.kind === 'tool' && label !== 'ExitPlanMode' && !editHunks(label, item.input || {});
     if (foldable && last?.run) {
       last.run.push(...thoughts, item);
       last.calls += 1;
