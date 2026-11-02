@@ -6,6 +6,7 @@
 // A string goes in and a string comes back out unchanged. That round trip is
 // the whole contract: everything upstream — the per-chat drafts, the queue,
 // the text a stopped turn parks back in the box — still passes plain text.
+import { ATTACHED, HEAD_KIND, attachedLabel, basename } from '../../../shared/attachments.js';
 import { MENTIONS } from './conn-mentions.js';
 
 // Only at the very start, which is how the CLI reads a slash command too.
@@ -16,38 +17,6 @@ const SKILL = /^\/([a-zA-Z0-9][\w:.-]*)/;
 // punctuation, or "look at @src/app.js." would swallow the full stop. A $
 // names only a row of MENTIONS, whole, so $5, $HOME and $browserUrl stay text.
 const INLINE = new RegExp(`(^|[\\s([])(?:@([\\w.\\-/]*[\\w\\-/])|\\$(${Object.keys(MENTIONS).join('|')})(?![\\w-]))`);
-
-// What the composer prepends for an attachment or a mention: a bracketed head
-// line, its indented detail lines, and a blank line between blocks. A mention's
-// block is for the agent; the person already sees the $ badge they typed.
-const HEAD_KIND = {
-  'preview element': 'element',
-  'attached image': 'element',
-  'attached file': 'element',
-  'conn canvas selection': 'frames',
-  'conn browser': 'context',
-  'conn canvas': 'context',
-};
-const ATTACHED = new RegExp(`^\\[(${Object.keys(HEAD_KIND).join('|')})\\]([^\\n]*)((?:\\n {2}[^\\n]*)*)\\n\\n`);
-
-const basename = (p) => {
-  const parts = p.replace(/\/+$/, '').split('/');
-  return parts[parts.length - 1] || p;
-};
-
-// The element picker writes the full description across several indented
-// lines. The one worth showing is the element itself.
-function attachedLabel(head, detail, tail) {
-  if (head === 'preview element') {
-    const line = /\n {2}element: (.+)/.exec(tail);
-    return line ? line[1].replace(/"/g, '') : 'element';
-  }
-  if (head === 'conn canvas selection') {
-    const names = [...tail.matchAll(/ {2}\((.+)\)$/gm)].map((m) => m[1]);
-    return names.length === 1 ? names[0] : `${names.length} frames`;
-  }
-  return detail.trim() || head;
-}
 
 const mention = (name) => ({ type: 'token', kind: 'conn', raw: `$${name}`, label: MENTIONS[name].label, title: MENTIONS[name].note, icon: name });
 
