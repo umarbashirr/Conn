@@ -236,16 +236,17 @@ function createAcpHistory({ spec, label }) {
     });
     if (!done) throw new Error(spec.missing || `could not start ${label} to read that chat`);
     const usage = usageOf(updates);
-    return { ...clip(id, foldUpdates(updates)), ...(usage && { usage }) };
+    return { messages: foldUpdates(updates), ...(usage && { usage }) };
   }
 
-  function readSession(cwd, id) {
+  async function readSession(cwd, id, opts) {
     let read = reads.get(id);
     if (!read) {
       read = load(cwd, id).finally(() => reads.delete(id));
       reads.set(id, read);
     }
-    return read;
+    const { messages, ...rest } = await read;
+    return { ...clip(id, messages, opts), ...rest };
   }
 
   async function deleteSession(cwd, id) {

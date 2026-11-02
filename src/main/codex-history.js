@@ -274,7 +274,7 @@ function messagesFor(item, at, found) {
 const agents = new Map();
 
 // Replayable messages for one session, oldest first.
-async function readSession(cwd, id) {
+async function readSession(cwd, id, opts) {
   const res = await call('thread/read', { threadId: id, includeTurns: true });
   if (!res?.thread) throw new Error(`no transcript for session ${id}`);
 
@@ -289,7 +289,7 @@ async function readSession(cwd, id) {
   }
   agents.set(id, found);
 
-  return clip(id, out);
+  return clip(id, out, opts);
 }
 
 /* Synchronous on purpose: index.js folds this into the transcript reply it

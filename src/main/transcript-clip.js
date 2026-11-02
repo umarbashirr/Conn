@@ -20,7 +20,8 @@ function slim(msg) {
   return { ...msg, message: { ...msg.message, content } };
 }
 
-function clip(id, messages) {
+function clip(id, messages, { whole } = {}) {
+  if (whole) return { id, truncated: false, messages };
   const tail = messages.slice(-MAX_MESSAGES);
   return { id, truncated: messages.length > tail.length, messages: tail.map(slim) };
 }
