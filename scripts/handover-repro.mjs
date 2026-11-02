@@ -61,11 +61,20 @@ ${PICKUP}`);
 assert.ok(!summary.includes('SECRET_BODY'));
 assert.ok(!summary.includes('Its plan when we stopped'));
 
+const entries = (...rows) => rows.map(([status, content]) => ({ content, status }));
+const plan = (id, parent, rows) => ({ id, kind: 'plan', parent, entries: entries(...rows) });
 const planned = handover('summary', [
   ...items,
-  { id: 't3', kind: 'tool', name: 'TodoWrite', input: { todos: [{ status: 'completed', content: 'Find bug' }, { status: 'pending', content: 'Add test' }] } },
+  plan('plan:u1', null, [['pending', 'Find bug'], ['pending', 'Add test']]),
+  plan('plan:u2', null, [['completed', 'Find bug'], ['pending', 'Add test']]),
+  plan('plan:u2:ag', 'ag', [['pending', 'Subagent only']]),
 ]);
-assert.ok(planned.includes('Its plan when we stopped:\n[completed] Find bug\n[pending] Add test'));
+assert.ok(planned.includes('Its plan when we stopped:\n[completed] Find bug\n[pending] Add test'), 'the latest main plan is the one carried');
+assert.ok(!planned.includes('Subagent only'), 'a subagent plan is not the plan');
+assert.ok(!planned.includes('[pending] Find bug'), 'an older plan is not carried');
+
+const carried = handover('complete', [...items.slice(0, 2), plan('plan:u1', null, [['completed', 'Find bug'], ['in_progress', 'Add test']]), items[4]]);
+assert.ok(carried.includes("Other assistant's plan:\n[completed] Find bug\n[in_progress] Add test\n\nOther assistant:\nFixed."), 'a full handover carries the plan where it sat');
 
 const other = handover('summary', [
   { id: 'u', kind: 'user', text: 'Tidy up' },

@@ -30,11 +30,14 @@ const clip = (text, n) => {
   return `${str.slice(0, n)}\n… ${str.length - n} more characters of output, not carried over`;
 };
 
+const planLines = (entries) => entries.map((e) => `[${e.status}] ${e.content}`).join('\n');
+
 function carriedHistory(items) {
   const lines = [];
   for (const it of items) {
     if (it.kind === 'user') lines.push(`Me:\n${it.text}`);
     else if (it.kind === 'assistant' && it.text?.trim()) lines.push(`Other assistant:\n${it.text}`);
+    else if (it.kind === 'plan') lines.push(`Other assistant's plan:\n${planLines(it.entries)}`);
     else if (it.kind === 'tool') {
       const args = clip(it.input, OUTPUT);
       const out = it.output === undefined ? '' : `\nResult:\n${clip(it.output, OUTPUT)}`;
@@ -93,14 +96,13 @@ function summarised(items) {
     if (it.kind === 'tool' && EDITS.has(it.name)) touched(it.input).forEach((p) => files.add(p));
   }
 
-  const todos = items.findLast((it) => it.kind === 'tool' && it.name === 'TodoWrite')?.input?.todos;
+  const plan = items.findLast((it) => it.kind === 'plan' && !it.parent);
   const last = items.findLast((it) => it.kind === 'assistant' && !it.parent && it.text?.trim());
 
   const sections = [
     asks.length && `What I asked, in order:\n${fitAsks(asks).join('\n\n')}`,
     files.size && `Files it changed:\n${[...files].map((p) => `- ${p}`).join('\n')}`,
-    Array.isArray(todos) && todos.length
-      && `Its plan when we stopped:\n${todos.map((t) => `[${t.status}] ${t.content}`).join('\n')}`,
+    plan && `Its plan when we stopped:\n${planLines(plan.entries)}`,
     last && `Where it left off:\n${clip(last.text, LAST_WORDS)}`,
   ].filter(Boolean);
 
