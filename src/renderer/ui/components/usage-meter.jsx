@@ -187,7 +187,7 @@ export function UsageMeter({ usage, chat }) {
           <Row label="Cache write" value={compact(usage.cacheWrite)} note="+25%" />
           <Row label="Output" value={compact(usage.output)} />
           <div className="flex items-baseline gap-2 border-t pt-1.5">
-            <span className="font-medium">At API rates</span>
+            <span className="font-medium">{usage.reported ? 'Reported cost' : 'At API rates'}</span>
             <span className="ml-auto font-mono tabular-nums">
               {usage.unpriced ? '—' : money(usage.cost)}
             </span>
@@ -229,11 +229,15 @@ export function UsageMeter({ usage, chat }) {
         </Button>
 
         <p className="border-t pt-3 text-muted-foreground leading-relaxed">
-          {usage.unpriced
-            ? 'No list price is known for this model, so the tokens are counted and the money is left blank rather than guessed at.'
-            : plan?.rate_limits_available === false || !limits
-              ? 'A subscription is not billed per token. The figure is what these tokens would cost at API list prices.'
-              : 'The dollar figure is API list prices, for scale. Your plan bills against the windows above instead.'}
+          {usage.reported
+            ? usage.unpriced
+              ? 'This agent reported no cost in dollars, so the money is left blank rather than guessed at.'
+              : 'The dollar figure is what this agent reported for the session.'
+            : usage.unpriced
+              ? 'No list price is known for this model, so the tokens are counted and the money is left blank rather than guessed at.'
+              : plan?.rate_limits_available === false || !limits
+                ? 'A subscription is not billed per token. The figure is what these tokens would cost at API list prices.'
+                : 'The dollar figure is API list prices, for scale. Your plan bills against the windows above instead.'}
           {usage.estimated && ' Priced here, not by the CLI.'}
         </p>
       </PopoverContent>

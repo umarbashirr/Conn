@@ -424,6 +424,117 @@ async function acpUsage() {
   });
 }
 
+async function acpMeter() {
+  const { AcpSession } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+  const { usageOf } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
+  const src = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/lib/usage.js'), 'utf8');
+  const lib = await import(`data:text/javascript;base64,${Buffer.from(src).toString('base64')}`);
+  const feed = (msgs, from = { ...lib.blankUsage(), model: 'mock-1' }) => msgs.reduce(lib.account, from);
+  const turnOf = async (env, turns) => {
+    const session = new AcpSession({ spec: usageSpec(env), cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'conn-meter-acp-')), mode: 'ask', model: 'mock-1' });
+    const seen = [];
+    session.on('message', (m) => seen.push(m));
+    try {
+      await session.start();
+      for (let i = 1; i <= turns; i++) {
+        session.send('hello');
+        await until(() => seen.filter((m) => m.type === 'result').length === i);
+      }
+    } finally {
+      session.stop();
+    }
+    return seen;
+  };
+
+  const billed = await turnOf({ MOCK_ACP_USAGE: '1', MOCK_ACP_COST: 'USD', MOCK_ACP_TURN_USAGE: '1' }, 2);
+  const firstTurn = billed.slice(0, billed.findIndex((m) => m.type === 'result') + 1);
+  await check('acp-meter-fills-at-used-over-size', () => {
+    const t = lib.totals(feed(firstTurn));
+    assert.strictEqual(t.any, true);
+    assert.strictEqual(t.context, 20000);
+    assert.strictEqual(t.window, 200000);
+    assert.strictEqual(t.percent, 10);
+  });
+  await check('acp-meter-moves-on-the-second-reading', () => {
+    const t = lib.totals(feed(billed));
+    assert.strictEqual(t.percent, 20);
+    assert.strictEqual(t.turns, 2);
+  });
+  await check('acp-meter-shows-the-agents-own-usd-cost', () => {
+    const t = lib.totals(feed(billed));
+    assert.strictEqual(t.cost, 0.1);
+    assert.strictEqual(t.unpriced, false);
+    assert.strictEqual(t.estimated, false);
+    assert.strictEqual(t.reported, true);
+    assert.deepStrictEqual(t.rows.map((r) => [r.model, r.cost]), [['mock-1', 0]]);
+    assert.strictEqual(t.cacheRead, 1600);
+  });
+
+  await check('acp-meter-with-no-cost-leaves-the-money-blank', async () => {
+    const t = lib.totals(feed(await turnOf({ MOCK_ACP_USAGE: '1', MOCK_ACP_COST: 'EUR' }, 1)));
+    assert.strictEqual(t.percent, 10);
+    assert.strictEqual(t.unpriced, true, 'the pill would read $0');
+    assert.strictEqual(t.cost, 0);
+    assert.strictEqual(t.estimated, false);
+  });
+  await check('acp-meter-with-no-usage-stays-hidden', async () => {
+    const t = lib.totals(feed(await turnOf({}, 1)));
+    assert.strictEqual(t.any, false);
+    assert.strictEqual(t.reported, false);
+  });
+
+  const reading = (used, cost_usd) => ({ type: 'assistant', parent_tool_use_id: null, message: { role: 'assistant', content: [], usage: { input_tokens: used, context_window: 200000, ...(cost_usd != null && { cost_usd }) } } });
+  await check('acp-meter-keeps-the-cost-when-a-later-reading-omits-it', () => {
+    const t = lib.totals(feed([reading(10000, 0.3), reading(20000)]));
+    assert.strictEqual(t.cost, 0.3);
+    assert.strictEqual(t.unpriced, false);
+  });
+  await check('acp-meter-does-not-price-a-model-the-agent-already-priced', () => {
+    const model = 'anthropic/claude-sonnet-4';
+    const used = { type: 'result', subtype: 'success', modelUsage: { [model]: { inputTokens: 5000, outputTokens: 5000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } };
+    const t = lib.totals(feed([reading(10000, 0.07), used], { ...lib.blankUsage(), model }));
+    assert.strictEqual(t.cost, 0.07);
+    assert.strictEqual(t.estimated, false);
+    assert.deepStrictEqual(t.rows.map((r) => r.cost), [0]);
+  });
+  await check('acp-meter-believes-a-zero-cost', () => {
+    const t = lib.totals(feed([reading(10000, 0)]));
+    assert.strictEqual(t.unpriced, false);
+    assert.strictEqual(t.cost, 0);
+  });
+  await check('acp-meter-survives-a-zero-result', () => {
+    const t = lib.totals(feed([reading(10000, 0.3), { type: 'result', subtype: 'success', modelUsage: { 'mock-1': { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 } } }]));
+    assert.strictEqual(t.percent, 5);
+    assert.strictEqual(t.cost, 0.3);
+    assert.strictEqual(t.turns, 1);
+  });
+  await check('acp-replayed-reading-draws-the-same-meter-as-live', () => {
+    const replayed = usageOf([{ sessionUpdate: 'usage_update', used: 20000, size: 200000, cost: { amount: 0.05, currency: 'USD' } }]);
+    const draws = (u) => {
+      const t = lib.totals(u);
+      return { percent: t.percent, window: t.window, cost: t.cost, unpriced: t.unpriced, estimated: t.estimated, reported: t.reported };
+    };
+    assert.deepStrictEqual(draws(feed([replayed], lib.blankUsage())), draws(feed(firstTurn)));
+  });
+
+  await check('codex-style-usage-leaves-the-meter-as-it-was', () => {
+    const u = feed([{ type: 'assistant', parent_tool_use_id: null, message: { role: 'assistant', content: [], usage: { input_tokens: 5000, cache_read_input_tokens: 1000 } } }], { ...lib.blankUsage(), model: 'gpt-5.4' });
+    assert.strictEqual(u.reported, null);
+    const t = lib.totals(u);
+    assert.strictEqual(t.reported, false);
+    assert.strictEqual(t.window, 1_000_000);
+    assert.strictEqual(t.context, 6000);
+  });
+  await check('claude-priced-by-list-price-is-unchanged', () => {
+    const model = 'claude-sonnet-4-5-20250929';
+    const t = lib.totals(feed([{ type: 'result', subtype: 'success', modelUsage: { [model]: { inputTokens: 1000, outputTokens: 1000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 } } }], { ...lib.blankUsage(), model }));
+    assert.strictEqual(t.reported, false);
+    assert.strictEqual(t.estimated, true);
+    assert.strictEqual(t.unpriced, false);
+    assert.ok(t.cost > 0);
+  });
+}
+
 const todoCalls = (seen) => toolUses(seen).filter((b) => b.name === 'TodoWrite');
 const statuses = (call) => call.input.todos.map((t) => t.status);
 
@@ -609,6 +720,7 @@ async function realAgent(name) {
   await acpThink().catch((e) => { console.log(`FAIL acp-think: ${e.message}`); failures.push('acp-think'); });
   await codexReason().catch((e) => { console.log(`FAIL codex-reason: ${e.message}`); failures.push('codex-reason'); });
   await acpUsage().catch((e) => { console.log(`FAIL acp-usage: ${e.message}`); failures.push('acp-usage'); });
+  await acpMeter().catch((e) => { console.log(`FAIL acp-meter: ${e.message}`); failures.push('acp-meter'); });
   await acpPlan().catch((e) => { console.log(`FAIL acp-plan: ${e.message}`); failures.push('acp-plan'); });
   await codexPlan().catch((e) => { console.log(`FAIL codex-plan: ${e.message}`); failures.push('codex-plan'); });
   if (failures.length) {

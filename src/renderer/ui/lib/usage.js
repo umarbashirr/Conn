@@ -52,6 +52,7 @@ export const blankUsage = () => ({
   window: 0,
   model: null,
   turns: 0,
+  reported: null,
 });
 
 const ZERO = {
@@ -92,6 +93,11 @@ export const requestSize = (u) => (u?.input_tokens || 0)
 function withRequest(usage, apiUsage) {
   const size = requestSize(apiUsage);
   return size ? { ...usage, context: size } : usage;
+}
+
+function withReading(usage, u) {
+  const costUSD = Number.isFinite(u.cost_usd) ? u.cost_usd : usage.reported?.costUSD ?? null;
+  return { ...usage, context: requestSize(u), window: u.context_window, reported: { costUSD } };
 }
 
 const fromApi = (u = {}) => ({
@@ -138,7 +144,9 @@ export function withStop(usage) {
 export function account(usage, msg) {
   const thread = msg.parent_tool_use_id || 'main';
   if (msg.type === 'stream_event') return withStreamEvent(usage, msg.event, thread);
-  if (msg.type === 'assistant' && thread === 'main' && msg.message?.usage) return withRequest(usage, msg.message.usage);
+  if (msg.type === 'assistant' && thread === 'main' && msg.message?.usage) {
+    return msg.message.usage.context_window ? withReading(usage, msg.message.usage) : withRequest(usage, msg.message.usage);
+  }
   if (msg.type === 'result') return { ...withResult(usage, msg), inflight: {} };
   return usage;
 }
@@ -181,14 +189,15 @@ export function totals(usage) {
   let estimated = false;
   // A model with no row in PRICES. Its tokens still count; its money does not.
   let unpriced = false;
+  const { reported } = usage;
 
   for (const [model, m] of Object.entries(all)) {
     input += m.inputTokens || 0;
     output += m.outputTokens || 0;
     cacheRead += m.cacheReadInputTokens || 0;
     cacheWrite += m.cacheCreationInputTokens || 0;
-    let own = m.costUSD || 0;
-    if (!own) {
+    let own = reported ? 0 : m.costUSD || 0;
+    if (!own && !reported) {
       const rate = priceOf(model);
       if (rate) {
         const [inRate, outRate] = rate;
@@ -205,6 +214,12 @@ export function totals(usage) {
     rows.push({ model, cost: own, tokens: (m.inputTokens || 0) + (m.outputTokens || 0) + (m.cacheReadInputTokens || 0) + (m.cacheCreationInputTokens || 0) });
   }
 
+  if (reported) {
+    cost = reported.costUSD ?? 0;
+    estimated = false;
+    unpriced = reported.costUSD == null;
+  }
+
   rows.sort((a, b) => b.cost - a.cost);
   const window = usage.window || windowOf(usage.model || '');
   return {
@@ -215,6 +230,7 @@ export function totals(usage) {
     turns: usage.turns,
     model: usage.model,
     any: usage.context > 0 || rows.length > 0,
+    reported: !!reported,
   };
 }
 
