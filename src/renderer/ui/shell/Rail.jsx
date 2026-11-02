@@ -6,6 +6,7 @@
    its structure and its palette. The folders fold on their own, which is a
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCommandState } from 'cmdk';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
   FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
@@ -433,6 +434,20 @@ function Chats({ folder, active, onDelete, onRename }) {
   );
 }
 
+/* What the picker offers for words that name no folder. */
+function StartWithText({ onStart }) {
+  const search = useCommandState((s) => s.search).trim();
+  const matches = useCommandState((s) => s.filtered.count);
+  if (!search || matches) return null;
+
+  return (
+    <CommandItem forceMount value={`start a chat with ${search}`} onSelect={() => onStart(search)}>
+      <SquarePenIcon />
+      <span className="truncate">Start a chat with “{search}”</span>
+    </CommandItem>
+  );
+}
+
 /* Starting a chat somewhere other than here.
 
    New chat goes to the folder the chat on screen runs in, with no question.
@@ -469,6 +484,15 @@ function NewChatDialog({ open, onOpenChange }) {
     startChatIn(res.focused || res.dir || dir);
   };
 
+  // Words that name no folder are taken as the first message, sent in the
+  // folder New chat would have used, or with no folder at all when the window
+  // has none yet.
+  const startWith = (text) => {
+    onOpenChange(false);
+    startChatIn(needsFolder() ? window_.chats : hereDir());
+    window.sendToAgent?.(text);
+  };
+
   return (
     <CommandDialog
       open={open}
@@ -478,6 +502,7 @@ function NewChatDialog({ open, onOpenChange }) {
       <CommandInput placeholder="Search folders" />
       <CommandList>
         <CommandEmpty>No folder by that name.</CommandEmpty>
+        <StartWithText onStart={startWith} />
 
         {/* This one leaves the window where it is, because a chat with no
             folder has no files or shells to put beside it. */}

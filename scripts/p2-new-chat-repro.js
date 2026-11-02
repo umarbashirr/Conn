@@ -83,6 +83,14 @@ async function main() {
 
     await click(s, 'New chat in…');
     check('new-chat-in-opens-the-folder-picker', !!(await until(dialog)), 'no dialog');
+    await type(s, 'zzqq no such folder');
+    const offer = await until(() => evaluate(s, `[...document.querySelectorAll('[cmdk-item]')].filter((e) => e.getBoundingClientRect().height > 0).map((e) => e.textContent).find((t) => t.startsWith('Start a chat with'))`));
+    check('picker-shows-an-offer-to-chat-with-text-matching-no-folder', !!offer && offer.includes('zzqq no such folder'), J(offer));
+    await key(s, 'Enter');
+    const fifth = await until(async () => (await startedIn()).length === 5 && (await startedIn()));
+    check('picking-the-offer-starts-a-chat-in-the-current-folder', !!fifth && fifth[4] === path.resolve(other), J(await startedIn()));
+    const said = await until(() => evaluate(s, `document.querySelector('#agent-root').innerText.includes('zzqq no such folder')`));
+    check('picking-the-offer-sends-the-text', !!said, 'the text is not in the chat');
   } finally {
     fs.rmSync(other, { recursive: true, force: true });
     await stop(s);
