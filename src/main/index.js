@@ -1757,6 +1757,20 @@ function registerIpc() {
     completed: completed.all(),
     pinned: pinned.all(),
   }));
+  const SEARCH_LIMIT = 20;
+  ipcMain.handle('agent:search', async (_e, { query } = {}) => {
+    const rows = (registry?.all() || []).filter((row) => row.hasHistory && row.has());
+    const dirs = [CHATS_DIR, ...openDirs()];
+    const lists = await Promise.all(rows.filter((row) => row.history.search).flatMap((row) => dirs.map((dir) =>
+      Promise.resolve()
+        .then(() => row.history.search(dir, String(query || ''), SEARCH_LIMIT))
+        .catch(() => [])
+        .then((hits) => hits.map((h) => ({ ...h, project: dir, provider: row.id }))))));
+    return {
+      results: lists.flat().sort((a, b) => b.at - a.at).slice(0, SEARCH_LIMIT),
+      titleOnly: rows.filter((row) => !row.history.search).map((row) => ({ id: row.id, label: row.label })),
+    };
+  });
   ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
     try {
       return { ok: true, title: chatTitles.set(id, title) };
