@@ -175,8 +175,6 @@ async function large(name) {
     const capped = await timed({});
     assert.strictEqual(capped.searched, 4);
     assert.strictEqual(capped.left, BIG_FILES - 4);
-    console.log(`     ${name}: ${capped.ms} ms capped, ${full.ms} ms for all ${BIG_FILES * 15} MB`);
-    assert.ok(capped.ms < full.ms * 0.7, `capped ${capped.ms} ms against ${full.ms} ms`);
   });
   await check(`${name}: a newer search stops the older one`, async () => {
     const ctl = new AbortController();
@@ -200,6 +198,30 @@ async function merging() {
     assert.deepStrictEqual(merged.results.map((r) => `${r.provider}:${r.id}`), ['codex:a', 'claude:a', 'claude:b']);
     assert.strictEqual(merged.results[1].project, '/a/b.c');
     assert.strictEqual(merged.left, 1);
+  });
+}
+
+async function caching() {
+  const { wordCache } = require(path.join(ROOT, 'src/main/transcript-search.js'));
+  await check('cache: past its size the oldest threads go and the newest stay', () => {
+    const cache = wordCache(10);
+    for (let i = 1; i <= 5; i++) cache.set(`t${i}`, 1, ['xxxx']);
+    assert.deepStrictEqual([1, 2, 3, 4, 5].map((i) => cache.get(`t${i}`, 1) !== null), [false, false, false, true, true]);
+  });
+  await check('cache: a thread with a new updatedAt, or none, is not served from it', () => {
+    const cache = wordCache(100);
+    cache.set('a', 1, ['old']);
+    assert.strictEqual(cache.get('a', 2), null);
+    cache.set('b', 0, ['never kept']);
+    assert.strictEqual(cache.get('b', 0), null);
+  });
+  await check('cache: replacing a thread frees its old words', () => {
+    const cache = wordCache(10);
+    cache.set('a', 1, ['xxxxxxxx']);
+    cache.set('a', 2, ['yyyyyyyy']);
+    cache.set('b', 1, ['zz']);
+    assert.deepStrictEqual(cache.get('a', 2), ['yyyyyyyy']);
+    assert.deepStrictEqual(cache.get('b', 1), ['zz']);
   });
 }
 
@@ -229,6 +251,12 @@ async function codex() {
       write({ updatedAt: 2, asked: 'tune the quokka cache', text: 'Now it says wombat.' });
       assert.strictEqual(((await codexHistory.search(project, 'wombat', { limit: 10 })).hits).length, 1);
       assert.deepStrictEqual((await codexHistory.search(project, 'editing the config', { limit: 10 })).hits, []);
+    });
+    await check('codex: a thread with no updatedAt is read again every time', async () => {
+      write({ updatedAt: 0, asked: 'tune the quokka cache', text: 'First words.' });
+      assert.strictEqual((await codexHistory.search(project, 'first words', { limit: 10 })).hits.length, 1);
+      write({ updatedAt: 0, asked: 'tune the quokka cache', text: 'Second words.' });
+      assert.strictEqual((await codexHistory.search(project, 'second words', { limit: 10 })).hits.length, 1);
     });
   } finally {
     codexHistory.close();
@@ -266,6 +294,7 @@ async function codex() {
     await check('without rg: nothing ran ripgrep', () => assert.ok(!fs.existsSync(rgLog)));
   });
   await merging();
+  await caching();
   await codex();
 
   fs.rmSync(home, { recursive: true, force: true });

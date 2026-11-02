@@ -32,7 +32,7 @@ const shellEnv = require('./shell-env');
 const { chatTitle } = require('../shared/chat-title');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
-const { parseQuery, snippetOf } = require('./transcript-search');
+const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
 
 const IDLE_MS = 5 * 60 * 1000;
 const CALL_MS = 20000;
@@ -149,13 +149,11 @@ async function listSessions(cwd, limit = 200) {
 }
 
 const READ_BATCH = 8;
-const MAX_KEPT = 400;
-// Keyed on updatedAt, so a thread that was written to is read again.
-const said = new Map();
+const said = wordCache(32 << 20);
 
 async function sayingsOf(id, at) {
-  const kept = said.get(id);
-  if (kept && kept.at === at) return kept.texts;
+  const kept = said.get(id, at);
+  if (kept) return kept;
   const res = await call('thread/read', { threadId: id, includeTurns: true });
   const texts = [];
   for (const turn of res?.thread?.turns || []) {
@@ -167,8 +165,7 @@ async function sayingsOf(id, at) {
       }
     }
   }
-  if (said.size >= MAX_KEPT) said.clear();
-  said.set(id, { at, texts });
+  said.set(id, at, texts);
   return texts;
 }
 

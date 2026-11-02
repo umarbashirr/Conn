@@ -43,4 +43,34 @@ function mergeResults(lists, limit) {
   };
 }
 
-module.exports = { parseQuery, snippetOf, mergeResults, MIN_QUERY };
+// The words of a thread against the updatedAt they were read at, with the oldest
+// entries dropped first once they pass `maxChars`. A thread with no updatedAt
+// has no way to say it was written to, so it is never kept.
+function wordCache(maxChars) {
+  const kept = new Map();
+  let chars = 0;
+  const weigh = (texts) => texts.reduce((n, t) => n + t.length, 0);
+  const forget = (id) => {
+    const old = kept.get(id);
+    if (!old) return;
+    chars -= weigh(old.texts);
+    kept.delete(id);
+  };
+  return {
+    get: (id, at) => (at && kept.get(id)?.at === at ? kept.get(id).texts : null),
+    set(id, at, texts) {
+      forget(id);
+      const size = weigh(texts);
+      if (!at || size > maxChars) return;
+      for (const oldest of kept.keys()) {
+        if (chars + size <= maxChars) break;
+        forget(oldest);
+      }
+      kept.set(id, { at, texts });
+      chars += size;
+    },
+    delete: forget,
+  };
+}
+
+module.exports = { parseQuery, snippetOf, mergeResults, wordCache, MIN_QUERY };
