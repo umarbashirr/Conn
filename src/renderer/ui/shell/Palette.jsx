@@ -12,8 +12,9 @@
    Ctrl+Shift+P opens it from anywhere, including there, which is the rule the
    rest of the app's chords already follow.
 
-   Files are the one section that has to ask main. Chats, folders and commands
-   are all in memory, so the list is whole from the first keystroke. */
+   Files and the words inside chats are the sections that have to ask main.
+   Chats, folders and commands are all in memory, so the list is whole from the
+   first keystroke. */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ClipboardIcon, CopyIcon, DownloadIcon, FileDownIcon, FileIcon, FolderIcon, FolderPlusIcon, FolderTreeIcon,
@@ -33,6 +34,7 @@ import { useSettings } from '../useSettings';
 import { shortPath, useProject } from '../useProject.js';
 import { getRailVersion, grouped, refreshRail, relative, subscribeRail } from './rail-store';
 
+const NO_BODIES = { results: [], titleOnly: [] };
 /* The commands worth reaching by name. Everything runCommand answers to is not
    the same list: the zoom steps and the folder pickers have chords and buttons
    of their own, and a palette that lists every branch of a switch statement is
@@ -57,6 +59,20 @@ const COMMANDS = [
   { name: 'about', bind: 'about', label: 'About Conn', icon: InfoIcon },
 ];
 
+function marked(snippet, q) {
+  const at = snippet.toLowerCase().indexOf(q);
+  if (at < 0) return snippet;
+  return (
+    <>
+      {snippet.slice(0, at)}
+      <span className="font-medium text-foreground">{snippet.slice(at, at + q.length)}</span>
+      {snippet.slice(at + q.length)}
+    </>
+  );
+}
+
+const listed = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
 // A key pressed with the cursor in a terminal belongs to the shell. The
 // palette's own chord knows that; this file no longer listens for it.
 
@@ -64,6 +80,7 @@ export default function Palette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [files, setFiles] = useState([]);
+  const [bodies, setBodies] = useState(NO_BODIES);
   const window_ = useProject();
   const { settings } = useSettings();
 
@@ -80,16 +97,21 @@ export default function Palette() {
   const here = new Set((window_.projects || []).map((p) => p.dir));
   const recents = (window_.recents || []).filter((r) => !here.has(r.path)).slice(0, 6);
 
-  /* Files are the one thing main has to be asked for. The wait is the same 80ms
-     the composer's @ menu uses, and the last answer stays on screen while the
-     next one is out rather than the list blinking on every keystroke. */
+  /* Files and the words inside chats are what main has to be asked for. The
+     wait is the same 80ms the composer's @ menu uses, and the last answer stays
+     on screen while the next one is out rather than the list blinking on every
+     keystroke. Both go out from the one timer. */
   const live = useRef(0);
   useEffect(() => {
-    if (!open || !query.trim()) { setFiles([]); return undefined; }
+    if (!open || !query.trim()) { setFiles([]); setBodies(NO_BODIES); return undefined; }
     const seq = ++live.current;
     const timer = setTimeout(async () => {
-      const res = await window.conn.files.search(query.trim()).catch(() => null);
+      const text = query.trim();
+      const inChats = window.conn.agent.search(text).catch(() => null);
+      const res = await window.conn.files.search(text).catch(() => null);
       if (seq === live.current) setFiles((res?.matches || []).slice(0, 8));
+      const found = await inChats;
+      if (seq === live.current) setBodies(found || NO_BODIES);
     }, 80);
     return () => clearTimeout(timer);
   }, [open, query]);
@@ -115,12 +137,20 @@ export default function Palette() {
     : [...chats].sort((a, b) => (b.chat.at || 0) - (a.chat.at || 0))
   ).slice(0, 6);
 
+  const shown = new Set(chatRows.map(({ chat }) => chat.id));
+  const byId = new Map(chats.map((c) => [c.chat.id, c]));
+  const mentionRows = bodies.results
+    .filter((r) => !shown.has(r.id) && byId.has(r.id))
+    .map((r) => ({ ...byId.get(r.id), snippet: r.snippet }))
+    .slice(0, 8);
+  const titleOnly = bodies.titleOnly.filter((p) => chats.some(({ chat }) => chat.provider === p.id)).map((p) => p.label);
+
   const folderRows = (window_.projects || []).filter((p) => hit(`${p.name} ${p.dir}`));
   const recentRows = recents.filter((r) => hit(`${r.name} ${r.path}`));
   const commandRows = COMMANDS.filter((c) => hit(c.label));
   const findFolder = hit('find a folder on this machine');
   const nothing = !chatRows.length && !files.length && !folderRows.length
-    && !recentRows.length && !commandRows.length && !findFolder;
+    && !recentRows.length && !commandRows.length && !findFolder && !mentionRows.length;
 
   /* The chords live with the rest of the keyboard list. This only has to be
      findable once the window is up, which is when a menu or a key asks for it. */
@@ -162,6 +192,32 @@ export default function Palette() {
                   </CommandItem>
                 ))}
               </CommandGroup>
+            )}
+
+            {!!mentionRows.length && (
+              <CommandGroup heading="Chats mentioning">
+                {mentionRows.map(({ chat, folder, snippet }) => (
+                  <CommandItem
+                    key={`mention ${chat.key || chat.id}`}
+                    value={`mention ${chat.key || chat.id}`}
+                    onSelect={() => run(() => window.connChat?.open(chat))}>
+                    <MessageSquareIcon />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">{chat.title}</span>
+                      <span className="truncate text-muted-foreground text-xs">{marked(snippet, q)}</span>
+                    </span>
+                    <span className="ml-auto shrink-0 text-muted-foreground text-xs">
+                      {folder.name} · {relative(chat.at)}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {!!titleOnly.length && (
+              <div className="px-3 py-1.5 text-muted-foreground text-xs">
+                {listed(titleOnly)} chats match by title only.
+              </div>
             )}
 
             {!!files.length && (
