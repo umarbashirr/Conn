@@ -25,6 +25,9 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
 const THINK = process.env.MOCK_ACP_THINK === '1';
 const PLAN = process.env.MOCK_ACP_PLAN === '1';
+const USAGE = process.env.MOCK_ACP_USAGE === '1';
+const COST = process.env.MOCK_ACP_COST || '';
+const TURN_USAGE = process.env.MOCK_ACP_TURN_USAGE === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
@@ -44,6 +47,7 @@ let promptId = null;
 let cancelled = false;
 let cwd = process.cwd();
 let rich = null;
+let turns = 0;
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -230,7 +234,7 @@ function replayStored(sessionId) {
   update({
     sessionUpdate: 'tool_call_update', toolCallId: 'replay-0-1', status: 'completed', rawInput: { path: 'style.css' }, rawOutput: 'edited style.css',
   });
-  update({ sessionUpdate: 'usage_update', used: 10, size: 100 });
+  update({ sessionUpdate: 'usage_update', used: 10, size: 100, cost: { amount: 0.42, currency: 'USD' } });
   text('agent_message_chunk', 'Done.');
   text('user_message_chunk', 'thanks');
 }
@@ -287,10 +291,23 @@ async function handlePrompt(id, params) {
     chunk(sessionId, 'hello ');
     chunk(sessionId, 'from mock');
   }
+  turns += 1;
+  if (USAGE) {
+    notify('session/update', {
+      sessionId,
+      update: {
+        sessionUpdate: 'usage_update',
+        used: 20000 * turns,
+        size: 200000,
+        ...(COST && { cost: { amount: 0.05 * turns, currency: COST } }),
+      },
+    });
+  }
+  const usage = TURN_USAGE ? { usage: { totalTokens: 1500, inputTokens: 1200, outputTokens: 300, cachedReadTokens: 800 } } : {};
   if (cancelled) {
-    result(id, { stopReason: 'cancelled' });
+    result(id, { stopReason: 'cancelled', ...usage });
   } else {
-    result(id, { stopReason: 'end_turn' });
+    result(id, { stopReason: 'end_turn', ...usage });
   }
   promptId = null;
 }

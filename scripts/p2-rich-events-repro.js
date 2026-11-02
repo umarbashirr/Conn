@@ -325,6 +325,105 @@ async function codexReason() {
   }
 }
 
+const usageSpec = (env) => ({
+  id: 'cursor',
+  cli: 'agent',
+  argv: [path.join(ROOT, 'scripts/mock-acp-cli.js'), 'acp'],
+  modes: Object.fromEntries(['ask', 'edit', 'plan', 'bypass'].map((m) => [m, { env }])),
+  binary: () => process.execPath,
+});
+
+async function acpUsage() {
+  const { AcpSession, readingOf } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+  const open = async (env) => {
+    const session = new AcpSession({ spec: usageSpec(env), cwd: fs.mkdtempSync(path.join(os.tmpdir(), 'conn-usage-acp-')), mode: 'ask', model: 'mock-1' });
+    const seen = [];
+    session.on('message', (m) => seen.push(m));
+    await session.start();
+    const turn = async (text) => {
+      const from = seen.length;
+      const done = seen.filter((m) => m.type === 'result').length;
+      session.send(text);
+      await until(() => seen.filter((m) => m.type === 'result').length > done);
+      return seen.slice(from);
+    };
+    return { session, seen, turn };
+  };
+  const readings = (msgs) => msgs.filter((m) => m.type === 'assistant' && m.message.usage);
+  const WHY = 'this agent counts the window as one total, with no breakdown behind it';
+
+  const billed = await open({ MOCK_ACP_USAGE: '1', MOCK_ACP_COST: 'USD', MOCK_ACP_TURN_USAGE: '1' });
+  try {
+    await check('acp-usage-before-any-reading-is-only-the-reason', async () => {
+      assert.deepStrictEqual(await billed.session.contextUsage(), { error: WHY });
+    });
+    const first = await billed.turn('hello');
+    await check('acp-usage-update-is-one-empty-main-thread-message', () => {
+      const [one, ...more] = readings(first);
+      assert.deepStrictEqual(more, [], 'more than one usage message in a turn');
+      assert.deepStrictEqual(one.message.content, []);
+      assert.strictEqual(one.parent_tool_use_id, null);
+      assert.deepStrictEqual(one.message.usage, { input_tokens: 20000, context_window: 200000, cost_usd: 0.05 });
+      assert.ok(first.indexOf(one) < first.findIndex((m) => m.type === 'result'), 'the reading came after the result');
+    });
+    await check('acp-usage-update-leaves-the-block-stream-balanced', () => balanced(blocks(first)));
+    await check('acp-turn-usage-takes-the-cache-out-of-input', () => {
+      const done = first.find((m) => m.type === 'result');
+      assert.deepStrictEqual(done.modelUsage, { 'mock-1': { inputTokens: 400, outputTokens: 300, cacheReadInputTokens: 800, cacheCreationInputTokens: 0 } });
+    });
+    const second = await billed.turn('again');
+    await check('acp-second-reading-moves-the-window', () => {
+      assert.deepStrictEqual(readings(second)[0].message.usage, { input_tokens: 40000, context_window: 200000, cost_usd: 0.1 });
+    });
+    await check('acp-turn-usage-sums-across-turns', () => {
+      assert.deepStrictEqual(second.find((m) => m.type === 'result').modelUsage['mock-1'], { inputTokens: 800, outputTokens: 600, cacheReadInputTokens: 1600, cacheCreationInputTokens: 0 });
+    });
+    await check('acp-context-usage-returns-used-and-size', async () => {
+      assert.deepStrictEqual(await billed.session.contextUsage(), { totalTokens: 40000, rawMaxTokens: 200000, error: WHY });
+    });
+  } finally {
+    billed.session.stop();
+  }
+
+  const euro = await open({ MOCK_ACP_USAGE: '1', MOCK_ACP_COST: 'EUR' });
+  try {
+    const turn = await euro.turn('hello');
+    await check('acp-non-usd-cost-is-not-converted', () => {
+      assert.deepStrictEqual(readings(turn)[0].message.usage, { input_tokens: 20000, context_window: 200000 });
+    });
+    await check('acp-no-turn-usage-means-no-model-usage', () => {
+      assert.ok(!('modelUsage' in turn.find((m) => m.type === 'result')), 'modelUsage on a turn that reported none');
+    });
+  } finally {
+    euro.session.stop();
+  }
+
+  const quiet = await open({});
+  try {
+    const turn = await quiet.turn('hello');
+    await check('acp-turn-without-usage-sends-no-reading', async () => {
+      assert.deepStrictEqual(readings(turn), []);
+      assert.deepStrictEqual(await quiet.session.contextUsage(), { error: WHY });
+      assert.ok(!turn.some((m) => m.type === 'result' && m.is_error), 'the turn errored');
+    });
+  } finally {
+    quiet.session.stop();
+  }
+
+  await check('acp-cost-carries-forward-when-a-reading-omits-it', () => {
+    const paid = readingOf({ used: 1, size: 10, cost: { amount: 0.5, currency: 'USD' } });
+    assert.strictEqual(readingOf({ used: 2, size: 10 }, paid).costUSD, 0.5);
+    assert.strictEqual(readingOf({ used: 2, size: 10, cost: { amount: 9, currency: 'EUR' } }, paid).costUSD, 0.5);
+    assert.strictEqual(readingOf({ used: 2, size: 10, cost: { amount: 0, currency: 'USD' } }, paid).costUSD, 0);
+    assert.strictEqual(readingOf({ used: 2, size: 10 }).costUSD, null);
+  });
+  await check('acp-garbage-reading-is-refused', () => {
+    for (const bad of [null, {}, { used: '5', size: 10 }, { used: 5, size: 0 }, { used: -1, size: 10 }, { used: 5, size: NaN }, { used: 5 }]) {
+      assert.strictEqual(readingOf(bad), null, JSON.stringify(bad));
+    }
+  });
+}
+
 const todoCalls = (seen) => toolUses(seen).filter((b) => b.name === 'TodoWrite');
 const statuses = (call) => call.input.todos.map((t) => t.status);
 
@@ -509,6 +608,7 @@ async function realAgent(name) {
   await codex().catch((e) => { console.log(`FAIL codex: ${e.message}`); failures.push('codex'); });
   await acpThink().catch((e) => { console.log(`FAIL acp-think: ${e.message}`); failures.push('acp-think'); });
   await codexReason().catch((e) => { console.log(`FAIL codex-reason: ${e.message}`); failures.push('codex-reason'); });
+  await acpUsage().catch((e) => { console.log(`FAIL acp-usage: ${e.message}`); failures.push('acp-usage'); });
   await acpPlan().catch((e) => { console.log(`FAIL acp-plan: ${e.message}`); failures.push('acp-plan'); });
   await codexPlan().catch((e) => { console.log(`FAIL codex-plan: ${e.message}`); failures.push('codex-plan'); });
   if (failures.length) {

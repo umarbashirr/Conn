@@ -115,6 +115,43 @@ function toolOf(call) {
   return title || KIND_TOOL[kind] || 'Tool';
 }
 
+const finite = (n, floor = 0) => Number.isFinite(n) && n >= floor;
+
+/* The cost is the session's running total, so a reading that carries none
+   (or one in a currency Conn will not convert) keeps the last dollar figure
+   instead of blanking it. */
+function readingOf(update, prev = null) {
+  const { used, size, cost } = update || {};
+  if (!finite(used) || !(finite(size) && size > 0)) return null;
+  const usd = cost?.currency === 'USD' && finite(cost.amount);
+  return { used, size, costUSD: usd ? cost.amount : prev?.costUSD ?? null };
+}
+
+const readingMessage = ({ used, size, costUSD }) => ({
+  type: 'assistant',
+  message: {
+    role: 'assistant',
+    content: [],
+    usage: { input_tokens: used, context_window: size, ...(costUSD != null && { cost_usd: costUSD }) },
+  },
+  parent_tool_use_id: null,
+});
+
+/* PromptResponse.usage is a draft with no stated rule for whether inputTokens
+   already holds the cached tokens. totalTokens settles it: when the parts add up
+   to more than the total, the cache was counted inside input. */
+function turnTokens(u) {
+  if (!u || typeof u !== 'object') return null;
+  const { inputTokens, outputTokens, totalTokens } = u;
+  if (![inputTokens, outputTokens, totalTokens].every((n) => finite(n))) return null;
+  const read = finite(u.cachedReadTokens) ? u.cachedReadTokens : 0;
+  const write = finite(u.cachedWriteTokens) ? u.cachedWriteTokens : 0;
+  const apart = inputTokens + outputTokens + read + write <= totalTokens;
+  const fresh = apart ? inputTokens : Math.max(0, inputTokens - read - write);
+  if (!(fresh + outputTokens + read + write)) return null;
+  return { inputTokens: fresh, outputTokens, cacheReadInputTokens: read, cacheCreationInputTokens: write };
+}
+
 function optionFor(options, decision) {
   const want = decision === 'always' ? 'allow_always'
     : decision === 'deny' ? 'reject_once'
@@ -155,6 +192,8 @@ class AcpSession extends EventEmitter {
     this.prompting = null;
     this.launched = null;
     this.loading = false;
+    this.reading = null;
+    this.spent = {};
   }
 
   // Whether this session was started under settings its mode no longer has.
@@ -289,10 +328,20 @@ class AcpSession extends EventEmitter {
     this.prompting = null;
     const stop = res?.stopReason || 'end_turn';
     const cancelled = stop === 'cancelled';
+    const tokens = turnTokens(res?.usage);
+    if (tokens) {
+      const key = this.model || this.spec.id;
+      const mine = this.spent[key] || {};
+      this.spent = {
+        ...this.spent,
+        [key]: Object.fromEntries(Object.entries(tokens).map(([k, n]) => [k, (mine[k] || 0) + n])),
+      };
+    }
     this.#emit({
       type: 'result',
       subtype: cancelled ? 'cancelled' : (stop === 'end_turn' ? 'success' : stop),
       duration_ms: this.startedAt ? Date.now() - this.startedAt : 0,
+      ...(Object.keys(this.spent).length && { modelUsage: this.spent }),
     });
   }
 
@@ -364,7 +413,12 @@ class AcpSession extends EventEmitter {
   async setSkillOverrides() { return { error: 'this CLI turns skills off where they are installed' }; }
   async stopTask() { return { ok: false }; }
   async background() { return { ok: false }; }
-  async contextUsage() { return null; }
+  async contextUsage() {
+    return {
+      ...(this.reading && { totalTokens: this.reading.used, rawMaxTokens: this.reading.size }),
+      error: 'this agent counts the window as one total, with no breakdown behind it',
+    };
+  }
   async planUsage() { return null; }
 
   stop() {
@@ -464,6 +518,13 @@ class AcpSession extends EventEmitter {
       this.#result(update.toolCallId, output, update.status === 'failed');
       return;
     }
+    if (kind === 'usage_update') {
+      const reading = readingOf(update, this.reading);
+      if (!reading) return;
+      this.reading = reading;
+      this.#emit(readingMessage(reading));
+      return;
+    }
     if (kind === 'current_mode_update' && update.currentModeId) {
       const ours = followAgent(this.mode, update.currentModeId, this.spec.modes);
       if (ours !== this.mode) {
@@ -545,4 +606,5 @@ class AcpSession extends EventEmitter {
 
 module.exports = {
   AcpSession, CLIENT, mcpEnv, toolOf, callInput, textOf, followAgent, ACP_INSTRUCTIONS,
+  readingOf, readingMessage, turnTokens,
 };
