@@ -53,8 +53,9 @@ for (let i = 0; i < 10; i++) CASES.push({ hit: true, lines: [user('fix the cart'
 for (let i = 0; i < 10; i++) CASES.push({ hit: false, lines: [user('fix the cart'), toolUse({ command: 'ls' }), toolResult(`${WORD} printed by a tool`), said('done')] });
 for (let i = 0; i < 5; i++) CASES.push({ hit: false, lines: [user('fix the cart'), toolUse({ command: `grep ${WORD} src` }), toolResult('ok'), said('done')] });
 for (let i = 0; i < 5; i++) CASES.push({ hit: false, lines: [user('fix the cart'), thought(`maybe ${WORD} is involved`), said('done')] });
-for (let i = 0; i < 3; i++) CASES.push({ hit: false, lines: [user('fix the cart'), said('done'), user(`subagent asked about ${WORD}`, { isSidechain: true })] });
+for (let i = 0; i < 2; i++) CASES.push({ hit: false, lines: [user('fix the cart'), said('done'), user(`subagent asked about ${WORD}`, { isSidechain: true })] });
 for (let i = 0; i < 2; i++) CASES.push({ hit: false, lines: [user(`<system-reminder>${WORD} is a hook note</system-reminder>fix the cart`), said('done')] });
+CASES.push({ hit: false, lines: [user('fix the cart'), user(`This session is being continued. The tool printed ${WORD}.`, { isCompactSummary: true }), said('done')] });
 for (let i = 0; i < 2; i++) CASES.push({ hit: false, lines: [user(`<command-name>/${WORD}</command-name>\n<command-args></command-args>`), user('fix the cart'), said('done')] });
 CASES.push({ hit: false, lines: [user('she said "hello there" in C:\\Users\\zed twice'), said('ok')], phrase: true });
 CASES.push({ hit: false, lines: [user('first\nsecond   words'), said('ok')], multiline: true });

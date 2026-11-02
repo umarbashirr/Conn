@@ -250,7 +250,7 @@ async function scanFiles(dir, needle) {
 }
 
 function saidIn(o) {
-  if (o.isSidechain || o.isMeta) return '';
+  if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
   if (o.type === 'user') return humanText(o) || '';
   if (o.type !== 'assistant' || o.isApiErrorMessage) return '';
   const c = o.message?.content;
