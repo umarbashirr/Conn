@@ -60,6 +60,7 @@ assert.equal(toolLabel('browser_unheardOf'), 'browser_unheardOf', 'an unknown br
 
 for (const t of TOOLS) assert.equal(toolName(t.name), t.label, `${t.name} shows as ${t.label}`);
 assert.equal(toolName('Bash'), 'Bash', 'a tool with no label shows its own name');
+assert.equal(toolName('ExitPlanMode'), 'Proposed plan', 'a proposed plan is named for what it is, on Codex too');
 assert.equal(toolName('conn-review'), 'review', 'toolName drops the conn- prefix');
 assert.equal(toolName('github: create_issue'), 'create_issue', 'toolName drops a server: prefix');
 

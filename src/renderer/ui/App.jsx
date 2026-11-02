@@ -921,7 +921,9 @@ function Item({ item, agent, mark }) {
             at={item.at}
             defaultOpen
             right={mark && <PermMark perm={mark} />}>
-            <MessageResponse className="text-[13px]">{item.input.plan}</MessageResponse>
+            <MessageResponse className="ml-1 border-l pl-3 text-[13px] [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-[13px]">
+              {item.input.plan}
+            </MessageResponse>
           </ToolRow>
         </div>
       );

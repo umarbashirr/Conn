@@ -83,9 +83,12 @@ export function toolLabel(name) {
   return BROWSER_BY_ROUTE.get(bare.slice('browser_'.length)) ?? bare;
 }
 
+// Codex proposes a plan too, and ExitPlanMode is only Claude's name for it.
+const NAMES = new Map([['ExitPlanMode', 'Proposed plan']]);
+
 // What a person calls it: "Screenshot", not browser_screenshot.
 export const toolName = (label) =>
-  BROWSER_LABEL.get(label) ?? String(label || '').replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
+  BROWSER_LABEL.get(label) ?? NAMES.get(label) ?? String(label || '').replace(/^conn-/, '').replace(/^[^:\s]+:\s*/, '');
 
 export function toolSummary(name, input) {
   const i = input || {};
