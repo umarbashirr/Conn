@@ -24,4 +24,23 @@ function snippetOf(text, q) {
   return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`;
 }
 
-module.exports = { parseQuery, snippetOf, MIN_QUERY };
+// The answers of every provider in every project as one list: newest first,
+// each chat once, at most `limit`. Two open folders can share one transcript
+// directory (/a/b.c and /a/b-c slug alike), and then both answer for the same
+// chats.
+function mergeResults(lists, limit) {
+  const seen = new Map();
+  for (const { hits, provider, project } of lists) {
+    for (const h of hits) {
+      const key = `${provider}:${h.id}`;
+      if (!seen.has(key)) seen.set(key, { ...h, provider, project });
+    }
+  }
+  return {
+    results: [...seen.values()].sort((a, b) => b.at - a.at).slice(0, limit),
+    searched: lists.reduce((n, l) => n + l.searched, 0),
+    left: lists.reduce((n, l) => n + l.left, 0),
+  };
+}
+
+module.exports = { parseQuery, snippetOf, mergeResults, MIN_QUERY };

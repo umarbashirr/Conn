@@ -172,12 +172,13 @@ async function sayingsOf(id, at) {
   return texts;
 }
 
-async function search(cwd, query, limit = 20) {
+async function search(cwd, query, { limit = 20, signal } = {}) {
   const parsed = parseQuery(query);
-  if (!parsed) return [];
+  const none = { hits: [], searched: 0, left: 0 };
+  if (!parsed) return none;
   const rows = await listSessions(cwd);
   const hits = [];
-  for (let i = 0; i < rows.length && hits.length < limit; i += READ_BATCH) {
+  for (let i = 0; i < rows.length && hits.length < limit && !signal?.aborted; i += READ_BATCH) {
     const batch = rows.slice(i, i + READ_BATCH);
     const snippets = await Promise.all(batch.map(async (row) => {
       try {
@@ -189,10 +190,10 @@ async function search(cwd, query, limit = 20) {
       return null;
     }));
     batch.forEach((row, k) => {
-      if (snippets[k] && hits.length < limit) hits.push({ id: row.id, at: row.at, snippet: snippets[k] });
+      if (snippets[k] && hits.length < limit) hits.push({ id: row.id, title: row.title, at: row.at, snippet: snippets[k] });
     });
   }
-  return hits;
+  return signal?.aborted ? none : { hits, searched: rows.length, left: 0 };
 }
 
 /* Deleting a chat for good. Same guard as history.js and for a better reason

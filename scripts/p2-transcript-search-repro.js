@@ -74,6 +74,8 @@ const expected = ids.filter((_, n) => CASES[n].hit);
 
 const rgBin = (() => { try { return execFileSync('which', ['rg'], { encoding: 'utf8' }).trim(); } catch { return null; } })();
 const bins = fs.mkdtempSync(path.join(home, 'bin-'));
+const slow = fs.mkdtempSync(path.join(home, 'slow-'));
+fs.writeFileSync(path.join(slow, 'rg'), '#!/bin/sh\nexec sleep 5\n', { mode: 0o755 });
 const empty = fs.mkdtempSync(path.join(home, 'empty-'));
 const rgLog = path.join(home, 'rg.log');
 if (rgBin) {
@@ -87,47 +89,117 @@ async function withPath(p, fn) {
   try { return await fn(); } finally { process.env.PATH = realPath; }
 }
 
+const find = async (q, limit) => (await history.search(cwd, q, { limit })).hits;
 const ids_ = (hits) => hits.map((h) => h.id).sort();
 
 async function suite(name) {
   await check(`${name}: finds exactly the chats a person or the assistant spoke the word in`, async () => {
-    const hits = await history.search(cwd, WORD, 100);
+    const hits = await find(WORD, 100);
     assert.deepStrictEqual(ids_(hits), [...expected].sort());
   });
   await check(`${name}: every snippet shows the word`, async () => {
-    const hits = await history.search(cwd, WORD, 100);
+    const hits = await find(WORD, 100);
     for (const h of hits) assert.ok(h.snippet.toLowerCase().includes(WORD), `${h.id}: ${h.snippet.slice(0, 80)}`);
   });
   await check(`${name}: a word only a tool, a thought, a subagent or a command echo said is not a hit`, async () => {
-    const hits = new Set((await history.search(cwd, WORD, 100)).map((h) => h.id));
+    const hits = new Set((await find(WORD, 100)).map((h) => h.id));
     ids.forEach((id, n) => { if (!CASES[n].hit) assert.ok(!hits.has(id), `case ${n} matched`); });
   });
   await check(`${name}: matching ignores case in the query and in the chat`, async () => {
-    assert.deepStrictEqual(ids_(await history.search(cwd, 'ZePhYrInE', 100)), [...expected].sort());
+    assert.deepStrictEqual(ids_(await find('ZePhYrInE', 100)), [...expected].sort());
   });
   await check(`${name}: the newest chats come first and the limit cuts the rest`, async () => {
-    const hits = await history.search(cwd, WORD, 3);
+    const hits = await find(WORD, 3);
     assert.strictEqual(hits.length, 3);
     assert.deepStrictEqual(hits.map((h) => h.id), [...expected].reverse().slice(0, 3));
   });
+  await check(`${name}: a hit carries the chat's title`, async () => {
+    const hits = await find(WORD, 100);
+    assert.ok(hits.every((h) => h.title.length > 0), JSON.stringify(hits.find((h) => !h.title)));
+    assert.ok(hits.some((h) => h.title.startsWith('please check the')));
+  });
   await check(`${name}: a quote in the query finds the escaped text`, async () => {
-    const hits = await history.search(cwd, '"hello there"', 10);
+    const hits = await find('"hello there"', 10);
     assert.deepStrictEqual(hits.map((h) => h.id), [ids[47]]);
   });
   await check(`${name}: a backslash in the query finds the escaped text`, async () => {
-    const hits = await history.search(cwd, 'C:\\Users\\zed', 10);
+    const hits = await find('C:\\Users\\zed', 10);
     assert.deepStrictEqual(hits.map((h) => h.id), [ids[47]]);
   });
   await check(`${name}: words split over lines and spaces match as one space`, async () => {
-    const hits = await history.search(cwd, 'first second words', 10);
+    const hits = await find('first second words', 10);
     assert.deepStrictEqual(hits.map((h) => h.id), [ids[48]]);
   });
   await check(`${name}: one character is not a search`, async () => {
-    assert.deepStrictEqual(await history.search(cwd, 'z', 10), []);
-    assert.deepStrictEqual(await history.search(cwd, '   ', 10), []);
+    assert.deepStrictEqual(await find('z', 10), []);
+    assert.deepStrictEqual(await find('   ', 10), []);
   });
   await check(`${name}: a word nobody said finds nothing`, async () => {
-    assert.deepStrictEqual(await history.search(cwd, 'quokka', 10), []);
+    assert.deepStrictEqual(await find('quokka', 10), []);
+  });
+}
+
+const bigCwd = path.join(home, 'work', 'big.app');
+const bigDir = path.join(home, '.claude', 'projects', bigCwd.replace(/[/.]/g, '-'));
+const BIG_FILES = 8;
+const BIG_BYTES = 15 << 20;
+function writeBig() {
+  fs.mkdirSync(bigDir, { recursive: true });
+  const filler = 'x'.repeat(1 << 20);
+  for (let n = 0; n < BIG_FILES; n++) {
+    const file = path.join(bigDir, `${idOf(1000 + n)}.jsonl`);
+    const fd = fs.openSync(file, 'w');
+    fs.writeSync(fd, `${user('fix the cart')}\n{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"`);
+    for (let i = 0; i < BIG_BYTES / filler.length; i++) fs.writeSync(fd, filler);
+    fs.writeSync(fd, `${WORD}"}]}}\n${said('done')}\n`);
+    fs.closeSync(fd);
+    const t = new Date(Date.now() - (BIG_FILES - n) * 60000);
+    fs.utimesSync(file, t, t);
+  }
+}
+
+async function large(name) {
+  const timed = async (opts) => {
+    const t0 = Date.now();
+    const res = await history.search(bigCwd, WORD, opts);
+    return { ...res, ms: Date.now() - t0 };
+  };
+  let full;
+  await check(`${name}: a word only a tool printed finds nothing across ${BIG_FILES * 15} MB`, async () => {
+    full = await timed({ bytes: Infinity });
+    assert.deepStrictEqual(full.hits, []);
+    assert.strictEqual(full.searched, BIG_FILES);
+    assert.strictEqual(full.left, 0);
+  });
+  await check(`${name}: the default budget searches the newest chats only and counts the ones left out`, async () => {
+    const capped = await timed({});
+    assert.strictEqual(capped.searched, 4);
+    assert.strictEqual(capped.left, BIG_FILES - 4);
+    console.log(`     ${name}: ${capped.ms} ms capped, ${full.ms} ms for all ${BIG_FILES * 15} MB`);
+    assert.ok(capped.ms < full.ms * 0.7, `capped ${capped.ms} ms against ${full.ms} ms`);
+  });
+  await check(`${name}: a newer search stops the older one`, async () => {
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(), Math.max(20, full.ms * 0.1));
+    const stopped = await timed({ bytes: Infinity, signal: ctl.signal });
+    assert.deepStrictEqual(stopped.hits, []);
+    assert.ok(stopped.ms < full.ms * 0.6, `stopped after ${stopped.ms} ms against ${full.ms} ms`);
+  });
+}
+
+async function merging() {
+  const { mergeResults } = require(path.join(ROOT, 'src/main/transcript-search.js'));
+  await check('merge: two folders that share a transcript directory list each chat once, newest first, up to the limit', () => {
+    const hit = (id, at) => ({ id, at, title: id, snippet: id });
+    const twice = [hit('a', 3), hit('b', 2), hit('c', 1)];
+    const merged = mergeResults([
+      { provider: 'claude', project: '/a/b.c', hits: twice, searched: 3, left: 1 },
+      { provider: 'claude', project: '/a/b-c', hits: twice, searched: 3, left: 0 },
+      { provider: 'codex', project: '/a/b.c', hits: [hit('a', 5)], searched: 1, left: 0 },
+    ], 3);
+    assert.deepStrictEqual(merged.results.map((r) => `${r.provider}:${r.id}`), ['codex:a', 'claude:a', 'claude:b']);
+    assert.strictEqual(merged.results[1].project, '/a/b.c');
+    assert.strictEqual(merged.left, 1);
   });
 }
 
@@ -145,18 +217,18 @@ async function codex() {
 
   try {
     await check('codex: an assistant message and a user message are searched', async () => {
-      assert.strictEqual((await codexHistory.search(project, 'editing the config', 10)).length, 1);
-      const hits = await codexHistory.search(project, 'QUOKKA', 10);
+      assert.strictEqual((await codexHistory.search(project, 'editing the config', { limit: 10 })).hits.length, 1);
+      const hits = (await codexHistory.search(project, 'QUOKKA', { limit: 10 })).hits;
       assert.strictEqual(hits.length, 1);
       assert.ok(hits[0].snippet.includes('quokka'), hits[0].snippet);
     });
     await check('codex: reasoning is not a hit', async () => {
-      assert.deepStrictEqual(await codexHistory.search(project, 'Reading the file', 10), []);
+      assert.deepStrictEqual((await codexHistory.search(project, 'Reading the file', { limit: 10 })).hits, []);
     });
     await check('codex: a thread that was written to is read again', async () => {
       write({ updatedAt: 2, asked: 'tune the quokka cache', text: 'Now it says wombat.' });
-      assert.strictEqual((await codexHistory.search(project, 'wombat', 10)).length, 1);
-      assert.deepStrictEqual(await codexHistory.search(project, 'editing the config', 10), []);
+      assert.strictEqual(((await codexHistory.search(project, 'wombat', { limit: 10 })).hits).length, 1);
+      assert.deepStrictEqual((await codexHistory.search(project, 'editing the config', { limit: 10 })).hits, []);
     });
   } finally {
     codexHistory.close();
@@ -164,10 +236,22 @@ async function codex() {
 }
 
 (async () => {
+  writeBig();
   if (rgBin) {
     await withPath(`${bins}${path.delimiter}${realPath}`, async () => {
       fs.rmSync(rgLog, { force: true });
       await suite('with rg');
+      await large('with rg');
+      await withPath(`${slow}${path.delimiter}${realPath}`, async () => {
+        await check('with rg: a newer search kills a ripgrep that is still running', async () => {
+          const ctl = new AbortController();
+          setTimeout(() => ctl.abort(), 100);
+          const t0 = Date.now();
+          const res = await history.search(cwd, WORD, { signal: ctl.signal });
+          assert.deepStrictEqual(res.hits, []);
+          assert.ok(Date.now() - t0 < 2000, `waited ${Date.now() - t0} ms for a ripgrep that was told to stop`);
+        });
+      });
       await check('with rg: ripgrep did the narrowing', () => {
         assert.ok(fs.existsSync(rgLog), 'the rg on PATH was never run');
       });
@@ -178,8 +262,10 @@ async function codex() {
   await withPath(empty, async () => {
     fs.rmSync(rgLog, { force: true });
     await suite('without rg');
+    await large('without rg');
     await check('without rg: nothing ran ripgrep', () => assert.ok(!fs.existsSync(rgLog)));
   });
+  await merging();
   await codex();
 
   fs.rmSync(home, { recursive: true, force: true });

@@ -205,28 +205,38 @@ function deleteSession(cwd, id) {
 
 const SCAN_BATCH = 8;
 const PARSE_BATCH = 4;
+// What one search may read. ripgrep and the Node scan both look at every
+// candidate file in full, and the parse that follows reads each match line by
+// line, so the cost of a search is the size of the transcripts it is given.
+// A word printed by a tool matches files without being a hit, and without a
+// bound one such word cost 4.9 s over 963 MB. The newest chats go first.
+const SEARCH_BYTES = 64 << 20;
+const SEARCH_FILES = 500;
 
+const aborted = (signal) => !!signal?.aborted;
+
+// Null when ripgrep is missing or failed, which sends the caller to the scan.
 // ripgrep exits 1 when nothing matched; that is an answer, not a failure.
-function rgFiles(dir, needle) {
+function rgFiles(files, needle, signal) {
   return new Promise((resolve) => {
-    execFile('rg', ['--no-config', '--no-ignore', '-l', '-i', '-F', '--max-depth', '1', '-g', '*.jsonl', '-e', needle, dir],
-      { env: shellEnv.env(), timeout: 10000, maxBuffer: 8 << 20 },
+    execFile('rg', ['--no-config', '--no-ignore', '-l', '-i', '-F', '-e', needle, '--', ...files],
+      { env: shellEnv.env(), timeout: 10000, maxBuffer: 8 << 20, signal },
       (err, out) => {
         if (err && err.code !== 1) return resolve(null);
-        resolve(String(out).split('\n').filter(Boolean));
+        resolve(new Set(String(out).split('\n').filter(Boolean)));
       });
   });
 }
 
-function fileHas(file, needle) {
+function fileHas(file, needle, signal) {
   return new Promise((resolve) => {
     const stream = fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 1 << 18 });
     let tail = '';
     let found = false;
     stream.on('data', (chunk) => {
       const hay = (tail + chunk).toLowerCase();
-      if (hay.includes(needle)) {
-        found = true;
+      if (aborted(signal) || hay.includes(needle)) {
+        found = !aborted(signal);
         stream.destroy();
         return;
       }
@@ -237,18 +247,44 @@ function fileHas(file, needle) {
   });
 }
 
-async function scanFiles(dir, needle) {
-  let names = [];
-  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return []; }
-  const out = [];
-  for (let i = 0; i < names.length; i += SCAN_BATCH) {
-    const batch = names.slice(i, i + SCAN_BATCH).map((f) => path.join(dir, f));
-    const hits = await Promise.all(batch.map((f) => fileHas(f, needle)));
-    batch.forEach((f, k) => { if (hits[k]) out.push(f); });
+async function scanFiles(files, needle, signal) {
+  const out = new Set();
+  for (let i = 0; i < files.length && !aborted(signal); i += SCAN_BATCH) {
+    const batch = files.slice(i, i + SCAN_BATCH);
+    const hits = await Promise.all(batch.map((f) => fileHas(f, needle, signal)));
+    batch.forEach((f, k) => { if (hits[k]) out.add(f); });
   }
   return out;
 }
 
+// The transcripts of one project, newest first, as many as the budget allows.
+function recent(dir, bytes) {
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return { kept: [], total: 0 }; }
+  const all = [];
+  for (const f of names) {
+    const file = path.join(dir, f);
+    try {
+      const st = fs.statSync(file);
+      if (st.size) all.push({ file, size: st.size, at: st.mtimeMs });
+    } catch { /* deleted since */ }
+  }
+  all.sort((a, b) => b.at - a.at);
+  const kept = [];
+  let used = 0;
+  for (const f of all) {
+    if (kept.length >= SEARCH_FILES) break;
+    if (f.size > bytes) continue;
+    if (used + f.size > bytes) break;
+    kept.push(f);
+    used += f.size;
+  }
+  return { kept, total: all.length };
+}
+
+// What a person or the assistant said on one line. Tool calls, tool output,
+// thinking, subagent traffic and bookkeeping are not what anyone remembers
+// writing, so a word that only appears there is not a hit.
 function saidIn(o) {
   if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
   if (o.type === 'user') return humanText(o) || '';
@@ -258,43 +294,56 @@ function saidIn(o) {
   return Array.isArray(c) ? c.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n') : '';
 }
 
-async function firstHit(file, { q, needle }) {
-  const rl = readline.createInterface({ input: fs.createReadStream(file), crlfDelay: Infinity });
+async function firstHit(file, { q, needle }, signal) {
+  const stream = fs.createReadStream(file);
+  const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
   try {
     for await (const line of rl) {
+      if (aborted(signal)) return null;
       if (!line.toLowerCase().includes(needle)) continue;
       let o;
       try { o = JSON.parse(line); } catch { continue; }
       const snippet = snippetOf(saidIn(o), q);
       if (snippet) return snippet;
     }
-  } catch {}
-  finally { rl.close(); }
+  } catch {} finally {
+    rl.close();
+    stream.destroy();
+  }
   return null;
 }
 
-async function search(cwd, query, limit = 20) {
+/* One hit per chat, newest chat first, at most `limit` of them, out of the
+   newest transcripts that fit in `bytes`. `left` is how many chats were not
+   looked at. A newer search aborts this one through `signal`, which kills the
+   ripgrep child and stops the reads. */
+async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } = {}) {
   const parsed = parseQuery(query);
-  if (!parsed) return [];
-  const dir = projectDir(cwd);
+  const none = { hits: [], searched: 0, left: 0 };
+  if (!parsed) return none;
   await shellEnv.ready();
-  const files = (await rgFiles(dir, parsed.needle)) ?? await scanFiles(dir, parsed.needle);
+  const { kept, total } = recent(projectDir(cwd), bytes);
+  if (!kept.length) return { ...none, left: total };
+  const names = kept.map((f) => f.file);
+  const matched = (await rgFiles(names, parsed.needle, signal)) ?? await scanFiles(names, parsed.needle, signal);
 
-  const dated = [];
-  for (const file of files) {
-    try { dated.push({ file, at: fs.statSync(file).mtimeMs }); } catch {}
-  }
-  dated.sort((a, b) => b.at - a.at);
-
+  const candidates = kept.filter((f) => matched.has(f.file));
   const hits = [];
-  for (let i = 0; i < dated.length && hits.length < limit; i += PARSE_BATCH) {
-    const batch = dated.slice(i, i + PARSE_BATCH);
-    const snippets = await Promise.all(batch.map((d) => firstHit(d.file, parsed)));
-    batch.forEach((d, k) => {
-      if (snippets[k] && hits.length < limit) hits.push({ id: path.basename(d.file, '.jsonl'), at: d.at, snippet: snippets[k] });
+  for (let i = 0; i < candidates.length && hits.length < limit && !aborted(signal); i += PARSE_BATCH) {
+    const batch = candidates.slice(i, i + PARSE_BATCH);
+    const snippets = await Promise.all(batch.map((f) => firstHit(f.file, parsed, signal)));
+    batch.forEach((f, k) => {
+      if (!snippets[k] || hits.length >= limit) return;
+      const title = titleOf(f.file, f.size);
+      hits.push({
+        id: path.basename(f.file, '.jsonl'),
+        title: title ? chatTitle(title).slice(0, 120) : '',
+        at: f.at,
+        snippet: snippets[k],
+      });
     });
   }
-  return hits;
+  return aborted(signal) ? none : { hits, searched: kept.length, left: total - kept.length };
 }
 
 const MAX_MESSAGES = 400;
