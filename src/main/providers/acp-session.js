@@ -142,7 +142,7 @@ class AcpSession extends EventEmitter {
     this.busy = false;
     this.pending = new Map();
     this.openCalls = new Set();
-    this.plans = 0;               // plan updates so far, to give each its own call id
+    this.planSeq = 0;
     this.sessionId = null;
     this.rpc = null;
     this.block = null;
@@ -444,7 +444,7 @@ class AcpSession extends EventEmitter {
       const input = todoInput(update.entries);
       if (!input.todos.length) return;
       this.#close();
-      const id = `plan-${++this.plans}`;
+      const id = `plan-${++this.planSeq}`;
       this.#emit({
         type: 'assistant',
         message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'TodoWrite', input }] },

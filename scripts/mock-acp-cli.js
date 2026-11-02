@@ -24,7 +24,6 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
 const THINK = process.env.MOCK_ACP_THINK === '1';
-// A prompt sends the plan twice, the second with one item ticked off.
 const PLAN = process.env.MOCK_ACP_PLAN === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';

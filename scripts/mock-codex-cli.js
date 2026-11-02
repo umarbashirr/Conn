@@ -8,7 +8,6 @@ const fs = require('fs');
 // to apply the last one.
 const EDITS = process.env.MOCK_CODEX_EDITS === '1';
 const REASON = process.env.MOCK_CODEX_REASON === '1';
-// A turn updates its plan twice, answers, and proposes a plan of its own.
 const PLAN = process.env.MOCK_CODEX_PLAN === '1';
 const readline = require('readline');
 

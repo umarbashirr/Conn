@@ -141,7 +141,7 @@ class CodexSession extends EventEmitter {
     this.block = null;            // { item, kind: 'text' | 'thinking', summaryIndex }: the one block open
     this.streamed = new Set();    // item ids whose text already went out as deltas this turn
     this.openCalls = new Set();
-    this.plans = 0;               // plan updates so far, to give each its own call id
+    this.planSeq = 0;
     this.edits = new Map();       // fileChange item id -> its files, for the row and the approval
     this.usage = null;            // last thread/tokenUsage/updated, thread totals
     this.window = 0;              // how many tokens this model's window holds
@@ -473,7 +473,6 @@ class CodexSession extends EventEmitter {
     });
   }
 
-  // A call that is answered as it is made, so no row is ever left open.
   #settled(id, name, input) {
     this.#tool(id, name, input);
     this.openCalls.delete(id);
@@ -549,9 +548,8 @@ class CodexSession extends EventEmitter {
 
     if (method === 'turn/plan/updated') {
       const input = todoInput((params.plan || []).map((p) => ({ content: p.step, status: p.status })), params.explanation);
-      // An empty list has nothing to draw, and the row from the last update stays.
       if (!input.todos.length) return;
-      return this.#settled(`plan-${params.turnId || this.turnId}-${++this.plans}`, 'TodoWrite', input);
+      return this.#settled(`plan-${params.turnId || this.turnId}-${++this.planSeq}`, 'TodoWrite', input);
     }
 
     /* A turn that went wrong says so twice: this, and then turn/completed with

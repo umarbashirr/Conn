@@ -24,7 +24,6 @@ const SUMMARY = {
   Agent: (i) => i.description,
   Task: (i) => i.description,
   Skill: (i) => i.skill,
-  // The plan is the row's body. Clipped to a line it is the start of a document.
   ExitPlanMode: nothing,
   browser_navigate: (i) => bareUrl(i.url),
   browser_snapshot: nothing,
@@ -83,7 +82,6 @@ export function toolLabel(name) {
   return BROWSER_BY_ROUTE.get(bare.slice('browser_'.length)) ?? bare;
 }
 
-// Codex proposes a plan too, and ExitPlanMode is only Claude's name for it.
 const NAMES = new Map([['ExitPlanMode', 'Proposed plan']]);
 
 // What a person calls it: "Screenshot", not browser_screenshot.

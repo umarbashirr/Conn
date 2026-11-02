@@ -910,7 +910,6 @@ function Item({ item, agent, mark }) {
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
 
-    // A proposed plan is a document, so it opens in full instead of as JSON.
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (
         <div id={`row-${item.id}`}>

@@ -1,6 +1,3 @@
-// The agent's to-do list. Every provider's version arrives as a TodoWrite call
-// (the main process maps Codex and ACP onto that shape), and each call carries
-// the whole list again, so a turn keeps one item and each call replaces it.
 const STATUS = new Set(['pending', 'in_progress', 'completed']);
 
 export function planOf(input) {
@@ -19,7 +16,6 @@ export function planOf(input) {
   return { entries, ...(explanation ? { explanation } : {}) };
 }
 
-// A follow-up message starts a new list, so the id carries the turn it is in.
 export function withPlan(items, { parent, entries, explanation }) {
   const turn = items.findLast((it) => it.kind === 'user' && !it.parent)?.id ?? 'start';
   const id = parent ? `plan:${turn}:${parent}` : `plan:${turn}`;

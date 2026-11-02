@@ -4,8 +4,7 @@
 // the one line above it saying how much of what. An edit that carries a diff
 // breaks the run and keeps its own row, because that diff is something to
 // read. An edit that only names a file is a step, and a stack of those is
-// the same kind of noise as a stack of greps. A proposed plan is the other
-// thing a person is asked to read, so it keeps its row as well.
+// the same kind of noise as a stack of greps.
 import { editHunks } from './diff.js';
 import { toolLabel } from './tools.js';
 

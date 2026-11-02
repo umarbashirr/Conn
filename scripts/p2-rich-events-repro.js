@@ -328,7 +328,6 @@ async function codexReason() {
 const todoCalls = (seen) => toolUses(seen).filter((b) => b.name === 'TodoWrite');
 const statuses = (call) => call.input.todos.map((t) => t.status);
 
-// Each update is a tool_use answered at once, so the row it makes is never open.
 function answeredAtOnce(seen, calls) {
   calls.forEach((call) => {
     const at = seen.findIndex((m) => m.type === 'assistant' && m.message.content.some((b) => b.id === call.id));

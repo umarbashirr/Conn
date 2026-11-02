@@ -543,8 +543,6 @@ export function useAgent() {
         for (const b of msg.message?.content || []) {
           const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
           if (plan) {
-            // Each call carries the whole list, so the turn keeps one row and
-            // the call's own result finds nothing to patch.
             edit(chat, (c) => ({ ...c, items: withPlan(c.items, { parent, ...plan }) }));
           } else if (b.type === 'tool_use') {
             // An Agent call is a container, not a step: its own rows arrive
