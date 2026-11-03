@@ -5,6 +5,7 @@ const http = require('http');
 const os = require('os');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
+const { encodeTicket } = require('../shared/phone-ticket');
 
 const FANOUT = new Set([
   'agent:message',
@@ -21,10 +22,12 @@ const SEND_KEYS = new Set(['op', 'chat', 'text', 'project', 'session', 'nonce'])
 const DECIDE_KEYS = new Set(['op', 'chat', 'id', 'decision', 'input']);
 const AUTH_KEYS = new Set(['op', 'token']);
 
-function idle() {
+function idle(note) {
+  const off = { status: 'off', note };
   return {
     publish() {},
     stop() {},
+    card() { return off; },
   };
 }
 
@@ -134,13 +137,13 @@ function sendAck(chat, nonce, body) {
 async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDecision }) {
   if (packaged) {
     console.log('[conn] mobile gate off');
-    return idle();
+    return idle('Phone link is off in an installed Conn. Run a checkout to use it.');
   }
 
   const plan = portPlan();
   if (plan.invalid) {
     console.log('[conn] mobile gate off');
-    return idle();
+    return idle('Phone link is off.');
   }
 
   const host = process.env.CONN_MOBILE_HOST || '0.0.0.0';
@@ -332,13 +335,43 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
     wss.close();
     server.close();
     console.log('[conn] mobile gate off');
-    return idle();
+    return idle('Phone link is off.');
   }
 
   const lan = lanHost();
   console.log(`[conn] mobile gate listening on ${host}:${bound}`);
   console.log(`[conn] mobile gate token ${token}`);
   if (lan) console.log(`[conn] mobile gate lan ws://${lan}:${bound}`);
+
+  function advertised() {
+    const wildcard = host === '0.0.0.0' || host === '::';
+    const chosen = wildcard ? lanHost() : host;
+    if (!chosen) return null;
+    return chosen.includes(':') ? `[${chosen}]` : chosen;
+  }
+
+  function present(ticket) {
+    return {
+      status: 'ready',
+      ticket: encodeTicket(ticket),
+      lines: [
+        { label: 'Address', value: ticket.url },
+        { label: 'Token', value: ticket.token },
+        { label: 'Folder', value: ticket.project },
+      ],
+    };
+  }
+
+  function card(project) {
+    const dialHost = advertised();
+    if (!dialHost) {
+      return { status: 'off', note: 'This computer has no network address the phone can reach.' };
+    }
+    if (typeof project !== 'string' || project.trim() === '') {
+      return { status: 'off', note: 'Open a folder to put it on the phone link.' };
+    }
+    return present({ url: `ws://${dialHost}:${bound}`, token, project });
+  }
 
   opened = {
     publish(channel, payload) {
@@ -356,6 +389,7 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
       wss.close();
       server.close();
     },
+    card,
   };
   return opened;
 }
