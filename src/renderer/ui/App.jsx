@@ -766,6 +766,7 @@ function Transcript({ items, agent }) {
 
 export function Items({ items, agent, from = 0 }) {
   const { marks, rest } = useMemo(() => attachPerms(items), [items]);
+  const calls = useMemo(() => new Set(rest.filter((it) => it.kind === 'tool').map((it) => it.id)), [rest]);
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
   const sources = useMemo(() => turnSources(rest), [rest]);
@@ -786,7 +787,7 @@ export function Items({ items, agent, from = 0 }) {
       // its conn-in animation.
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
-          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
+          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} calls={calls} /></Row>
           {it === last && footer}
         </Fragment>
       ));
@@ -799,13 +800,13 @@ export function Items({ items, agent, from = 0 }) {
       <Fragment key={g.id}>
         <div className="flex flex-col gap-px">
           <ToolStrip items={done.filter((it) => it.kind === 'tool')}>
-            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
+            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} calls={calls} />)}
           </ToolStrip>
           {/* Keyed, so the row the run is currently on is a new element each
               time the run moves on. Without the key React reconciles the next
               tool call into the last one's markup and the reader inherits
               whatever they had opened on the call before. */}
-          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
+          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} calls={calls} /></Row>
         </div>
         {footer}
       </Fragment>
@@ -957,7 +958,7 @@ function AssistantRow({ item }) {
   );
 }
 
-function Item({ item, agent, mark }) {
+function Item({ item, agent, mark, calls }) {
   const onDecide = agent.decide;
 
   // An agent owns whatever it did, and that opens in a sheet over the chat. Here
@@ -1144,7 +1145,7 @@ function Item({ item, agent, mark }) {
         </div>
       );
     }
-    const preview = permPreview(label, item.input || {});
+    const preview = permPreview(label, item.input || {}, { rowShown: !!item.forId && !!calls?.has(item.forId) });
     return (
       <div
         data-perm-card={item.id}

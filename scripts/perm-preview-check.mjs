@@ -26,3 +26,8 @@ assert.deepEqual(permPreview('Edit', { files }).files, files, 'a Codex patch kee
 assert.equal(permPreview('Read', { file_path: '/a' }), null, 'other tools keep the summary line');
 assert.equal(permPreview('Edit', { file_path: '/a' }), null, 'an edit with nothing to show keeps the summary line');
 console.log('perm-preview-check ok');
+
+assert.equal(permPreview('Edit', { file_path: '/a', old_string: 'x', new_string: 'y' }, { rowShown: true }), null,
+  'an edit whose call row is on screen is not previewed twice');
+assert.equal(permPreview('Bash', { command: 'ls' }, { rowShown: true }).kind, 'command',
+  'a command is still shown in full when its row is on screen, since the row truncates it');

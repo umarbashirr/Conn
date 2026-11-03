@@ -174,15 +174,18 @@ async function main() {
 
     const LONG = Array.from({ length: 30 }, (_, n) => `echo line ${n}`).join('\n');
     const WRITE = Array.from({ length: 40 }, (_, n) => `export const v${n} = ${n};`).join('\n');
+    // An edit asked for with no row of its own here is how a subagent's edit
+    // reaches the main transcript; with its row on screen the row shows the diff.
     const cases = [
-      ['p1', 'Bash', { command: LONG, description: 'Print thirty lines' }],
-      ['p2', 'Edit', { file_path: '/p/a.js', old_string: 'one', new_string: 'two' }],
-      ['p3', 'Write', { file_path: '/p/b.js', content: WRITE }],
-      ['p4', 'Read', { file_path: '/p/c.js' }],
+      ['p1', 'Bash', { command: LONG, description: 'Print thirty lines' }, true],
+      ['p2', 'Edit', { file_path: '/p/a.js', old_string: 'one', new_string: 'two' }, false],
+      ['p3', 'Write', { file_path: '/p/b.js', content: WRITE }, false],
+      ['p4', 'Read', { file_path: '/p/c.js' }, true],
+      ['p5', 'Edit', { file_path: '/p/d.js', old_string: 'three', new_string: 'four' }, true],
     ];
     const shown = {};
-    for (const [id, tool, input] of cases) {
-      await say([call(`t${id}`, tool, input)]);
+    for (const [id, tool, input, row] of cases) {
+      if (row) await say([call(`t${id}`, tool, input)]);
       await ask({ id, tool, input, forId: `t${id}`, agent: null });
       shown[id] = await until(page, () => window.__view(), null, 3000);
       await click(page, 'Allow');
@@ -194,11 +197,12 @@ async function main() {
     check('long-command-scrolls-in-the-card', shown.p1?.scrolls && shown.p1.blockHeight < 300, `height ${shown.p1?.blockHeight}`);
     check('edit-shows-a-diff', shown.p2?.block === 'DIV' && /one/.test(shown.p2.blockText) && /two/.test(shown.p2.blockText), JSON.stringify(shown.p2?.blockText));
     check('write-shows-added-lines', shown.p3?.added >= 40 && shown.p3.scrolls && shown.p3.blockHeight <= 260, `added ${shown.p3?.added} height ${shown.p3?.blockHeight}`);
+    check('edit-with-its-row-on-screen-is-not-previewed-twice', shown.p5 && shown.p5.block === null && /d\.js/.test(shown.p5.summary ?? ''), JSON.stringify(shown.p5));
     check('other-tools-keep-the-summary', shown.p4?.block === null && /c\.js/.test(shown.p4?.summary ?? ''), JSON.stringify(shown.p4));
     check('buttons-name-their-keys', JSON.stringify(shown.p1?.hints) === '["y","a","n"]' && shown.p1.hintsHidden, JSON.stringify(shown.p1?.hints));
     check('buttons-keep-plain-names', JSON.stringify(shown.p1?.names) === '["Allow","Always","Deny"]', JSON.stringify(shown.p1?.names));
     const sent = await main.run('globalThis.__decided');
-    check('answers-still-reach-the-agent', sent.length === 4 && sent.every((d) => d.decision === 'allow'), JSON.stringify(sent));
+    check('answers-still-reach-the-agent', sent.length === cases.length && sent.every((d) => d.decision === 'allow'), JSON.stringify(sent));
     main.ws.close();
   } finally {
     const exited = new Promise((r) => app.once('exit', r));
