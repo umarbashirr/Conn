@@ -164,7 +164,6 @@ const TITLES = [
   ['Bash', 'input-available', 'Running'],
   ['Bash', 'input-streaming', 'Running'],
   ['Bash', 'output-available', 'Ran'],
-  ['Bash', 'output-error', 'Ran'],
   ['Read', 'input-available', 'Reading'],
   ['Read', 'output-available', 'Read'],
   ['Edit', 'input-available', 'Editing'],
@@ -183,6 +182,9 @@ for (const t of TOOLS) {
   for (const state of ['input-available', 'output-available', 'output-error']) {
     assert.equal(toolTitle(t.name, state), t.label, `${t.name} keeps its label "${t.label}" while ${state}`);
   }
+}
+for (const label of ['Bash', 'Edit', 'Write', 'WebFetch']) {
+  assert.equal(toolTitle(label, 'output-error'), toolName(label), `a failed ${label} keeps its name instead of a past-tense verb`);
 }
 assert.equal(toolTitle('ExitPlanMode', 'output-available'), 'Proposed plan', 'a tool with no verb keeps its name');
 assert.equal(toolTitle('create_issue', 'input-available'), 'create_issue', 'an MCP tool with no verb keeps its name');

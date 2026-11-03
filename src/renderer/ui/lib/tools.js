@@ -81,9 +81,10 @@ const DONE = {
 const IN_FLIGHT = new Set(['input-available', 'input-streaming']);
 
 // The word a row leads with. Browser tools are named by what they are, not by
-// a verb, so they never take one.
+// a verb, so they never take one. A failed call keeps its name too: "Ran" or
+// "Edited" in red would claim the work happened.
 export function toolTitle(label, state) {
-  if (label.startsWith('browser_')) return toolName(label);
+  if (label.startsWith('browser_') || state === 'output-error') return toolName(label);
   return (IN_FLIGHT.has(state) ? DOING : DONE)[label] || toolName(label);
 }
 
