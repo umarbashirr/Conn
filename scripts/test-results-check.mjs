@@ -145,3 +145,16 @@ assert.equal(resolveFile('<anonymous>', '/proj'), null, 'an anonymous frame has 
 assert.equal(resolveFile('/projx/a.js', '/proj'), null, 'a sibling folder sharing the prefix is outside');
 
 console.log('test-results-check: ok');
+
+{
+  const v = parseTestRun(fx('vitest-real-fail.txt'));
+  assert.deepEqual([v.runner, ...totals(v)], ['vitest', 4, 2, 1, 1], 'real vitest 5.1 output parses with its totals');
+  const bad = suite(v, 'cart.test.js').tests[0];
+  assert.deepEqual([bad.name, bad.status], ['cart > discount', 'failed'], 'a real vitest failure is named by its path');
+  assert.match(bad.error, /expected 8 to be 7/, 'a real vitest failure carries its assertion');
+
+  const p = parseTestRun(fx('pytest-real-fail.txt'));
+  assert.deepEqual([p.runner, ...totals(p)], ['pytest', 5, 2, 2, 1], 'real pytest 9 output parses with its totals');
+  assert.deepEqual(suite(p, 'test_cart.py').tests.map((t) => t.name), ['test_discount', 'TestCoupon.test_bad'], 'real pytest failures are named');
+  assert.match(suite(p, 'test_cart.py').tests[1].error, /ValueError: bad coupon/, 'a real pytest failure carries its exception');
+}
