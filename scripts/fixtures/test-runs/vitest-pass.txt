@@ -1,0 +1,11 @@
+
+ RUN  v2.1.8 /home/dev/shop
+
+ ✓ src/cart.test.ts (3 tests) 4ms
+ ✓ src/coupon.test.ts (3 tests | 1 skipped) 6ms
+
+ Test Files  2 passed (2)
+      Tests  5 passed | 1 skipped (6)
+   Start at  10:44:02
+   Duration  690ms (transform 38ms, setup 0ms, collect 70ms, tests 10ms, environment 0ms, prepare 98ms)
+

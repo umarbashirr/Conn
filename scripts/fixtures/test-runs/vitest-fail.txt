@@ -1,0 +1,36 @@
+
+ RUN  v2.1.8 /home/dev/shop
+
+ ✓ src/cart.test.ts (3 tests) 4ms
+ ❯ src/coupon.test.ts (3 tests | 1 failed | 1 skipped) 9ms
+   × coupon > applies SAVE10
+     → expected 36 to be 35 // Object.is equality
+   ↓ coupon > rounds tax
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/coupon.test.ts > coupon > applies SAVE10
+AssertionError: expected 36 to be 35 // Object.is equality
+
+- Expected
++ Received
+
+- 35
++ 36
+
+ ❯ src/coupon.test.ts:8:36
+      6|   it('applies SAVE10', () => {
+      7|     const total = 40 - 4;
+      8|     expect(total).toBe(35);
+       |                                    ^
+      9|   });
+ ❯ node_modules/@vitest/runner/dist/chunk-hooks.js:155:11
+ ❯ node_modules/@vitest/runner/dist/chunk-hooks.js:752:26
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 4 passed | 1 skipped (6)
+   Start at  10:42:11
+   Duration  812ms (transform 41ms, setup 0ms, collect 77ms, tests 13ms, environment 0ms, prepare 120ms)
+

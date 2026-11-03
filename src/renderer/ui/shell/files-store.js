@@ -35,7 +35,7 @@ function blank(dir) {
     tree,
     // The file on screen and what main read back for it. `data` is null while
     // the read is out.
-    view: { path: null, data: null },
+    view: { path: null, data: null, line: null },
     search: { query: '', result: null },
     // A folder that changes while its listing is still in flight would
     // otherwise lose that change: main coalesces a burst into one event, so
@@ -266,11 +266,13 @@ let restoreTo = 0;
 
 export const setFileBody = (el) => { body = el; };
 export const restoreScroll = () => { if (body) body.scrollTop = restoreTo; };
+export const scrollToLine = (n) => { body?.querySelectorAll('.line')[n - 1]?.scrollIntoView({ block: 'center' }); };
 
-async function read(st, rel, keepScroll) {
+async function read(st, rel, keepScroll, line = null) {
   restoreTo = keepScroll && body ? body.scrollTop : 0;
 
   st.view.path = rel;
+  st.view.line = line;
   st.view.data = null;
   st.tree.selected = rel;
   touch(st);
@@ -427,10 +429,10 @@ window.connFiles = {
     shown = true;
     ready.then(() => start(current));
   },
-  open(rel) {
+  open(rel, line = null) {
     shown = true;
     // The tree behind the file is listed too, so closing the file leaves you
     // somewhere rather than in an empty pane.
-    ready.then(() => { start(current); read(current, rel, false); });
+    ready.then(() => { start(current); read(current, rel, false, line); });
   },
 };

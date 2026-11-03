@@ -54,6 +54,7 @@ import {
   openFile,
   refreshAll,
   restoreScroll,
+  scrollToLine,
   revealFile,
   setFileBody,
   setQuery,
@@ -289,8 +290,17 @@ function Picture({ src, alt }) {
   );
 }
 
-function Code({ data }) {
+function Code({ data, line }) {
   const [done, setDone] = useState(null);
+  const root = useRef(null);
+
+  // The highlighted markup replaces the plain lines a moment after the file
+  // opens, so the mark goes on whichever of the two is on screen.
+  useLayoutEffect(() => {
+    const el = line ? root.current?.querySelectorAll('.line')[line - 1] : null;
+    el?.setAttribute('data-hit', '');
+    return () => el?.removeAttribute('data-hit');
+  }, [line, done, data]);
 
   useEffect(() => {
     if (data.text.length > HIGHLIGHT_LIMIT || data.lang === 'text') return undefined;
@@ -303,14 +313,14 @@ function Code({ data }) {
 
   // Shiki escapes what it emits, and the only input is the file on disk.
   if (done?.data === data) {
-    return <div className="py-2.5" dangerouslySetInnerHTML={{ __html: done.html }} />;
+    return <div ref={root} className="py-2.5" dangerouslySetInnerHTML={{ __html: done.html }} />;
   }
 
   // The fallback and the Shiki output share a shape, so the line-number rule in
   // the stylesheet works for both. No trailing newline: the line spans are laid
   // out as blocks, so one would show up as an extra empty row under every line.
   return (
-    <div className="py-2.5">
+    <div ref={root} className="py-2.5">
       <pre className="shiki plain">
         <code>
           {data.text.split('\n').map((line, i) => <span key={i} className="line">{line}</span>)}
@@ -344,7 +354,10 @@ function FileBody() {
   const d = s.view.data;
 
   // Back to the line you were reading once a re-read lands.
-  useLayoutEffect(restoreScroll, [s.view.path, d]);
+  useLayoutEffect(() => {
+    restoreScroll();
+    if (s.view.line) scrollToLine(s.view.line);
+  }, [s.view.path, d]);
 
   if (!d) return <p className="p-2.5 font-mono text-[11px] text-muted-foreground">reading…</p>;
 
@@ -379,7 +392,7 @@ function FileBody() {
           {/* An SVG is a picture and a file you edit, so it gets both. */}
           {d.svg && <><Picture src={d.svg} alt={d.name} /><Separator /></>}
           {d.text.length
-            ? <Code data={d} />
+            ? <Code data={d} line={s.view.line} />
             : <p className="p-2.5 font-mono text-[11px] text-muted-foreground">empty file</p>}
         </>
       )}

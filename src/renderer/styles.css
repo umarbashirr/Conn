@@ -925,6 +925,7 @@ kbd {
   text-align: right; color: var(--fg-faint); user-select: none;
 }
 #file-view .shiki .line:hover { background: var(--bg-3); }
+#file-view .shiki .line[data-hit] { background: color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent); }
 /* Wrapped, a long line continues under its own text rather than under the
    line number: the padding makes room for the number and the negative indent
    pulls the first row back over it. */
