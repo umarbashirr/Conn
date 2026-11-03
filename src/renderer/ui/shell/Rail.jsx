@@ -86,10 +86,10 @@ function useRail() {
 const SUB = 'mx-0 ml-4 border-l-0 px-0 pr-0';
 
 // The root font is 13px, so text-xs comes out under 10px. Sizes here are pixels.
-const ROW = 'h-7 text-[12px]';
+const ROW = 'h-9 text-[13px]';
 const NAV = `${ROW} text-sidebar-foreground/80 [&>svg]:size-3.5`;
-const FOOT = 'h-[26px] text-[12px] text-sidebar-foreground/60 [&>svg]:size-3.5';
-const GROUP_LABEL = 'h-7 font-normal text-[11px] text-muted-foreground';
+const FOOT = 'h-8 text-[13px] text-sidebar-foreground/60 [&>svg]:size-3.5';
+const GROUP_LABEL = 'h-8 font-normal text-[12px] text-muted-foreground';
 const GROUP_ACTION = 'top-3 text-sidebar-foreground/60 hover:text-sidebar-foreground [&>svg]:size-3.5';
 
 const LINE_TONE = {
@@ -98,7 +98,7 @@ const LINE_TONE = {
   finished: 'text-muted-foreground',
 };
 
-const TALL = 'h-[40px] items-start py-1';
+const TALL = 'h-[46px] items-start py-1.5';
 const TALL_ACTION = 'peer-data-[size=default]/menu-button:top-0.5';
 
 function Row({ chat, current, onDelete, onRename }) {
@@ -303,12 +303,12 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
             ::before lays the tint back over it: opaque, and the same colour as
             the rail around it. */}
         <div
-          className="group/head sticky top-0 z-10 flex h-7 items-center gap-1 rounded-md bg-background pr-1 pl-2
+          className="group/head sticky top-0 z-10 flex h-9 items-center gap-1 rounded-md bg-background pr-1 pl-2
             before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-sidebar before:transition-colors hover:before:bg-sidebar-accent">
           <CollapsibleTrigger
             title={folder.dir}
             className={cn(
-              'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-[12px] [&>svg]:size-3.5 [&>svg]:shrink-0',
+              'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-[13px] [&>svg]:size-3.5 [&>svg]:shrink-0',
               current ? 'text-sidebar-foreground' : 'text-sidebar-foreground/80',
             )}>
             {open ? <FolderOpenIcon /> : <FolderIcon />}

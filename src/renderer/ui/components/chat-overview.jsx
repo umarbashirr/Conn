@@ -22,7 +22,7 @@ const MARGIN_REM = 1;
 const COLLAPSED_KEY = 'conn.overview.collapsed';
 
 // Every row in every section is this one shape, so the panel reads as a list.
-const ROW = 'flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50';
+const ROW = 'flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50';
 const ICON = 'size-3.5 shrink-0 opacity-70';
 
 // ------------------------------------------------------------------- facts
@@ -90,7 +90,7 @@ const Label = ({ children, count }) => (
 
 function Header({ name, branch, action }) {
   return (
-    <div className="flex h-7 items-center gap-1.5 pr-0.5 pl-2 text-[12px] text-muted-foreground/80">
+    <div className="flex h-8 items-center gap-1.5 pr-0.5 pl-2 text-[12px] text-muted-foreground/80">
       <span className="min-w-0 truncate" title={name}>{name}</span>
       {branch && (
         <span className="flex min-w-0 items-center gap-1" title={branch}>
@@ -220,7 +220,7 @@ const SECTIONS = { header: Header, places: Places, prs: Prs, files: Files, backg
 function OverviewContent({ sections, action, onAct = () => {} }) {
   const headed = sections[0]?.kind === 'header';
   return (
-    <div data-slot="overview-content" className="flex flex-col gap-2 p-1">
+    <div data-slot="overview-content" className="flex flex-col gap-4 p-1">
       {!headed && action && <div className="flex justify-end pb-1">{action}</div>}
       {sections.map(({ kind, ...section }) => {
         const Section = SECTIONS[kind];
@@ -235,6 +235,11 @@ function OverviewContent({ sections, action, onAct = () => {} }) {
 }
 
 // ------------------------------------------------------------------- shell
+
+// The chat pane is zoomed to the chat text size, and the panel is chrome like
+// the rail, so it undoes that zoom. Its popover is portalled outside the pane
+// and already unscaled.
+const UNSCALED = { zoom: 'calc(1 / var(--chat-scale, 1))' };
 
 // Below the 38px chat header, and short of the composer at the foot.
 const CORNER = 'absolute top-[52px] right-4 z-10 flex max-h-[calc(100%-52px-9rem)] flex-col';
@@ -266,6 +271,7 @@ export function ChatOverview({ agent }) {
     <div
       ref={anchor}
       data-slot={mode === 'panel' ? 'overview-panel' : undefined}
+      style={UNSCALED}
       className={cn(CORNER, mode === 'panel' && 'conn-rise w-56 overflow-y-auto')}>
       {mode === 'panel' ? (
         <OverviewContent

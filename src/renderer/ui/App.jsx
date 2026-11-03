@@ -669,7 +669,7 @@ export default function App() {
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
-        <ConversationContent data-chat-column className="mx-auto w-full max-w-3xl gap-1.5">
+        <ConversationContent data-chat-column className="mx-auto w-full max-w-3xl gap-2.5">
           {empty ? (
             <>
               <h1 className="pt-6 pb-3 text-center font-medium text-2xl tracking-tight">
@@ -948,7 +948,7 @@ function TurnErrorRow({ item, agent }) {
 function AssistantRow({ item }) {
   const [hot, bind] = useMountOnHover();
   return (
-    <Message from="assistant" aria-busy={item.streaming || undefined} className="relative mt-1.5 w-fit" {...bind}>
+    <Message from="assistant" aria-busy={item.streaming || undefined} className="relative mt-2 w-fit" {...bind}>
       <MessageContent>
         {/* The caret rides the last paragraph while text is still coming.
             Prose that pauses for a second between chunks looks finished
