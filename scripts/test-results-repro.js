@@ -138,8 +138,8 @@ async function main() {
     await run('t_plain', 'git status', 'On branch main\nnothing to commit, working tree clean');
     await until(() => row('t_plain'));
     await tryClick('css=#row-t_plain button');
-    const plain = await until(async () => (await row('t_plain'))?.pres.length === 2 && (await row('t_plain')));
-    check('plain-output-renders-as-before', plain?.pres[1] === 'On branch main\nnothing to commit, working tree clean' && plain.summary === null, J(plain));
+    const plain = await until(async () => (await row('t_plain'))?.pres.length === 1 && (await row('t_plain')));
+    check('plain-output-renders-as-before', plain?.pres[0] === 'On branch main\nnothing to commit, working tree clean' && plain.summary === null, J(plain));
   } finally {
     await stop(s);
   }
