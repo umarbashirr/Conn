@@ -157,6 +157,67 @@ async function sessionsIn(dir) {
   });
 }
 
+const PHONE_MESSAGES = 60;
+const PHONE_TEXT = 4000;
+// The gate closes a frame larger than 1MB, so the messages stop short of that.
+const PHONE_BYTES = 700_000;
+
+function phoneBlock(block) {
+  if (!block || typeof block !== 'object') return block;
+  if (block.type === 'image') return { type: 'text', text: '[image]' };
+  let next = block;
+  if (typeof block.text === 'string' && block.text.length > PHONE_TEXT) {
+    next = { ...next, text: `${block.text.slice(0, PHONE_TEXT)}\n…` };
+  }
+  if (typeof block.thinking === 'string' && block.thinking.length > PHONE_TEXT) {
+    next = { ...next, thinking: `${block.thinking.slice(0, PHONE_TEXT)}\n…` };
+  }
+  if (typeof block.content === 'string' && block.content.length > PHONE_TEXT) {
+    next = { ...next, content: `${block.content.slice(0, PHONE_TEXT)}\n…` };
+  }
+  if (Array.isArray(block.content)) {
+    next = { ...next, content: block.content.map(phoneBlock) };
+  }
+  return next;
+}
+
+function phoneMessages(messages) {
+  const tail = Array.isArray(messages) ? messages.slice(-PHONE_MESSAGES) : [];
+  const mapped = tail.map((msg) => {
+    if (!msg || typeof msg !== 'object' || !msg.message || !Array.isArray(msg.message.content)) return msg;
+    return { ...msg, message: { ...msg.message, content: msg.message.content.map(phoneBlock) } };
+  });
+  while (mapped.length > 1 && JSON.stringify(mapped).length > PHONE_BYTES) mapped.shift();
+  return mapped;
+}
+
+async function listChatsForPhone(dir) {
+  const sessions = await sessionsIn(dir);
+  return {
+    folder: path.basename(dir) || dir,
+    chats: sessions.map((session) => ({
+      id: session.id,
+      title: typeof session.title === 'string' && session.title.trim() !== '' ? session.title : 'Chat',
+      at: typeof session.at === 'number' ? session.at : 0,
+      provider: session.provider,
+    })),
+  };
+}
+
+async function transcriptForPhone(dir, id, provider) {
+  const row = (registry?.all() || []).find((candidate) => candidate.id === provider && candidate.history);
+  let history = row?.history;
+  if (!history) {
+    await sessionsIn(dir);
+    history = ownerOf(id);
+  }
+  if (!history || typeof history.readSession !== 'function') {
+    return { error: 'No transcript for that chat.' };
+  }
+  const read = await history.readSession(dir, id, { limit: PHONE_MESSAGES });
+  return { id, messages: phoneMessages(read && read.messages) };
+}
+
 const rememberModel = (p, model) => {
   const key = rowOf(p)?.modelKey;
   if (key) settings.patch({ agent: { [key]: model || '' } });
@@ -2144,6 +2205,8 @@ app.whenReady().then(async () => {
     knownProject: known,
     deliverTurn,
     deliverDecision,
+    listChats: listChatsForPhone,
+    readTranscript: transcriptForPhone,
   });
   registerIpc();
   await createWindow();
