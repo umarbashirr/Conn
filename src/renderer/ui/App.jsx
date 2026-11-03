@@ -34,6 +34,8 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
+import { permPreview } from '@/lib/perm-preview';
+import { KeyHint, PermPreview } from '@/components/perm-preview';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
@@ -1142,6 +1144,7 @@ function Item({ item, agent, mark }) {
         </div>
       );
     }
+    const preview = permPreview(label, item.input || {});
     return (
       <div
         data-perm-card={item.id}
@@ -1171,9 +1174,11 @@ function Item({ item, agent, mark }) {
           <span id={permTitleId(item.id)} className="text-[13px]">
             {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}
           </span>
-          <span className="truncate font-mono text-muted-foreground text-xs">
-            {toolSummary(label, item.input)}
-          </span>
+          {preview?.kind !== 'command' && (
+            <span className="truncate font-mono text-muted-foreground text-xs">
+              {toolSummary(label, item.input)}
+            </span>
+          )}
           {/* Why this one stopped when the mode lets other calls through. */}
           {item.reason && (
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
@@ -1182,11 +1187,12 @@ function Item({ item, agent, mark }) {
             {/* Focus lands here from a script, which Chromium leaves without a
                 focus-visible ring after a mouse click, and a click on it
                 answers the card anyway. */}
-            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
+            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} aria-label="Allow" aria-keyshortcuts="y" onClick={() => onDecide(item.id, 'allow')}>Allow<KeyHint>y</KeyHint></Button>
+            <Button size="sm" variant="outline" className="h-7" aria-label="Always" aria-keyshortcuts="a" onClick={() => onDecide(item.id, 'always')}>Always<KeyHint>a</KeyHint></Button>
+            <Button size="sm" variant="ghost" className="h-7" aria-label="Deny" aria-keyshortcuts="n" onClick={() => onDecide(item.id, 'deny')}>Deny<KeyHint>n</KeyHint></Button>
           </div>
         </div>
+        {preview && <PermPreview preview={preview} />}
       </div>
     );
   }
