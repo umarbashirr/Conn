@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore, type ReactElement } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { attachLive, decidePerm, sendTurn } from './conn-live';
+import { attachLive, decidePerm, refreshChats, requestTranscript, sendTurn } from './conn-live';
 import { layout, zinc } from './theme/zinc';
 
 declare const sessionBrand: unique symbol;
@@ -111,6 +111,7 @@ type Session = {
   readonly at: number;
   readonly provider: string;
   readonly project: string;
+  readonly resume: string | null;
 };
 
 type ChatState = {
@@ -131,9 +132,19 @@ type ChatEvent =
   | { readonly type: 'draft'; readonly text: string }
   | { readonly type: 'send' };
 
+export type CatalogChat = {
+  readonly id: SessionId;
+  readonly title: string;
+  readonly at: number;
+  readonly provider: string;
+  readonly resume: string;
+};
+
 export type LiveEvent =
   | { readonly type: 'upsert'; readonly session: SessionId; readonly item: LiveItem }
-  | { readonly type: 'decide'; readonly session: SessionId; readonly itemId: ItemId; readonly verdict: PermVerdict };
+  | { readonly type: 'decide'; readonly session: SessionId; readonly itemId: ItemId; readonly verdict: PermVerdict }
+  | { readonly type: 'catalog'; readonly folder: string; readonly chats: readonly CatalogChat[] }
+  | { readonly type: 'transcript'; readonly session: SessionId; readonly messages: readonly unknown[] };
 
 export type SessionRow = {
   readonly id: SessionId;
@@ -188,10 +199,6 @@ const SEEDED_AT = Date.now();
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-const id1 = sessionId('s1');
-const id2 = sessionId('s2');
-const id3 = sessionId('s3');
-
 function userItem(id: string, text: string): UserItem {
   return { id: itemId(id), kind: 'user', parent: null, text };
 }
@@ -210,36 +217,14 @@ function toolItem(
   return { id: itemId(id), kind: 'tool', parent: null, name, state, input, output };
 }
 
-function noteItem(id: string, text: string, flags: { error?: true; ended?: true }): NoteItem {
-  return { id: itemId(id), kind: 'note', parent: null, text, ...flags };
-}
-
 const INITIAL: ChatState = {
   labeledAt: SEEDED_AT,
-  seq: 4,
+  seq: 1,
   activeId: null,
   query: '',
-  sessions: [
-    { id: id1, title: 'Zinc tokens', at: SEEDED_AT - 3_600_000, provider: 'Claude', project: 'conn' },
-    { id: id2, title: 'Empty draft', at: SEEDED_AT - 86_400_000, provider: 'Codex', project: 'conn' },
-    { id: id3, title: 'Field notes', at: SEEDED_AT - 600_000, provider: 'Claude', project: 'notes' },
-  ],
-  itemsBySession: {
-    [id1]: [
-      userItem('s1-u', 'Where do the zinc colors live?'),
-      assistantItem('s1-a', 'In the desktop dark theme, ground is #141414.'),
-      toolItem('s1-t', 'Read', 'output-available', { file_path: 'src/renderer/styles.css' }, '--background: 0 0% 8%'),
-      noteItem('s1-n', 'done in 1.2s', { ended: true }),
-    ],
-    [id2]: [],
-    [id3]: [
-      userItem('s3-u', 'Summarize the open thread'),
-      assistantItem('s3-a', 'Two notes, one failed lookup.'),
-      toolItem('s3-t', 'Grep', 'output-error', { pattern: 'zinc' }, 'permission denied'),
-      noteItem('s3-n', 'could not read the index', { error: true }),
-    ],
-  },
-  draftBySession: { [id1]: '', [id2]: '', [id3]: '' },
+  sessions: [],
+  itemsBySession: {},
+  draftBySession: {},
 };
 
 function validate(state: ChatState): void {
@@ -394,12 +379,7 @@ function openSession(state: ChatState, id: SessionId): ChatState {
 
 function withClock(state: ChatState, now: number): ChatState {
   if (now === state.labeledAt) return state;
-  const shift = now - state.labeledAt;
-  return {
-    ...state,
-    labeledAt: now,
-    sessions: state.sessions.map((session) => ({ ...session, at: session.at + shift })),
-  };
+  return { ...state, labeledAt: now };
 }
 
 function startChat(state: ChatState, now: number): ChatState {
@@ -422,7 +402,7 @@ function startChat(state: ChatState, now: number): ChatState {
     activeId: id,
     sessions: [
       ...clocked.sessions,
-      { id, title: NEW_TITLE, at: now, provider: '', project: DRAFT_PROJECT },
+      { id, title: NEW_TITLE, at: now, provider: '', project: DRAFT_PROJECT, resume: null },
     ],
     itemsBySession: { ...clocked.itemsBySession, [id]: [] },
     draftBySession: { ...clocked.draftBySession, [id]: '' },
@@ -484,7 +464,7 @@ function ensureSession(state: ChatState, session: SessionId, now: number): ChatS
     ...state,
     sessions: [
       ...state.sessions,
-      { id: session, title: NEW_TITLE, at: now, provider: 'Claude', project: DRAFT_PROJECT },
+      { id: session, title: NEW_TITLE, at: now, provider: 'Claude', project: DRAFT_PROJECT, resume: null },
     ],
     itemsBySession: { ...state.itemsBySession, [session]: [] },
     draftBySession: { ...state.draftBySession, [session]: '' },
@@ -514,12 +494,155 @@ function markPerm(state: ChatState, session: SessionId, target: ItemId, verdict:
   return { ...state, itemsBySession: { ...state.itemsBySession, [session]: next } };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function visibleText(raw: string): string {
+  const kept = raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+  const flat = kept.replace(/\s+/g, ' ').trim();
+  if (flat === '') return '';
+  if (/^<(command-name|command-message|command-args|local-command|bash-input|bash-stdout|bash-stderr|user-prompt|ide_)/.test(flat)) {
+    return '';
+  }
+  if (/^(Caveat|\[Request interrupted)/.test(flat)) return '';
+  return kept;
+}
+
+function blocksOf(message: Record<string, unknown>): Record<string, unknown>[] {
+  const content = message.content;
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
+  if (!Array.isArray(content)) return [];
+  return content.filter(isRecord);
+}
+
+function replayToolText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const part of content) {
+    if (typeof part === 'string') parts.push(part);
+    else if (isRecord(part) && typeof part.text === 'string') parts.push(part.text);
+  }
+  return parts.join('\n');
+}
+
+function itemsFromMessages(messages: readonly unknown[]): Item[] {
+  const items: Item[] = [];
+  const tools = new Map<string, number>();
+  let n = 0;
+  for (const raw of messages) {
+    if (!isRecord(raw) || !isRecord(raw.message)) continue;
+    const blocks = blocksOf(raw.message);
+    const uuid = typeof raw.uuid === 'string' && raw.uuid !== '' ? raw.uuid : '';
+    if (raw.type === 'user') {
+      const text = visibleText(blocks
+        .filter((block) => block.type === 'text' && typeof block.text === 'string')
+        .map((block) => block.text)
+        .join('\n'));
+      if (text !== '') items.push(userItem(uuid || `user:${n}`, text));
+      for (const block of blocks) {
+        if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+        const index = tools.get(block.tool_use_id);
+        if (index === undefined) continue;
+        const current = items[index];
+        if (current === undefined || current.kind !== 'tool') continue;
+        const failed = block.is_error === true;
+        items[index] = {
+          ...current,
+          state: failed ? 'output-error' : 'output-available',
+          output: replayToolText(block.content),
+        };
+      }
+    } else if (raw.type === 'assistant') {
+      let blockAt = 0;
+      for (const block of blocks) {
+        const id = uuid !== '' ? `${uuid}:${blockAt}` : `m:${n}:${blockAt}`;
+        if (block.type === 'text' && typeof block.text === 'string') {
+          const text = visibleText(block.text);
+          if (text !== '') items.push(assistantItem(id, text));
+        } else if (block.type === 'thinking' && typeof block.thinking === 'string' && block.thinking.trim() !== '') {
+          items.push({ id: itemId(id), kind: 'reasoning', parent: null, text: block.thinking });
+        } else if (block.type === 'tool_use') {
+          const toolId = typeof block.id === 'string' && block.id !== '' ? block.id : id;
+          const name = typeof block.name === 'string' && block.name !== '' ? block.name : 'tool';
+          const input = isRecord(block.input) ? block.input : {};
+          tools.set(toolId, items.length);
+          items.push(toolItem(toolId, name, 'input-available', input, ''));
+        }
+        blockAt += 1;
+      }
+    }
+    n += 1;
+  }
+  return items;
+}
+
+function keptMaps(
+  state: ChatState,
+  sessions: readonly Session[],
+): Pick<ChatState, 'itemsBySession' | 'draftBySession'> {
+  const itemsBySession: Record<string, readonly Item[]> = {};
+  const draftBySession: Record<string, string> = {};
+  for (const session of sessions) {
+    itemsBySession[session.id] = state.itemsBySession[session.id] ?? [];
+    draftBySession[session.id] = state.draftBySession[session.id] ?? '';
+  }
+  return { itemsBySession, draftBySession };
+}
+
+function applyCatalog(state: ChatState, event: Extract<LiveEvent, { type: 'catalog' }>, now: number): ChatState {
+  const folder = event.folder.trim() === '' ? 'Conn' : event.folder;
+  const remote: Session[] = [];
+  const seen = new Set<string>();
+  for (const chat of event.chats) {
+    if (seen.has(chat.id) || chat.resume.trim() === '' || chat.title.trim() === '') continue;
+    seen.add(chat.id);
+    remote.push({
+      id: chat.id,
+      title: chat.title,
+      at: chat.at,
+      provider: chat.provider,
+      project: folder,
+      resume: chat.resume,
+    });
+  }
+  const local = state.sessions.filter((session) => session.project === DRAFT_PROJECT && !seen.has(session.id));
+  const sessions = [...remote, ...local];
+  const kept = new Set(sessions.map((session) => session.id));
+  const activeId = state.activeId !== null && kept.has(state.activeId) ? state.activeId : null;
+  return {
+    ...state,
+    labeledAt: now,
+    activeId,
+    sessions,
+    ...keptMaps(state, sessions),
+  };
+}
+
+function applyTranscript(state: ChatState, event: Extract<LiveEvent, { type: 'transcript' }>): ChatState {
+  if (!state.sessions.some((session) => session.id === event.session)) return state;
+  const replayed = itemsFromMessages(event.messages);
+  const said = new Set(replayed.filter((item) => item.kind === 'user').map((item) => item.text));
+  const pending = (state.itemsBySession[event.session] ?? []).filter((item) => (
+    item.kind === 'user' && !said.has(item.text)
+  ));
+  return {
+    ...state,
+    itemsBySession: { ...state.itemsBySession, [event.session]: [...replayed, ...pending] },
+  };
+}
+
 function reduceLive(state: ChatState, event: LiveEvent, now: number): ChatState {
   switch (event.type) {
     case 'upsert':
       return upsertItem(state, event.session, event.item, now);
     case 'decide':
       return markPerm(state, event.session, event.itemId, event.verdict);
+    case 'catalog':
+      return applyCatalog(state, event, now);
+    case 'transcript':
+      return applyTranscript(state, event);
     default: {
       const _never: never = event;
       return _never;
@@ -547,6 +670,10 @@ function dispatch(event: ChatEvent): void {
 
 function applyLive(event: LiveEvent): void {
   commit(reduceLive(state, event, Date.now()));
+}
+
+export function acceptLive(event: LiveEvent): void {
+  applyLive(event);
 }
 
 attachLive(applyLive);
@@ -580,9 +707,12 @@ export function peekScreen(): Screen {
 export const chat = {
   back(): void {
     dispatch({ type: 'back' });
+    refreshChats();
   },
   open(id: SessionId): void {
+    const loaded = (state.itemsBySession[id]?.length ?? 0) > 0;
     dispatch({ type: 'open', id });
+    if (!loaded) requestTranscript(id);
   },
   newChat(): void {
     dispatch({ type: 'new-chat' });

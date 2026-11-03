@@ -15,18 +15,17 @@ The first screen is the session list. Sessions are grouped under their project n
 
 The chat screen shows the transcript for the session you open. Type a message and press the send button. The app appends your line and clears the field. Pressing send with an empty field does nothing. Suggestion chips on an empty transcript copy their text into the field.
 
-The ground color is `#141414`. This build reads fixture transcripts.
+The ground color is `#141414`. After the phone scans a ticket, the list is the chats for that folder. Opening a row loads its transcript. A new chat still sends on the folder that was scanned.
 
 ## Point the phone at the desktop gate
 
 The phone sends a turn to unpackaged Conn and draws the reply in the chat you sent from.
 
 1. Start unpackaged Conn with a project folder already open.
-2. Read the main-process log. It prints the bind address, the token, and a `ws://` URL when the machine has a LAN address.
-3. Paste that URL into `GATE_URL`, the token into `GATE_TOKEN`, and the open folder's absolute path into `GATE_PROJECT`. Those constants are at the top of `src/conn-live.ts`.
-4. From this folder, run `npm start` and open the project in Expo Go. A phone on another machine needs the LAN URL. A simulator on the desktop machine can use `ws://127.0.0.1` and the port from the log.
-5. Open **Zinc tokens** and send. That fixture's id is `s1`, and the phone sends `s1` as the desktop chat key. Or press **New chat** and send from there. The new row's id is the chat key, and the reply is written into that same row.
-6. A permission card's **Allow**, **Always**, and **Deny** buttons mark the card and send the decision to the desktop.
+2. Open Customize, then Phone, and scan the code or paste it into the phone. The ticket names the folder that was focused.
+3. From this folder, run `npm start` and open the project in Expo Go. A phone on another machine needs the LAN URL.
+4. The session list fills from the folder on the ticket. Open a row to load its transcript, or press **New chat** and send from there. The reply is written into that same row. A new chat sends on the folder that was scanned.
+5. A permission card's **Allow**, **Always**, and **Deny** buttons mark the card and send the decision to the desktop.
 
 `CONN_MOBILE_PORT` chooses the port. When it is unset, Conn tries `4777` and then an ephemeral port. `CONN_MOBILE_TOKEN` chooses the token. `CONN_MOBILE_HOST` chooses the bind address, which otherwise is `0.0.0.0`. A packaged app does not open the gate.
 

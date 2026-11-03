@@ -27,7 +27,7 @@ npx expo-doctor             # diagnose dependency and config issues
 
 - Entry: `App.tsx` → `SafeAreaProvider` → `Shell` → sessions or chat.
 - Domain: one store in `src/chat.tsx` (`useScreen`, `chat` intents, `ChatItemView`).
-- Mock fixtures only until a live adapter lands. Pairing / remote agent is the next functionality slice.
+- The session list comes from the desktop folder on the scanned ticket. Opening a row loads that transcript. A new chat sends on the scanned folder.
 
 ## When adding screens
 
