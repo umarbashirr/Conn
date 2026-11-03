@@ -5,7 +5,7 @@ import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon,
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, FileDiffs } from '@/components/diff-view';
-import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
+import { InputFields, InputFold, PermMark, ToolOutput, ToolRow, ToolStrip } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
@@ -1058,7 +1058,7 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           {failed && text && <ToolOutput text={text} error className="mt-0" />}
-          {!failed && <Pre>{JSON.stringify(item.input, null, 2)}</Pre>}
+          {!failed && <InputFields input={item.input} />}
           {recording && (
             <video
               controls
