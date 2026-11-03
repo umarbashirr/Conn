@@ -6,6 +6,7 @@ const { BrowserPane, normalizeUrl } = require('./browser');
 const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
+const { startMobileGate } = require('./mobile-gate');
 const { runTool, TAB_TOOLS } = require('./tools');
 const { createTabRouter } = require('./tab-router');
 const { AgentSession, SHOT_NOTE } = require('./agent');
@@ -55,6 +56,7 @@ const HOME_URL = 'about:blank';
 const isDev = process.argv.includes('--dev');
 
 let win = null;
+let mobileGate = { publish() {}, stop() {} };
 let tray = null;
 // One preview per preview tab. The right column is a strip of tabs and a folder
 // can have several previews open at once, so the tab is what a page belongs to;
@@ -255,6 +257,7 @@ function stopProject(dir) {
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  mobileGate.publish(channel, payload);
 }
 
 // `project` is whose preview this is about. Opening it brings that folder
@@ -1128,6 +1131,26 @@ function shareLive(dir, name) {
     : a.addMcpServer(runtime, { type: 'stdio', ...launch }))));
 }
 
+async function deliverTurn({ chat, text, images, project, session, provider }) {
+  try {
+    const agent = await ensureAgent({
+      chat,
+      resume: session || null,
+      project,
+      provider,
+    });
+    const forkAt = agent.send(text, images);
+    return { ok: true, sessionId: agent.sessionId || null, ...(forkAt && { forkAt }) };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+function deliverDecision({ chat, id, decision, input }) {
+  if (settleBridge(id, decision)) return true;
+  return sessions.get(chat)?.decide(id, decision, input) === true;
+}
+
 function registerIpc() {
   ipcMain.handle('bridge:info', () => ({
     url: bridge.url,
@@ -1220,19 +1243,14 @@ function registerIpc() {
   // `session` is what the chat was last known as. A chat parked while idle has
   // no session under it any more, so the first message back resumes that
   // transcript rather than opening a second one beside it.
-  ipcMain.handle('agent:send', async (_e, { chat, session, text, images, project, provider: on }) => {
-    let a;
-    try {
-      a = await ensureAgent({ chat, resume: session, project, provider: on });
-    } catch (e) {
-      // Mostly one thing: no claude on this machine. The panel prints this in
-      // the chat, and an IPC rejection would bury it under Electron's own
-      // wrapper text.
-      return { error: e.message };
-    }
-    const forkAt = a.send(text, images);
-    return { ok: true, sessionId: a.sessionId, ...(forkAt && { forkAt }) };
-  });
+  ipcMain.handle('agent:send', (_e, { chat, session, text, images, project, provider: on }) => deliverTurn({
+    chat,
+    text,
+    images,
+    project,
+    session,
+    provider: on,
+  }));
   ipcMain.handle('agent:rewind-files', async (_e, { chat, session, uuid, project, provider: on, dryRun } = {}) => {
     const live = sessions.get(chat);
     const up = live && !live.closed;
@@ -1810,8 +1828,7 @@ function registerIpc() {
     return { ok: true, sessionId: a.sessionId || id };
   });
   ipcMain.on('agent:decide', (_e, { chat, id, decision, input }) => {
-    if (settleBridge(id, decision)) return;
-    sessions.get(chat)?.decide(id, decision, input);
+    deliverDecision({ chat, id, decision, input });
   });
   const heldUntilClosed = new Set();
   ipcMain.on('agent:notify', (_e, { chat, title, body }) => {
@@ -2113,6 +2130,12 @@ app.whenReady().then(async () => {
     } : {}),
   });
   await bridge.start();
+  mobileGate = await startMobileGate({
+    packaged: app.isPackaged,
+    knownProject: known,
+    deliverTurn,
+    deliverDecision,
+  });
   registerIpc();
   await createWindow();
   console.log(`[conn] bridge listening on ${bridge.url}`);
@@ -2138,6 +2161,7 @@ app.on('before-quit', () => {
   stopAllChats();
   mcpRegistry.stopSignIns();
   bridge?.stop();
+  mobileGate.stop();
   AppServer.closeAll();
   AcpRpc.closeAll();
   for (const row of registry?.all() || []) row.history?.close?.();

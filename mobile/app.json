@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Conn",
+    "slug": "conn",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "conn",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.conn.app"
+    },
+    "android": {
+      "package": "dev.conn.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0D10",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

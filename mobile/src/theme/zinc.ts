@@ -1,0 +1,30 @@
+export const zinc = {
+  ground: '#141414',
+  text: '#EDEDED',
+  muted: '#9E9E9E',
+  faint: '#6B6B6B',
+  border: '#2E2E2E',
+  secondary: '#262626',
+  input: '#1A1A1A',
+  chrome: '#181818',
+  send: '#EDEDED',
+  sendGlyph: '#171717',
+  working: '#47D19F',
+  waiting: '#F7B645',
+  waitingBorder: 'rgba(247, 182, 69, 0.30)',
+  waitingFill: 'rgba(247, 182, 69, 0.07)',
+  finished: '#26D9AF',
+  danger: '#E14747',
+  dangerFill: 'rgba(225, 71, 71, 0.08)',
+} as const;
+
+export const layout = {
+  screen: 16,
+  gap: 8,
+  bubbleX: 14,
+  bubbleY: 9,
+  bubble: 8,
+  composer: 16,
+  composerPad: 10,
+  send: 32,
+} as const;
