@@ -6,7 +6,7 @@
 // lists (jest and vitest name just the failures unless run verbose).
 // A false positive hides output behind a summary that is wrong, so each runner
 // needs its summary line and a second mark that only that runner prints.
-import { stripAnsi } from './stacks.js';
+import { stripAnsi } from './ansi.js';
 
 const TIMING = /\s+\(\d+(?:\.\d+)?\s?m?s\)$/;
 

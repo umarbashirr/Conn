@@ -38,7 +38,6 @@ import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { parseTestRun } from '@/lib/test-runs';
-import { parseAnsi, plainText as ansiText } from '@/lib/ansi';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
 
@@ -979,7 +978,7 @@ function Item({ item, agent, mark }) {
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
-    const run = label === 'Bash' && text ? parseTestRun(ansiText(parseAnsi(text))) : null;
+    const run = label === 'Bash' && text ? parseTestRun(text) : null;
 
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (

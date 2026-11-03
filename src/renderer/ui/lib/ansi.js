@@ -49,6 +49,8 @@ export function parseAnsi(text) {
 
 export const plainText = (spans) => spans.map((s) => s.text).join('');
 
+export const stripAnsi = (text) => plainText(parseAnsi(text));
+
 export function clipSpans(spans, limit) {
   const out = [];
   let left = limit;

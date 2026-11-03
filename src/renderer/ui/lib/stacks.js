@@ -2,9 +2,7 @@
 // file the reader could open, and framework when it sits in node_modules, a
 // node: module, a runner's internals or Python's own libraries. No JSX, so
 // plain node reads the same parser the rows do.
-
-// eslint-disable-next-line no-control-regex
-export const stripAnsi = (text) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+import { stripAnsi } from './ansi.js';
 
 const LOCATION = /^(.*?):(\d+):(\d+)$/;
 const V8_PAREN = /^\s+at (?:(?:async|new) )?(.+?) \((.*?:\d+:\d+|<anonymous>|native|index \d+|node:[^)]*)\)(?:\s*\{)?\s*$/;
