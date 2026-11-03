@@ -57,7 +57,11 @@ const HOME_URL = 'about:blank';
 const isDev = process.argv.includes('--dev');
 
 let win = null;
-let mobileGate = { publish() {}, stop() {} };
+let mobileGate = {
+  publish() {},
+  stop() {},
+  card() { return { status: 'off', note: 'Phone link is off.' }; },
+};
 let tray = null;
 // One preview per preview tab. The right column is a strip of tabs and a folder
 // can have several previews open at once, so the tab is what a page belongs to;
@@ -624,6 +628,7 @@ function closeProject(dir) {
 function announce() {
   refreshMenu();
   send('project:changed', projectInfo());
+  send('phone:card', mobileGate.card(focused));
 }
 
 async function pickFolder(newWindow) {
@@ -1162,6 +1167,7 @@ function registerIpc() {
     node: path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node'),
     root: ROOT,
   }));
+  ipcMain.handle('phone:card', () => mobileGate.card(focused));
 
   // --- window frame ---
   ipcMain.handle('win:state', () => windowState());

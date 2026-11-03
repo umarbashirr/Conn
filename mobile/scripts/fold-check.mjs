@@ -10,12 +10,24 @@ const entry = join(outDir, 'entry.mjs');
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
+const storageStub = join(outDir, 'async-storage.mjs');
+writeFileSync(storageStub, `const mem = new Map();
+export default {
+  getItem: async (key) => (mem.has(key) ? mem.get(key) : null),
+  setItem: async (key, value) => { mem.set(key, String(value)); },
+  removeItem: async (key) => { mem.delete(key); },
+};
+`);
+
 await build({
   entryPoints: [join(root, 'src/conn-live.ts')],
-  outfile: join(outDir, 'conn-live.js'),
+  outfile: join(outDir, 'conn-live.mjs'),
   bundle: true,
   format: 'esm',
   platform: 'neutral',
+  alias: {
+    '@react-native-async-storage/async-storage': storageStub,
+  },
 });
 
 const greeting = 'Hello from Conn';
@@ -25,7 +37,7 @@ writeFileSync(
   entry,
   `
 import assert from 'assert';
-const { attachLive, foldLiveMessage } = await import('./conn-live.js');
+const { attachLive, foldLiveMessage } = await import('./conn-live.mjs');
 
 const greeting = ${JSON.stringify(greeting)};
 const thought = ${JSON.stringify(thought)};

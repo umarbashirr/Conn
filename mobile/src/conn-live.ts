@@ -1,11 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LiveEvent, SessionId } from './chat';
-
-// Paste the ws:// line from the desktop log. 127.0.0.1 reaches a gate on this machine.
-const GATE_URL = 'ws://127.0.0.1:4777';
-// Paste the token printed next to "mobile gate token". It is not part of the url.
-const GATE_TOKEN = '';
-// Absolute path of a folder the unpackaged Conn window already has open.
-const GATE_PROJECT = '';
+import { decodeTicket } from '../../src/shared/phone-ticket.js';
 
 type Upsert = Extract<LiveEvent, { readonly type: 'upsert' }>;
 type Decide = Extract<LiveEvent, { readonly type: 'decide' }>;
@@ -83,6 +78,17 @@ let retry: ReturnType<typeof setTimeout> | null = null;
 let socket: WebSocket | null = null;
 let apply: ((event: LiveEvent) => void) | null = null;
 let lastChat: SessionId | null = null;
+
+const KEY = 'conn.phone.ticket';
+
+export type PhoneStatus = 'pending' | 'empty' | 'bound';
+type Ticket = NonNullable<ReturnType<typeof decodeTicket>>;
+
+let binding: Ticket | null = null;
+let status: PhoneStatus = 'pending';
+let hydrateGen = 0;
+const phoneListeners = new Set<(status: PhoneStatus) => void>();
+let storageTail: Promise<void> = Promise.resolve();
 
 const cli = new Map<string, string>();
 const folds = new Map<string, SessionFold>();
@@ -549,8 +555,25 @@ function onFrame(raw: unknown): void {
   }
 }
 
+function enqueueStorage<T>(op: () => Promise<T>): Promise<T> {
+  const run = storageTail.then(op, op);
+  storageTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+function emitPhone(next: PhoneStatus): void {
+  status = next;
+  for (const cb of phoneListeners) cb(next);
+}
+
+export function onPhone(cb: (status: PhoneStatus) => void): () => void {
+  cb(status);
+  phoneListeners.add(cb);
+  return () => { phoneListeners.delete(cb); };
+}
+
 function flush(): void {
-  if (!authed || !socket || socket.readyState !== WebSocket.OPEN) return;
+  if (!binding || !authed || !socket || socket.readyState !== WebSocket.OPEN) return;
   const ws = socket;
   for (const [key, job] of inflight) {
     if (job.sentOnThisSocket) continue;
@@ -566,7 +589,7 @@ function flush(): void {
       op: 'send',
       chat: job.session,
       text: job.text,
-      project: GATE_PROJECT,
+      project: binding.project,
       session: cliSession,
       nonce: job.nonce,
     }));
@@ -604,16 +627,17 @@ function markUnsent(): void {
 }
 
 function openSocket(): void {
-  if (authFailed) return;
+  if (!binding || authFailed) return;
   if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
   clearRetry();
-  const ws = new WebSocket(GATE_URL);
+  const ticket = binding;
+  const ws = new WebSocket(ticket.url);
   socket = ws;
   authed = false;
   markUnsent();
   ws.onopen = () => {
     if (socket !== ws) return;
-    ws.send(JSON.stringify({ op: 'auth', token: GATE_TOKEN }));
+    ws.send(JSON.stringify({ op: 'auth', token: ticket.token }));
   };
   ws.onmessage = (event: MessageEvent) => {
     if (socket !== ws || typeof event.data !== 'string') return;
@@ -641,7 +665,7 @@ function openSocket(): void {
       wasDown = true;
       if (lastChat) note(lastChat, 'the link to Conn dropped', { error: true, id: 'gate-link' });
     } else if (lastChat) {
-      note(lastChat, 'Conn is not reachable at GATE_URL.', { error: true, id: 'gate-link' });
+      note(lastChat, 'Conn is not reachable.', { error: true, id: 'gate-link' });
     }
     scheduleReconnect();
   };
@@ -655,10 +679,54 @@ export function attachLive(next: (event: LiveEvent) => void): void {
   apply = next;
 }
 
+async function hydrate(): Promise<void> {
+  const gen = ++hydrateGen;
+  const raw = await enqueueStorage(() => AsyncStorage.getItem(KEY));
+  if (gen !== hydrateGen) return;
+  const next = typeof raw === 'string' ? decodeTicket(raw) : null;
+  if (raw && !next) {
+    if (gen !== hydrateGen) return;
+    await enqueueStorage(() => AsyncStorage.removeItem(KEY));
+    if (gen !== hydrateGen) return;
+  }
+  if (gen !== hydrateGen) return;
+  binding = next;
+  emitPhone(next ? 'bound' : 'empty');
+  if (next) openSocket();
+}
+
+function replaceSocket(): void {
+  clearRetry();
+  authFailed = false;
+  const old = socket;
+  socket = null;
+  if (old && old.readyState !== WebSocket.CLOSED) old.close();
+  openSocket();
+}
+
+export function adoptTicket(raw: string): Promise<boolean> {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  const next = decodeTicket(text);
+  if (!next) return Promise.resolve(false);
+  const gen = ++hydrateGen;
+  return enqueueStorage(() => AsyncStorage.setItem(KEY, text)).then(() => {
+    if (gen !== hydrateGen) return false;
+    binding = next;
+    emitPhone('bound');
+    replaceSocket();
+    return true;
+  });
+}
+
 export function connectLive(): void {
+  const first = !started;
   started = true;
   authFailed = false;
-  openSocket();
+  if (first) {
+    void hydrate();
+    return;
+  }
+  if (binding) openSocket();
 }
 
 export function resumeLive(): void {
@@ -677,8 +745,8 @@ export function sendTurn(session: SessionId, text: string): Promise<void> {
   lastChat = session;
   if (!started) return Promise.resolve();
   if (tokenRejected(session)) return Promise.resolve();
-  if (GATE_PROJECT.trim() === '') {
-    note(session, 'Set GATE_PROJECT to a folder Conn has open.', { error: true, id: 'gate-project' });
+  if (!binding) {
+    note(session, 'Scan the code in Conn on your computer.', { error: true, id: 'gate-project' });
     return Promise.resolve();
   }
   inflight.set(session, {

@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('conn', {
     onChanged: on('project:changed'),
   },
 
+  phone: {
+    card: () => ipcRenderer.invoke('phone:card'),
+    onCard: on('phone:card'),
+  },
+
   term: {
     create: (opts) => ipcRenderer.invoke('term:create', opts),
     input: (id, data) => ipcRenderer.send('term:input', { id, data }),

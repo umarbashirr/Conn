@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
   InfoIcon, KeyboardIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
-  RefreshCwIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
+  RefreshCwIcon, SmartphoneIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
+import { toQR } from 'toqr';
 
 import { MessageResponse } from '@/components/ai-elements/message';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -39,6 +40,7 @@ export const SETTINGS_SECTIONS = [
   ['keyboard', 'Keyboard', KeyboardIcon],
   ['updates', 'Updates', DownloadIcon],
   ['startup', 'Startup', PowerIcon],
+  ['phone', 'Phone', SmartphoneIcon],
   ['about', 'About', InfoIcon],
 ];
 
@@ -887,6 +889,63 @@ function Startup({ settings, set }) {
   );
 }
 
+function PhoneQr({ text }) {
+  const { size, d } = useMemo(() => {
+    const bits = toQR(text);
+    const side = Math.round(Math.sqrt(bits.length));
+    let path = '';
+    for (let y = 0; y < side; y++) {
+      for (let x = 0; x < side; x++) {
+        if (bits[y * side + x]) path += `M${x},${y}h1v1h-1z`;
+      }
+    }
+    return { size: side, d: path };
+  }, [text]);
+
+  // Scanners need a white quiet zone around the finder patterns even in a dark theme.
+  return (
+    <div className="py-4">
+      <svg
+        viewBox={`-4 -4 ${size + 8} ${size + 8}`}
+        shapeRendering="crispEdges"
+        aria-label="Phone connection QR code"
+        className="size-44 rounded-lg border bg-white text-black">
+        <path d={d} fill="currentColor" />
+      </svg>
+    </div>
+  );
+}
+
+function Phone() {
+  const [card, setCard] = useState(null);
+  useEffect(() => {
+    const api = window.conn?.phone;
+    if (!api) return undefined;
+    let dead = false;
+    api.card().then((next) => { if (!dead) setCard(next); }).catch(() => {});
+    const stop = api.onCard((next) => { if (!dead) setCard(next); });
+    return () => { dead = true; stop?.(); };
+  }, []);
+
+  if (!card) return null;
+  if (card.status === 'off') return <Section title="Phone" note={card.note} />;
+  return (
+    <Section title="Phone" note="Scan this with Conn on your phone. A new scan replaces the link.">
+      <PhoneQr text={card.ticket} />
+      <Row label="Code">
+        <Mono>{card.ticket}</Mono>
+        <Button variant="outline" onClick={() => copy(card.ticket)}>Copy</Button>
+      </Row>
+      {card.lines.map((line) => (
+        <Row key={line.label} label={line.label}>
+          <Mono>{line.value}</Mono>
+          <Button variant="outline" onClick={() => copy(line.value)}>Copy</Button>
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
 function About({ updates, reset }) {
   const [paths, setPaths] = useState(null);
   useEffect(() => { window.conn.settings.paths().then(setPaths).catch(() => {}); }, []);
@@ -938,6 +997,7 @@ export function SettingsPanel({ section, ...props }) {
       {section === 'keyboard' && <KeyboardPage {...props} />}
       {section === 'updates' && <Updates {...props} />}
       {section === 'startup' && <Startup {...props} />}
+      {section === 'phone' && <Phone />}
       {section === 'about' && <About {...props} />}
     </>
   );
