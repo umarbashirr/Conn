@@ -601,6 +601,7 @@ export function useAgent() {
           patch(chat, b.tool_use_id, {
             state: b.is_error ? 'output-error' : 'output-available',
             output: b.content,
+            end: Date.now(),
             ...(extra || {}),
           });
         }

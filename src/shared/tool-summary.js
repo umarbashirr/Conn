@@ -20,6 +20,7 @@ const SUMMARY = {
   Glob: (i) => i.pattern,
   Grep: (i) => i.pattern,
   WebFetch: (i) => i.url,
+  WebSearch: (i) => i.query,
   Agent: (i) => i.description,
   Task: (i) => i.description,
   Skill: (i) => i.skill,

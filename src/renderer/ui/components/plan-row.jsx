@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckIcon, ChevronRightIcon, CircleDotIcon, CircleIcon, ListChecksIcon } from 'lucide-react';
 
 import { MessageResponse } from '@/components/ai-elements/message';
 import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
-import { planDone } from '@/lib/plan';
+import { planComplete, planDone } from '@/lib/plan';
 import { cn } from '@/lib/utils';
 
 const MARK = {
@@ -34,8 +34,12 @@ function Entry({ entry }) {
 }
 
 export function PlanRow({ item }) {
-  const [open, setOpen] = useState(true);
   const { entries, explanation } = item;
+  const complete = planComplete(entries);
+  const [open, setOpen] = useState(!complete);
+  // A finished plan folds to its header. Follow that until the reader toggles.
+  const touched = useRef(false);
+  useEffect(() => { if (!touched.current) setOpen(!complete); }, [complete]);
 
   return (
     <div data-plan-row className="rounded-md">
@@ -43,7 +47,7 @@ export function PlanRow({ item }) {
         variant="ghost"
         size="sm"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { touched.current = true; setOpen((v) => !v); }}
         className="h-7 w-full justify-start gap-1.5 px-1.5 font-normal">
         <ChevronRightIcon
           className={cn('size-3 shrink-0 text-muted-foreground/50 transition-transform', open && 'rotate-90')} />
