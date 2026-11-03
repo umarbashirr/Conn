@@ -1784,10 +1784,10 @@ function registerIpc() {
       return { error: e.message };
     }
   });
-  ipcMain.handle('agent:transcript', async (_e, { id, project }) => {
+  ipcMain.handle('agent:transcript', async (_e, { id, project, limit, end }) => {
     const dir = project && known(project) ? project : focusedCwd();
     const h = ownerOf(id);
-    const t = await h.readSession(dir, id);
+    const t = await h.readSession(dir, id, { limit, end });
     // Which agents ran, so a replayed chat draws their rows straight away. The
     // transcripts behind them are only read if someone opens one.
     return { ...t, subagents: h.listSubagents(dir, id) };

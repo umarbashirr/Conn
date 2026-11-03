@@ -11,6 +11,7 @@ const { execFile } = require('child_process');
 const { chatTitle } = require('../shared/chat-title');
 const shellEnv = require('./shell-env');
 const { parseQuery, snippetOf } = require('./transcript-search');
+const { windowOf, MAX_MESSAGES } = require('./transcript-clip');
 
 const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
 
@@ -334,7 +335,6 @@ async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } =
   return aborted(signal) ? none : { hits, searched: kept.length, left: total - kept.length };
 }
 
-const MAX_MESSAGES = 400;
 const MAX_TEXT = 6000;
 const MAX_IMAGES = 12;
 
@@ -370,7 +370,7 @@ function slimBlock(b, budget) {
 }
 
 // Replayable messages for one session, oldest first.
-async function readSession(cwd, id, { whole } = {}) {
+async function readSession(cwd, id, { whole, ...opts } = {}) {
   const file = path.join(projectDir(cwd), `${id}.jsonl`);
   if (!fs.existsSync(file)) throw new Error(`no transcript for session ${id}`);
 
@@ -391,15 +391,15 @@ async function readSession(cwd, id, { whole } = {}) {
     out.push({ type: o.type, message: o.message, at: o.timestamp, uuid: o.uuid, ...failed, ...(agent ? { agent } : {}) });
   }
 
-  if (whole) return { id, truncated: false, messages: out };
+  if (whole) return { id, total: out.length, truncated: false, messages: out };
 
   const budget = { images: MAX_IMAGES };
-  const tail = out.slice(-MAX_MESSAGES);
+  const { messages: tail, ...w } = windowOf(out, opts);
   // Spend the screenshot budget from the newest message backwards: the recent
   // ones are the ones worth looking at.
   const slimmed = [];
   for (let i = tail.length - 1; i >= 0; i--) slimmed[i] = slim(tail[i], budget);
-  return { id, truncated: out.length > tail.length, messages: slimmed };
+  return { id, ...w, messages: slimmed };
 }
 
 const hasToolResult = (o) =>

@@ -172,7 +172,7 @@ contextBridge.exposeInMainWorld('conn', {
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     search: (query) => ipcRenderer.invoke('agent:search', { query }),
-    transcript: (id, project) => ipcRenderer.invoke('agent:transcript', { id, project }),
+    transcript: (id, project, { limit, end } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
     // Marking a chat done. Nothing is deleted: the rail folds it away and the

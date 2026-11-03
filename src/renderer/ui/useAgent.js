@@ -8,6 +8,7 @@ import { chatActivity } from '@/lib/activity';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
+import { rewindow, storedOf, storedWindow, widerLimit } from '@/lib/stored';
 import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
@@ -74,15 +75,19 @@ const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, 
 
 // Stored messages back into items. Used for a whole chat and again for one
 // subagent's transcript, where `parent` is the Agent row they belong under.
-function replay(messages, parent) {
+// A row's id names the stored message it came from, counted from the start of
+// the transcript (`first` is where these messages start), so a message read
+// again in a wider window is the same row and keeps its place under the reader.
+function replay(messages, parent, first = 0) {
   let out = [];
   const own = parent ? `${parent}:` : 'h';
-  for (const m of messages) {
+  for (const [i, m] of messages.entries()) {
+    const id = `${own}${first + i}`;
     const content = m.message?.content;
     const base = parent ? { parent } : {};
     const forkAt = m.uuid ? { forkAt: m.uuid } : {};
     if (typeof content === 'string') {
-      if (m.type === 'user' && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: strip(content), ...forkAt, ...base });
+      if (m.type === 'user' && !parent) out.push({ id, kind: 'user', text: strip(content), ...forkAt, ...base });
       continue;
     }
     if (!Array.isArray(content)) continue;
@@ -90,22 +95,22 @@ function replay(messages, parent) {
     if (m.type === 'assistant') {
       if (m.error && !parent) {
         const turnError = classify.claude({ error: m.error, text: content.map((b) => b.text || '').join('\n') });
-        out.push({ id: `${own}${out.length}`, kind: 'note', ended: true, error: true, text: turnError.message, turnError });
+        out.push({ id, kind: 'note', ended: true, error: true, text: turnError.message, turnError });
         continue;
       }
-      for (const b of content) {
+      for (const [k, b] of content.entries()) {
         const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
         if (plan) out = withPlan(out, { parent, ...plan });
         else if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
-        else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${own}${out.length}`, kind: 'assistant', text: b.text, ...base });
-        else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${own}${out.length}`, kind: 'reasoning', text: b.thinking, ...base });
+        else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${id}.${k}`, kind: 'assistant', text: b.text, ...base });
+        else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${id}.${k}`, kind: 'reasoning', text: b.thinking, ...base });
       }
       continue;
     }
     const said = strip(content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n'));
     // A subagent's first user message is the prompt it was handed, which its
     // row already shows. Its later ones are tool results.
-    if (said && !parent) out.push({ id: `${own}${out.length}`, kind: 'user', text: said, ...forkAt, ...base });
+    if (said && !parent) out.push({ id, kind: 'user', text: said, ...forkAt, ...base });
     for (const b of content) {
       if (b.type !== 'tool_result') continue;
       const i = out.findIndex((n) => n.id === b.tool_use_id);
@@ -130,6 +135,26 @@ function replay(messages, parent) {
     }
   }
   return out;
+}
+
+// A stored chat's window back into items. The agents it ran are named in their
+// own meta files, which is how a replayed row knows its type and where to find
+// its transcript. Their rows draw folded and read nothing until opened.
+function replayStored(t, first) {
+  const byToolUse = new Map((t.subagents || []).map((a) => [a.toolUseId, a]));
+  return replay(t.messages, null, first).map((it) => {
+    const meta = byToolUse.get(it.id);
+    return meta ? {
+      ...it,
+      kind: 'agent',
+      agentId: meta.id,
+      agentType: meta.type,
+      description: meta.description || it.input?.description || '',
+      depth: meta.depth,
+      status: 'done',
+      loaded: false,
+    } : it;
+  });
 }
 
 const editedAfter = (items, at) =>
@@ -173,6 +198,9 @@ const blankChat = (project = null, provider = 'claude', mode = 'ask') => ({
   session: null,
   title: 'New chat',
   items: [],
+  // A chat opened off disk with more stored than was replayed: where on disk
+  // its first items came from. See lib/stored.
+  stored: null,
   busy: false,
   endedUnseen: false,
   // A turn that ended away from the screen, as 'done' or 'error'. Its toast
@@ -929,7 +957,10 @@ export function useAgent() {
       }));
       return;
     }
-    edit(key, (c) => ({ ...c, session: res.sessionId, items: before(c.items, id, res.uuids) }));
+    // The fork renamed every message, so earlier ones read off the old
+    // transcript could not be gone back to. Reopening the fork from the rail
+    // reads its own.
+    edit(key, (c) => ({ ...c, session: res.sessionId, items: before(c.items, id, res.uuids), stored: null }));
     sendTo(key, text, images, { session: res.sessionId });
   }, [edit, sendTo]);
 
@@ -1278,30 +1309,14 @@ export function useAgent() {
     push(chat.key, { id: 'opening', kind: 'note', text: 'opening this chat…' });
     try {
       const t = await conn().agent.transcript(s.id, chat.project);
-      const next = [];
-      if (t.truncated) {
-        next.push({ id: 'trim', kind: 'note', text: `earlier messages trimmed, showing the last ${t.messages.length}` });
-      }
-      next.push(...replay(t.messages, null));
-      // The agents that ran are named in their own meta files, which is how a
-      // replayed row knows its type and where to find its transcript. Their
-      // rows draw folded and read nothing until opened.
-      const byToolUse = new Map((t.subagents || []).map((a) => [a.toolUseId, a]));
-      for (let i = 0; i < next.length; i++) {
-        const meta = byToolUse.get(next[i].id);
-        if (!meta) continue;
-        next[i] = {
-          ...next[i],
-          kind: 'agent',
-          agentId: meta.id,
-          agentType: meta.type,
-          description: meta.description || next[i].input?.description || '',
-          depth: meta.depth,
-          status: 'done',
-          loaded: false,
-        };
-      }
-      edit(chat.key, (c) => ({ ...c, items: next, usage: t.usage ? account(c.usage, t.usage) : c.usage }));
+      const span = storedWindow(t);
+      const next = replayStored(t, span.from);
+      edit(chat.key, (c) => ({
+        ...c,
+        items: next,
+        stored: storedOf(s.id, span, next.length),
+        usage: t.usage ? account(c.usage, t.usage) : c.usage,
+      }));
     } catch (e) {
       edit(chat.key, (c) => ({
         ...c,
@@ -1309,6 +1324,32 @@ export function useAgent() {
       }));
     }
   }, [edit, push, switchTo]);
+
+  // Reading further back into a chat opened off disk. The wider window is
+  // replayed whole, not prepended, so a call and the result the old cut split
+  // pair up again.
+  const loadEarlier = useCallback(async () => {
+    const key = activeRef.current;
+    const chat = chatsRef.current.find((c) => c.key === key);
+    const at = chat?.stored;
+    if (!at || at.loading) return;
+    edit(key, (c) => ({ ...c, stored: c.stored && { ...c.stored, loading: true } }));
+    try {
+      const t = await conn().agent.transcript(at.session, chat.project, { limit: widerLimit(at), end: at.to });
+      const span = storedWindow(t, at.to);
+      const fresh = replayStored(t, span.from);
+      // A rewind while this was reading made the chat a fork, and this window
+      // is of the transcript it left.
+      edit(key, (c) => (c.stored ? {
+        ...c,
+        items: rewindow(c.items, c.stored.count, fresh),
+        stored: storedOf(at.session, span, fresh.length),
+      } : c));
+    } catch (e) {
+      edit(key, (c) => ({ ...c, stored: c.stored && { ...c.stored, loading: false } }));
+      toast(`Could not load earlier messages: ${e.message}`);
+    }
+  }, [edit]);
 
   /* Changing how hard the model thinks. The CLI takes this when a session
      starts and has no setter for it, so main parks this chat when idle and the
@@ -1500,6 +1541,9 @@ export function useAgent() {
     title: active.title,
     mode: active.mode,
     queued: active.queued,
+    // How many stored messages come before the ones replayed, still on disk.
+    earlier: active.stored?.from || 0,
+    loadingEarlier: !!active.stored?.loading,
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
@@ -1507,6 +1551,6 @@ export function useAgent() {
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
-    stopAgent, backgroundAgent, openAgent, peekAgent,
+    stopAgent, backgroundAgent, openAgent, peekAgent, loadEarlier,
   };
 }
