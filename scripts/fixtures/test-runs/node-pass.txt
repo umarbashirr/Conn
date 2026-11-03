@@ -1,0 +1,17 @@
+▶ cart
+  ✔ adds items (1.904744ms)
+  ✔ applies coupon (0.411959ms)
+  ✔ empty cart is zero (0.333857ms)
+  ﹣ rounds tax (0.248434ms) # SKIP
+✔ cart (6.025269ms)
+▶ coupon
+  ✔ rejects expired codes (4.590002ms)
+✔ coupon (4.954256ms)
+ℹ tests 5
+ℹ suites 2
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0
+ℹ duration_ms 120.957771

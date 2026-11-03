@@ -94,7 +94,7 @@ async function click(page, text) {
 
 function view() {
   const root = document.querySelector('#agent-root');
-  const buttons = [...root.querySelectorAll('button')].map((b) => b.textContent.trim());
+  const buttons = [...root.querySelectorAll('button')].map((b) => b.getAttribute('aria-label') || b.textContent.trim());
   const mark = (id) => document.querySelector(`#row-${id} [data-slot="perm-mark"]`)?.textContent.trim() ?? null;
   const lines = [...root.querySelectorAll('div')]
     .map((d) => d.textContent.replace(/\s+/g, ' ').trim())

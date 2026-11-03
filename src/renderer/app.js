@@ -756,7 +756,7 @@ function setPreviewFull(on) {
 // the column, the tab strip it puts a count in, and the way to hand a file to
 // the tree next door.
 window.connStrip = () => setLayout({ changesCount: window.connChanges?.count() || 0 });
-window.connOpenFile = (rel) => runCommand('openFile', rel);
+window.connOpenFile = (rel, line) => runCommand('openFile', line ? { path: rel, line } : rel);
 
 // ---------------------------------------------------------------- toasts
 
@@ -823,7 +823,7 @@ export function runCommand(name, arg) {
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');
-      return window.connFiles?.open(String(arg));
+      return typeof arg === 'object' ? window.connFiles?.open(String(arg.path), arg.line) : window.connFiles?.open(String(arg));
     case 'zoomIn': return stepZoom(1);
     case 'zoomOut': return stepZoom(-1);
     case 'zoomReset': return applyZoom(1);

@@ -1,0 +1,20 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.3.4, pluggy-1.5.0
+rootdir: /home/dev/shop
+collected 5 items
+
+tests/test_cart.py ..F                                                   [ 60%]
+tests/test_coupon.py .s                                                  [100%]
+
+=================================== FAILURES ===================================
+____________________________ test_applies_coupon _______________________________
+
+    def test_applies_coupon():
+        total = 40 - 4
+>       assert total == 35
+E       assert 36 == 35
+
+tests/test_cart.py:9: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_cart.py::test_applies_coupon - assert 36 == 35
+==================== 1 failed, 3 passed, 1 skipped in 0.14s ====================

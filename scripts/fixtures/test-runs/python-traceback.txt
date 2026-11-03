@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/tmp/u7scratch/trace.py", line 10, in <module>
+    main()
+  File "/tmp/u7scratch/trace.py", line 8, in main
+    return load("missing.json")
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/u7scratch/trace.py", line 4, in load
+    with open(path) as f:
+         ^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'missing.json'

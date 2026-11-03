@@ -2,10 +2,11 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
-import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
+import { Conversation, ConversationContent, useTurnPin } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, FileDiffs } from '@/components/diff-view';
-import { InputFold, PermMark, ToolOutput, ToolRow, ToolStrip, Pre } from '@/components/tool-row';
+import { RawOutput, TestResults, TestSummary } from '@/components/test-results';
+import { InputFields, InputFold, PermMark, ToolOutput, ToolRow, ToolStrip } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
@@ -20,7 +21,9 @@ import { ForkDialog } from '@/components/fork-dialog';
 import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
+import { StarterPrompts } from '@/components/starter-prompts';
 import { TokenText } from '@/components/token-text';
+import { Sources, SourceList } from '@/components/sources';
 import { TurnEdits } from '@/components/turn-edits';
 import { CopyButton } from '@/components/copy-button';
 import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
@@ -32,10 +35,14 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
+import { permPreview } from '@/lib/perm-preview';
+import { KeyHint, PermPreview } from '@/components/perm-preview';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
+import { linksOf, turnSources, withoutLinks } from '@/lib/sources';
 import { isLive, subagentsIn } from '@/lib/subagents';
+import { parseTestRun } from '@/lib/test-runs';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
 
@@ -663,9 +670,14 @@ export default function App() {
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
         <ConversationContent className="mx-auto w-full max-w-3xl gap-1.5">
           {empty ? (
-            <h1 className="py-6 text-center font-medium text-2xl tracking-tight">
-              {agent.folderless ? 'What is on your mind?' : 'What should change?'}
-            </h1>
+            <>
+              <h1 className="pt-6 pb-3 text-center font-medium text-2xl tracking-tight">
+                {agent.folderless ? 'What is on your mind?' : 'What should change?'}
+              </h1>
+              <StarterPrompts
+                folder={agent.folderless ? null : agent.project}
+                onPick={(t) => { input.current?.insertText(t); input.current?.focus(); }} />
+            </>
           ) : (
             <Transcript key={agent.activeKey} items={agent.items} agent={agent} />
           )}
@@ -719,7 +731,7 @@ export default function App() {
 // when it finishes a thought. The wrapper is keyed on the item, so a row that
 // merely changes underneath it — a tool filling in its output, a diff arriving
 // a beat after its row — sits still instead of replaying.
-const Row = ({ children }) => <div className="conn-in">{children}</div>;
+const Row = ({ children, ...props }) => <div className="conn-in" {...props}>{children}</div>;
 
 const TAIL = 30;
 
@@ -730,6 +742,7 @@ function Transcript({ items, agent }) {
   useEffect(() => { if (pinnedStart === null && total) setPinnedStart(start); }, [pinnedStart, total, start]);
 
   const { scrollRef } = useStickToBottomContext();
+  useTurnPin(items.findLast((it) => it.kind === 'user' && !it.parent)?.id);
   const fromBottom = useRef(null);
   const earlier = () => {
     const el = scrollRef.current;
@@ -760,20 +773,28 @@ function Transcript({ items, agent }) {
 
 export function Items({ items, agent, from = 0 }) {
   const { marks, rest } = useMemo(() => attachPerms(items), [items]);
+  const calls = useMemo(() => new Set(rest.filter((it) => it.kind === 'tool').map((it) => it.id)), [rest]);
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
+  const sources = useMemo(() => turnSources(rest), [rest]);
   const footers = new Map(turns.flatMap((t, i) => (t.files.length && finished(i) ? [[t.end, t]] : [])));
   return runs(rest).slice(from).flatMap((g) => {
     const last = g.run ? g.run[g.run.length - 1] : g.item;
     const turn = footers.get(last.id);
-    const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
+    const used = sources.get(last.id);
+    const footer = (turn || used) && (
+      <>
+        {used && <Sources sources={used} />}
+        {turn && <TurnEdits turn={turn} transcript={rest} />}
+      </>
+    );
     if (!g.run || g.calls < FOLD_AT_CALLS) {
       // Every row is a keyed Fragment, footer or not: if a footer arriving
       // changed the element type here, React would remount the row and replay
       // its conn-in animation.
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
-          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
+          <Row data-turn={it.kind === 'user' ? it.id : undefined}><Item item={it} agent={agent} mark={marks.get(it.id)} calls={calls} /></Row>
           {it === last && footer}
         </Fragment>
       ));
@@ -786,13 +807,13 @@ export function Items({ items, agent, from = 0 }) {
       <Fragment key={g.id}>
         <div className="flex flex-col gap-px">
           <ToolStrip items={done.filter((it) => it.kind === 'tool')}>
-            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
+            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} calls={calls} />)}
           </ToolStrip>
           {/* Keyed, so the row the run is currently on is a new element each
               time the run moves on. Without the key React reconciles the next
               tool call into the last one's markup and the reader inherits
               whatever they had opened on the call before. */}
-          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
+          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} calls={calls} /></Row>
         </div>
         {footer}
       </Fragment>
@@ -944,7 +965,7 @@ function AssistantRow({ item }) {
   );
 }
 
-function Item({ item, agent, mark }) {
+function Item({ item, agent, mark, calls }) {
   const onDecide = agent.decide;
 
   // An agent owns whatever it did, and that opens in a sheet over the chat. Here
@@ -976,6 +997,8 @@ function Item({ item, agent, mark }) {
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
+    const run = label === 'Bash' && text ? parseTestRun(text) : null;
+    const found = label === 'WebSearch' && !failed ? linksOf(item.output) : [];
 
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (
@@ -1018,7 +1041,7 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           {item.input?.files?.length ? <FileDiffs files={item.input.files} /> : <DiffView hunks={hunks} />}
-          {failed && <ToolOutput text={text} error />}
+          {failed && <ToolOutput text={text} error project={agent.project} />}
         </ToolRow>
       );
     }
@@ -1035,9 +1058,10 @@ function Item({ item, agent, mark }) {
           at={item.at}
           end={item.end}
           thumb={images.at(-1) ?? null}
-          defaultOpen={item.state === 'output-error' || !!recording}
+          defaultOpen={item.state === 'output-error' || !!run?.failed || !!recording}
           right={(
             <>
+              {run && <TestSummary run={run} />}
               {mark && <PermMark perm={mark} />}
               {item.taskId && (
                 <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">
@@ -1057,8 +1081,11 @@ function Item({ item, agent, mark }) {
               )}
             </>
           )}>
-          {failed && text && <ToolOutput text={text} error className="mt-0" />}
-          {!failed && <Pre>{JSON.stringify(item.input, null, 2)}</Pre>}
+          {run && <TestResults run={run} project={agent.project} />}
+          {run && <RawOutput text={text} error={failed} project={agent.project} />}
+          {!run && failed && text && <ToolOutput text={text} error className="mt-0" project={agent.project} />}
+          {!failed && !run && !found.length && <InputFields input={item.input} />}
+          {!failed && found.length > 0 && <SourceList sources={found} className="mt-1" />}
           {recording && (
             <video
               controls
@@ -1074,8 +1101,8 @@ function Item({ item, agent, mark }) {
               loading="lazy"
               src={imageSrc(b)} />
           ))}
-          {!failed && text && <ToolOutput text={text} />}
-          {failed && <InputFold input={item.input} />}
+          {!failed && !run && text && <ToolOutput text={found.length ? withoutLinks(text) : text} stack={label === 'Bash'} project={agent.project} />}
+          {(failed || run) && <InputFold input={item.input} />}
         </ToolRow>
       </div>
     );
@@ -1125,6 +1152,7 @@ function Item({ item, agent, mark }) {
         </div>
       );
     }
+    const preview = permPreview(label, item.input || {}, { rowShown: !!item.forId && !!calls?.has(item.forId) });
     return (
       <div
         data-perm-card={item.id}
@@ -1154,9 +1182,11 @@ function Item({ item, agent, mark }) {
           <span id={permTitleId(item.id)} className="text-[13px]">
             {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}
           </span>
-          <span className="truncate font-mono text-muted-foreground text-xs">
-            {toolSummary(label, item.input)}
-          </span>
+          {preview?.kind !== 'command' && (
+            <span className="truncate font-mono text-muted-foreground text-xs">
+              {toolSummary(label, item.input)}
+            </span>
+          )}
           {/* Why this one stopped when the mode lets other calls through. */}
           {item.reason && (
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
@@ -1165,11 +1195,12 @@ function Item({ item, agent, mark }) {
             {/* Focus lands here from a script, which Chromium leaves without a
                 focus-visible ring after a mouse click, and a click on it
                 answers the card anyway. */}
-            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
+            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} aria-label="Allow" aria-keyshortcuts="y" onClick={() => onDecide(item.id, 'allow')}>Allow<KeyHint>y</KeyHint></Button>
+            <Button size="sm" variant="outline" className="h-7" aria-label="Always" aria-keyshortcuts="a" onClick={() => onDecide(item.id, 'always')}>Always<KeyHint>a</KeyHint></Button>
+            <Button size="sm" variant="ghost" className="h-7" aria-label="Deny" aria-keyshortcuts="n" onClick={() => onDecide(item.id, 'deny')}>Deny<KeyHint>n</KeyHint></Button>
           </div>
         </div>
+        {preview && <PermPreview preview={preview} />}
       </div>
     );
   }

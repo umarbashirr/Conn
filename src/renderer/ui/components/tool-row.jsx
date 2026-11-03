@@ -1,7 +1,7 @@
 // A tool call is one line until you want more. The ai-elements Tool card puts a
 // border, a badge and a wrench around every step, which turns a transcript into
 // a stack of boxes.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIcon, AppWindowIcon, ArrowLeftIcon, ArrowRightIcon, ArrowRightLeftIcon, BracesIcon, CameraIcon,
   ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListChecksIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
@@ -13,10 +13,15 @@ import {
 
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
+import { CopyButton } from '@/components/copy-button';
+import { StackText } from '@/components/stack-trace';
 import { Button } from '@/components/ui/button';
+import { clipSpans, parseAnsi, plainText } from '@/lib/ansi';
+import { inputFields } from '@/lib/fields';
 import { clock, useTick } from '@/lib/clock';
 import { runSpan, callSpan } from '@/lib/runs';
-import { bucketOf, cutText, imageSrc, toolImages, toolLabel, toolName, toolSummary, toolTitle } from '@/lib/tools';
+import { parseStack } from '@/lib/stacks';
+import { ROW_TEXT_LIMIT, bucketOf, imageSrc, toolImages, toolLabel, toolName, toolSummary, toolTitle } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -273,12 +278,45 @@ export function Pre({ children, className }) {
   );
 }
 
-export function ToolOutput({ text, error, className }) {
+// Theme-aware: each colour has a shade that reads on a light page and one that
+// reads on a dark one. Black and white are greys, since a true black or white
+// would vanish on one of the two.
+const ANSI_FG = [
+  'text-zinc-500 dark:text-zinc-400', 'text-red-600 dark:text-red-400', 'text-emerald-600 dark:text-emerald-400',
+  'text-amber-600 dark:text-amber-400', 'text-blue-600 dark:text-blue-400', 'text-fuchsia-600 dark:text-fuchsia-400',
+  'text-cyan-600 dark:text-cyan-400', 'text-zinc-600 dark:text-zinc-300',
+  'text-zinc-500 dark:text-zinc-500', 'text-red-500 dark:text-red-300', 'text-emerald-500 dark:text-emerald-300',
+  'text-amber-500 dark:text-amber-300', 'text-blue-500 dark:text-blue-300', 'text-fuchsia-500 dark:text-fuchsia-300',
+  'text-cyan-500 dark:text-cyan-300', 'text-zinc-700 dark:text-zinc-100',
+];
+
+function Spans({ spans }) {
+  return spans.map((sp, i) => (
+    sp.fg === null && !sp.bold && !sp.dim
+      ? sp.text
+      : <span key={i} className={cn(sp.fg !== null && ANSI_FG[sp.fg], sp.bold && 'font-semibold', sp.dim && 'opacity-60')}>{sp.text}</span>
+  ));
+}
+
+// A trace is worth reading as one wherever it turns up in a failure, and in
+// the output of a command, which is where a script's crash lands.
+export function ToolOutput({ text, error, className, project, stack = error }) {
   const [all, setAll] = useState(false);
-  const { shown, hidden } = cutText(text);
+  const spans = useMemo(() => parseAnsi(text), [text]);
+  const { spans: shown, hidden } = useMemo(() => clipSpans(spans, ROW_TEXT_LIMIT), [spans]);
+  const body = all ? spans : shown;
+  const plain = stack ? plainText(body) : '';
   return (
     <div className={cn('mt-2', className)}>
-      <Pre className={cn(error && 'text-destructive')}>{all ? text : shown}</Pre>
+      <div className="group/out relative">
+        {stack && parseStack(plain)
+          ? <StackText text={plain} project={project} className={cn('pr-8', error && 'text-destructive')} />
+          : <Pre className={cn('pr-8', error && 'text-destructive')}><Spans spans={body} /></Pre>}
+        <CopyButton
+          text={plainText(spans)}
+          label="Copy output"
+          className="absolute top-1 right-1 size-6 bg-muted/70 opacity-60 hover:opacity-100 focus-visible:opacity-100" />
+      </div>
       {hidden > 0 && !all && (
         <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
           {hidden.toLocaleString('en-US')} more {hidden === 1 ? 'character' : 'characters'}
@@ -288,6 +326,28 @@ export function ToolOutput({ text, error, className }) {
         </div>
       )}
     </div>
+  );
+}
+
+// Key, then value. Short values sit beside their key; long or multi-line text
+// gets its own wrapped block, and nested values read as compact JSON.
+export function InputFields({ input }) {
+  const fields = inputFields(input);
+  if (!fields.length) return null;
+  return (
+    <dl data-slot="tool-fields" className="flex flex-col gap-1 rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+      {fields.map((f) => (
+        <div key={f.key} className={cn('flex min-w-0 gap-2', f.kind === 'block' && 'flex-col gap-0.5')}>
+          <dt className="shrink-0 text-muted-foreground/70">{f.key}</dt>
+          <dd className={cn(
+            'min-w-0 break-words text-foreground/80',
+            f.kind === 'block' && 'max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background/50 p-1.5',
+          )}>
+            {f.text}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -306,7 +366,7 @@ export function InputFold({ input }) {
         Input
       </Button>
       <Fold open={open} className="pt-1">
-        <Pre>{JSON.stringify(input, null, 2)}</Pre>
+        <InputFields input={input} />
       </Fold>
     </div>
   );

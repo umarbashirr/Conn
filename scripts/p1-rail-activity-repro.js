@@ -151,7 +151,7 @@ async function main() {
 
     await click(s, `css=[data-sidebar="menu-button"][title=${J(FIRST)}]`);
     const card = await until(() => evaluate(s, `(() => {
-      const allow = [...document.querySelectorAll('#agent-root button')].find((b) => b.textContent.trim() === 'Allow');
+      const allow = [...document.querySelectorAll('#agent-root button')].find((b) => b.firstChild?.textContent.trim() === 'Allow');
       if (!allow) return null;
       const r = allow.getBoundingClientRect();
       return r.top >= 0 && r.bottom <= innerHeight ? { top: r.top } : null;
