@@ -21,6 +21,7 @@ import { ForkDialog } from '@/components/fork-dialog';
 import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
+import { StarterPrompts } from '@/components/starter-prompts';
 import { TokenText } from '@/components/token-text';
 import { Sources, SourceList } from '@/components/sources';
 import { TurnEdits } from '@/components/turn-edits';
@@ -669,9 +670,14 @@ export default function App() {
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
         <ConversationContent className="mx-auto w-full max-w-3xl gap-1.5">
           {empty ? (
-            <h1 className="py-6 text-center font-medium text-2xl tracking-tight">
-              {agent.folderless ? 'What is on your mind?' : 'What should change?'}
-            </h1>
+            <>
+              <h1 className="pt-6 pb-3 text-center font-medium text-2xl tracking-tight">
+                {agent.folderless ? 'What is on your mind?' : 'What should change?'}
+              </h1>
+              <StarterPrompts
+                folder={agent.folderless ? null : agent.project}
+                onPick={(t) => { input.current?.insertText(t); input.current?.focus(); }} />
+            </>
           ) : (
             <Transcript key={agent.activeKey} items={agent.items} agent={agent} />
           )}
