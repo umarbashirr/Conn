@@ -99,6 +99,10 @@ const LINE_TONE = {
 };
 
 const TALL = 'h-[46px] items-start py-1.5';
+
+// The hover actions float over the row's end on a fade, so the row does not
+// keep the sidebar's room for them. The age then ends where the folder's does.
+const ROW_END = 'group-has-data-[sidebar=menu-action]/menu-item:pr-2';
 const TALL_ACTION = 'peer-data-[size=default]/menu-button:top-0.5';
 
 function Row({ chat, current, onDelete, onRename }) {
@@ -121,7 +125,7 @@ function Row({ chat, current, onDelete, onRename }) {
             isActive={current}
             title={chat.title}
             data-activity={activity.state}
-            className={cn(ROW, tall && TALL)}
+            className={cn(ROW, ROW_END, tall && TALL)}
             onClick={() => window.connChat?.open(chat)}>
             <span className="flex h-lh w-3.5 shrink-0 items-center justify-center">
               {working ? (
@@ -143,7 +147,7 @@ function Row({ chat, current, onDelete, onRename }) {
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">{chat.title}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{relative(chat.at)}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums transition-opacity group-focus-within/menu-item:opacity-0 group-hover/menu-item:opacity-0">{relative(chat.at)}</span>
               </span>
               {tall && (
                 <span className="flex items-center gap-2">
