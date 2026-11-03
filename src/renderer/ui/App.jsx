@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
+import { ArrowUpCircleIcon, FileDownIcon, HistoryIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Conversation, ConversationContent, useTurnPin } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -28,6 +28,7 @@ import { TurnEdits } from '@/components/turn-edits';
 import { CopyButton } from '@/components/copy-button';
 import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -743,27 +744,53 @@ function Transcript({ items, agent }) {
 
   const { scrollRef } = useStickToBottomContext();
   useTurnPin(items.findLast((it) => it.kind === 'user' && !it.parent)?.id);
-  const fromBottom = useRef(null);
-  const earlier = () => {
+
+  // Rows drawn above keep the reader's place: the first message not yet
+  // scrolled past stays where it is in the view. A replayed row is keyed by the
+  // stored message it came from, so a wider read off disk keeps the same
+  // element. The hold lasts until that read lands, and a live turn may have
+  // grown the bottom by then, so the distance from the bottom is only the
+  // fallback for a view with no message in it.
+  const held = useRef(null);
+  const hold = () => {
     const el = scrollRef.current;
-    fromBottom.current = el ? el.scrollHeight - el.scrollTop : null;
-    setPinnedStart(Math.max(0, start - TAIL));
+    if (!el) return;
+    const top = el.getBoundingClientRect().top;
+    const row = [...el.querySelectorAll('[data-turn]')].find((r) => r.getBoundingClientRect().bottom > top);
+    held.current = { row, at: row?.getBoundingClientRect().top, fromBottom: el.scrollHeight - el.scrollTop };
   };
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el && fromBottom.current !== null) el.scrollTop = el.scrollHeight - fromBottom.current;
-    fromBottom.current = null;
-  }, [start, scrollRef]);
+    const h = held.current;
+    if (!el || !h) return;
+    if (h.row?.isConnected) el.scrollTop += h.row.getBoundingClientRect().top - h.at;
+    else el.scrollTop = el.scrollHeight - h.fromBottom;
+    if (!agent.loadingEarlier) held.current = null;
+  }, [start, agent.earlier, agent.loadingEarlier, scrollRef]);
 
+  // In memory first, then off disk. Load earlier is offered only once every
+  // row in memory is drawn, so what it reads shows straight away rather than
+  // behind another Show earlier.
   return (
     <>
-      {start > 0 && (
+      {start > 0 ? (
         <Button
           variant="ghost"
           size="sm"
           className="self-center text-muted-foreground"
-          onClick={earlier}>
+          onClick={() => { hold(); setPinnedStart(Math.max(0, start - TAIL)); }}>
           Show {Math.min(start, TAIL)} earlier
+        </Button>
+      ) : agent.earlier > 0 && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="self-center text-muted-foreground"
+          disabled={agent.loadingEarlier}
+          onClick={() => { hold(); agent.loadEarlier(); }}>
+          {agent.loadingEarlier ? <Spinner className="motion-reduce:animate-none" /> : <HistoryIcon />}
+          Load earlier messages
+          <span className="text-muted-foreground/70">{agent.earlier.toLocaleString('en-US')} earlier</span>
         </Button>
       )}
       <Items items={items} agent={agent} from={start} />
