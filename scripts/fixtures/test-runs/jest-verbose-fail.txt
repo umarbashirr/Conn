@@ -1,0 +1,27 @@
+FAIL src/cart.test.js
+  cart
+    ✓ adds items (2 ms)
+    ✕ applies coupon (4 ms)
+    ○ skipped rounds tax
+  coupon
+    ✓ rejects expired codes (1 ms)
+
+  ● cart › applies coupon
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 35
+    Received: 36
+
+      2 | describe('cart', () => {
+      3 |   test('adds items', () => { expect(total([1, 2])).toBe(3); });
+    > 4 |   test('applies coupon', () => { expect(total([40]) - 4).toBe(35); });
+        |                                                          ^
+
+      at Object.toBe (src/cart.test.js:4:58)
+
+Test Suites: 1 failed, 1 total
+Tests:       1 failed, 1 skipped, 2 passed, 4 total
+Snapshots:   0 total
+Time:        0.566 s
+Ran all test suites.

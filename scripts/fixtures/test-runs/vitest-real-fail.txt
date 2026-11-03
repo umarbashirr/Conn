@@ -1,0 +1,34 @@
+
+ RUN  v5.1.0 /work
+
+ ❯ cart.test.js (3 tests | 1 failed | 1 skipped) 22ms
+   ❯ cart (3)
+     × discount 18ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  cart.test.js > cart > discount
+AssertionError: expected 8 to be 7 // Object.is equality
+
+- Expected
++ Received
+
+- 7
++ 8
+
+ ❯ cart.test.js:4:40
+      2| describe('cart', () => {
+      3|   test('adds', () => expect(1 + 1).toBe(2));
+      4|   test('discount', () => expect(4 + 4).toBe(7));
+       |                                        ^
+      5|   test.skip('later', () => {});
+      6| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 2 passed | 1 skipped (4)
+   Start at  10:00:00
+   Duration  211ms (import 35%, transform 28%, tests 23%, worker 12%, environment 1%)
+

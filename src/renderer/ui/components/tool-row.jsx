@@ -14,11 +14,13 @@ import {
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
 import { CopyButton } from '@/components/copy-button';
+import { StackText } from '@/components/stack-trace';
 import { Button } from '@/components/ui/button';
 import { clipSpans, parseAnsi, plainText } from '@/lib/ansi';
 import { inputFields } from '@/lib/fields';
 import { clock, useTick } from '@/lib/clock';
 import { runSpan, callSpan } from '@/lib/runs';
+import { parseStack } from '@/lib/stacks';
 import { ROW_TEXT_LIMIT, bucketOf, imageSrc, toolImages, toolLabel, toolName, toolSummary, toolTitle } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
@@ -296,14 +298,20 @@ function Spans({ spans }) {
   ));
 }
 
-export function ToolOutput({ text, error, className }) {
+// A trace is worth reading as one wherever it turns up in a failure, and in
+// the output of a command, which is where a script's crash lands.
+export function ToolOutput({ text, error, className, project, stack = error }) {
   const [all, setAll] = useState(false);
   const spans = useMemo(() => parseAnsi(text), [text]);
   const { spans: shown, hidden } = useMemo(() => clipSpans(spans, ROW_TEXT_LIMIT), [spans]);
+  const body = all ? spans : shown;
+  const plain = stack ? plainText(body) : '';
   return (
     <div className={cn('mt-2', className)}>
       <div className="group/out relative">
-        <Pre className={cn('pr-8', error && 'text-destructive')}><Spans spans={all ? spans : shown} /></Pre>
+        {stack && parseStack(plain)
+          ? <StackText text={plain} project={project} className={cn('pr-8', error && 'text-destructive')} />
+          : <Pre className={cn('pr-8', error && 'text-destructive')}><Spans spans={body} /></Pre>}
         <CopyButton
           text={plainText(spans)}
           label="Copy output"

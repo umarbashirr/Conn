@@ -1,0 +1,29 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.16, pytest-9.2.0, pluggy-1.7.0
+rootdir: /work
+collected 5 items
+
+test_cart.py .Fs.F                                                       [100%]
+
+=================================== FAILURES ===================================
+________________________________ test_discount _________________________________
+
+>   def test_discount(): assert total([4,4]) == 7
+                         ^^^^^^^^^^^^^^^^^^^^^^^^
+E   assert 8 == 7
+E    +  where 8 = total([4, 4])
+
+test_cart.py:4: AssertionError
+_____________________________ TestCoupon.test_bad ______________________________
+
+self = <test_cart.TestCoupon object at 0x0>
+
+>   def test_bad(self): raise ValueError("bad coupon")
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ValueError: bad coupon
+
+test_cart.py:9: ValueError
+=========================== short test summary info ============================
+FAILED test_cart.py::test_discount - assert 8 == 7
+FAILED test_cart.py::TestCoupon::test_bad - ValueError: bad coupon
+==================== 2 failed, 2 passed, 1 skipped in 0.09s ====================

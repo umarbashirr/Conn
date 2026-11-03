@@ -5,6 +5,7 @@ import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon,
 import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, FileDiffs } from '@/components/diff-view';
+import { RawOutput, TestResults, TestSummary } from '@/components/test-results';
 import { InputFields, InputFold, PermMark, ToolOutput, ToolRow, ToolStrip } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
@@ -36,6 +37,7 @@ import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } fr
 import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
 import { isLive, subagentsIn } from '@/lib/subagents';
+import { parseTestRun } from '@/lib/test-runs';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
 
@@ -976,6 +978,7 @@ function Item({ item, agent, mark }) {
     const hunks = editHunks(label, item.input || {});
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
+    const run = label === 'Bash' && text ? parseTestRun(text) : null;
 
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (
@@ -1018,7 +1021,7 @@ function Item({ item, agent, mark }) {
             </>
           )}>
           {item.input?.files?.length ? <FileDiffs files={item.input.files} /> : <DiffView hunks={hunks} />}
-          {failed && <ToolOutput text={text} error />}
+          {failed && <ToolOutput text={text} error project={agent.project} />}
         </ToolRow>
       );
     }
@@ -1035,9 +1038,10 @@ function Item({ item, agent, mark }) {
           at={item.at}
           end={item.end}
           thumb={images.at(-1) ?? null}
-          defaultOpen={item.state === 'output-error' || !!recording}
+          defaultOpen={item.state === 'output-error' || !!run?.failed || !!recording}
           right={(
             <>
+              {run && <TestSummary run={run} />}
               {mark && <PermMark perm={mark} />}
               {item.taskId && (
                 <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground/75">
@@ -1057,8 +1061,10 @@ function Item({ item, agent, mark }) {
               )}
             </>
           )}>
-          {failed && text && <ToolOutput text={text} error className="mt-0" />}
-          {!failed && <InputFields input={item.input} />}
+          {run && <TestResults run={run} project={agent.project} />}
+          {run && <RawOutput text={text} error={failed} project={agent.project} />}
+          {!run && failed && text && <ToolOutput text={text} error className="mt-0" project={agent.project} />}
+          {!failed && !run && <InputFields input={item.input} />}
           {recording && (
             <video
               controls
@@ -1074,8 +1080,8 @@ function Item({ item, agent, mark }) {
               loading="lazy"
               src={imageSrc(b)} />
           ))}
-          {!failed && text && <ToolOutput text={text} />}
-          {failed && <InputFold input={item.input} />}
+          {!failed && !run && text && <ToolOutput text={text} stack={label === 'Bash'} project={agent.project} />}
+          {(failed || run) && <InputFold input={item.input} />}
         </ToolRow>
       </div>
     );
