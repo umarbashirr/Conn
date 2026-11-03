@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -8,10 +9,74 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chat, type SessionsView } from '../chat';
+import { adoptTicket, onPhone, type PhoneStatus } from '../conn-live';
 import { layout, zinc } from '../theme/zinc';
+import { Scan } from './Scan';
+
+function statusLabel(status: PhoneStatus): string {
+  switch (status) {
+    case 'bound':
+      return 'Connected';
+    case 'empty':
+      return 'Not connected';
+    case 'pending':
+      return 'Checking…';
+    default: {
+      const _never: never = status;
+      return _never;
+    }
+  }
+}
+
+function statusHue(status: PhoneStatus): string {
+  switch (status) {
+    case 'bound':
+      return zinc.working;
+    case 'empty':
+      return zinc.waiting;
+    case 'pending':
+      return zinc.faint;
+    default: {
+      const _never: never = status;
+      return _never;
+    }
+  }
+}
+
+function actionLabel(status: PhoneStatus): string {
+  switch (status) {
+    case 'bound':
+      return 'Scan again';
+    case 'empty':
+    case 'pending':
+      return 'Connect';
+    default: {
+      const _never: never = status;
+      return _never;
+    }
+  }
+}
 
 export function SessionsScreen({ screen }: { screen: SessionsView }) {
   const insets = useSafeAreaInsets();
+  const [phone, setPhone] = useState<PhoneStatus>('pending');
+  const [scanning, setScanning] = useState(false);
+
+  useEffect(() => onPhone(setPhone), []);
+
+  if (scanning) {
+    return (
+      <Scan
+        onCancel={() => setScanning(false)}
+        onText={async (raw) => {
+          const ok = await adoptTicket(raw);
+          if (ok) setScanning(false);
+          return ok;
+        }}
+      />
+    );
+  }
+
   return (
     <View
       style={[
@@ -22,6 +87,19 @@ export function SessionsScreen({ screen }: { screen: SessionsView }) {
         },
       ]}
     >
+      <View style={styles.header}>
+        <View style={styles.statusRow}>
+          <View style={[styles.statusDot, { backgroundColor: statusHue(phone) }]} />
+          <Text style={styles.statusText}>{statusLabel(phone)}</Text>
+        </View>
+        <Pressable
+          onPress={() => setScanning(true)}
+          accessibilityLabel={actionLabel(phone)}
+          style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
+        >
+          <Text style={styles.newChatText}>{actionLabel(phone)}</Text>
+        </Pressable>
+      </View>
       <View style={styles.toolbar}>
         <TextInput
           value={screen.query}
@@ -88,6 +166,27 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: zinc.chrome,
     paddingHorizontal: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    color: zinc.muted,
+    fontSize: 12.5,
   },
   toolbar: {
     flexDirection: 'row',
