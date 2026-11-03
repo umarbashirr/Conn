@@ -34,6 +34,8 @@ import {
 import { clock, useTick } from '@/lib/clock';
 import { useDictation } from '@/lib/dictation';
 import { editHunks, hunkStats } from '@/lib/diff';
+import { permPreview } from '@/lib/perm-preview';
+import { KeyHint, PermPreview } from '@/components/perm-preview';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
@@ -764,6 +766,7 @@ function Transcript({ items, agent }) {
 
 export function Items({ items, agent, from = 0 }) {
   const { marks, rest } = useMemo(() => attachPerms(items), [items]);
+  const calls = useMemo(() => new Set(rest.filter((it) => it.kind === 'tool').map((it) => it.id)), [rest]);
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
   const sources = useMemo(() => turnSources(rest), [rest]);
@@ -784,7 +787,7 @@ export function Items({ items, agent, from = 0 }) {
       // its conn-in animation.
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
-          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} /></Row>
+          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} calls={calls} /></Row>
           {it === last && footer}
         </Fragment>
       ));
@@ -797,13 +800,13 @@ export function Items({ items, agent, from = 0 }) {
       <Fragment key={g.id}>
         <div className="flex flex-col gap-px">
           <ToolStrip items={done.filter((it) => it.kind === 'tool')}>
-            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} />)}
+            {done.map((it) => <Item key={it.id} item={it} agent={agent} mark={marks.get(it.id)} calls={calls} />)}
           </ToolStrip>
           {/* Keyed, so the row the run is currently on is a new element each
               time the run moves on. Without the key React reconciles the next
               tool call into the last one's markup and the reader inherits
               whatever they had opened on the call before. */}
-          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} /></Row>
+          <Row key={current.id}><Item item={current} agent={agent} mark={marks.get(current.id)} calls={calls} /></Row>
         </div>
         {footer}
       </Fragment>
@@ -955,7 +958,7 @@ function AssistantRow({ item }) {
   );
 }
 
-function Item({ item, agent, mark }) {
+function Item({ item, agent, mark, calls }) {
   const onDecide = agent.decide;
 
   // An agent owns whatever it did, and that opens in a sheet over the chat. Here
@@ -1142,6 +1145,7 @@ function Item({ item, agent, mark }) {
         </div>
       );
     }
+    const preview = permPreview(label, item.input || {}, { rowShown: !!item.forId && !!calls?.has(item.forId) });
     return (
       <div
         data-perm-card={item.id}
@@ -1171,9 +1175,11 @@ function Item({ item, agent, mark }) {
           <span id={permTitleId(item.id)} className="text-[13px]">
             {item.title || <>Allow <span className="font-mono font-medium">{label}</span>?</>}
           </span>
-          <span className="truncate font-mono text-muted-foreground text-xs">
-            {toolSummary(label, item.input)}
-          </span>
+          {preview?.kind !== 'command' && (
+            <span className="truncate font-mono text-muted-foreground text-xs">
+              {toolSummary(label, item.input)}
+            </span>
+          )}
           {/* Why this one stopped when the mode lets other calls through. */}
           {item.reason && (
             <span className="text-amber-700 text-xs dark:text-amber-500/90">{item.reason}</span>
@@ -1182,11 +1188,12 @@ function Item({ item, agent, mark }) {
             {/* Focus lands here from a script, which Chromium leaves without a
                 focus-visible ring after a mouse click, and a click on it
                 answers the card anyway. */}
-            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} onClick={() => onDecide(item.id, 'allow')}>Allow</Button>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => onDecide(item.id, 'always')}>Always</Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => onDecide(item.id, 'deny')}>Deny</Button>
+            <Button size="sm" className="h-7 focus:border-ring focus:ring-[3px] focus:ring-ring/50" data-perm-allow={item.id} aria-label="Allow" aria-keyshortcuts="y" onClick={() => onDecide(item.id, 'allow')}>Allow<KeyHint>y</KeyHint></Button>
+            <Button size="sm" variant="outline" className="h-7" aria-label="Always" aria-keyshortcuts="a" onClick={() => onDecide(item.id, 'always')}>Always<KeyHint>a</KeyHint></Button>
+            <Button size="sm" variant="ghost" className="h-7" aria-label="Deny" aria-keyshortcuts="n" onClick={() => onDecide(item.id, 'deny')}>Deny<KeyHint>n</KeyHint></Button>
           </div>
         </div>
+        {preview && <PermPreview preview={preview} />}
       </div>
     );
   }
