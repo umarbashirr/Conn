@@ -58,6 +58,7 @@
     "sonner": "^2.0.8",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.6.0",
+    "toqr": "^0.1.1",
     "use-stick-to-bottom": "^1.1.6",
     "ws": "^8.22.1",
     "zod": "^4.4.3"
