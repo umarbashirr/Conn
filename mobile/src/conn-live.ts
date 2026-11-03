@@ -644,6 +644,10 @@ function openSocket(): void {
   };
 }
 
+export function foldLiveMessage(payload: Record<string, unknown>): void {
+  onLive({ channel: 'agent:message', payload });
+}
+
 export function attachLive(next: (event: LiveEvent) => void): void {
   apply = next;
 }

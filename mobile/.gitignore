@@ -8,6 +8,7 @@
 
 # local verify transpile output
 scripts/.chat-check-out/
+scripts/.fold-check-out/
 
 # dependencies
 node_modules/
