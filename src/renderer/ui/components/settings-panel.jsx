@@ -300,6 +300,15 @@ export const PROVIDERS = {
     where: '/usr/local/bin/opencode',
     missing: 'Nothing named opencode on your PATH. Install it from opencode.ai, run opencode auth login for any provider past the free models, then restart Conn.',
   },
+  copilot: {
+    label: 'Copilot',
+    cli: 'copilot',
+    install: 'npm install -g @github/copilot',
+    login: ['login'],
+    update: 'copilot update',
+    where: '/usr/local/bin/copilot',
+    missing: 'Nothing named copilot on your PATH. Install it with npm install -g @github/copilot, run copilot login, then restart Conn.',
+  },
   codex: {
     label: 'Codex',
     cli: 'codex',
@@ -901,7 +910,7 @@ function About({ updates, reset }) {
 // so the nav marks it. An installed-but-not-restarted Conn counts too: it is
 // the same "something is waiting on you here" as an update nobody downloaded.
 export const updatesBehind = (updates) => !!(updates.app.behind || updates.claude?.behind
-  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind
+  || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind || updates.copilot?.behind
   || updates.restart?.ready);
 
 export function SettingsPanel({ section, ...props }) {

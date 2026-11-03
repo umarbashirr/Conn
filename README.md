@@ -110,12 +110,16 @@ have, so if `claude --version` answers in your terminal the panel works. If it d
 picker stays empty and says so. Install it with `npm install -g @anthropic-ai/claude-code`, or point
 Conn at an unusual location under Settings, Agent.
 
-Cursor, Grok and OpenCode work the same way, through their own CLIs. Conn does not ship those either.
+Cursor, Grok, OpenCode and Copilot work the same way, through their own CLIs. Conn does not ship those either.
 
 - **Cursor:** install the [Cursor CLI](https://cursor.com/cli) (`agent` or `cursor-agent` on PATH),
   then `agent login`. The picker offers Auto, Composer, GPT-5.4, Claude, and Grok names the CLI
   advertises.
 - **Grok:** install the [Grok CLI](https://x.ai/cli), then `grok login`.
+- **Copilot:** install the [GitHub Copilot CLI](https://github.com/features/copilot/cli) with
+  `npm install -g @github/copilot`, then `copilot login`. The picker lists the models the CLI documents;
+  one your plan lacks runs as Auto. Copilot asks before every edit and command, so the mode you pick
+  decides what goes through.
 - **OpenCode:** install [OpenCode](https://opencode.ai) with its install script or
   `npm install -g opencode-ai`. Its free Zen models work without a login; `opencode auth login` adds your other providers. Conn runs it
   with every edit, command and fetch set to ask, so the mode you pick decides what goes through.
@@ -160,7 +164,7 @@ Type what you want changed and press Enter. The agent has the usual file and she
 browser, wired in already: no MCP config, no restart, no setup step.
 
 - **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Auto, Full
-  bypass. The same four apply to Claude, ChatGPT, Cursor, Grok, and OpenCode. Plan looks and reads,
+  bypass. The same four apply to Claude, ChatGPT, Cursor, Grok, OpenCode, and Copilot. Plan looks and reads,
   and does not edit, run a command, or change the page. Ask looks and reads, and shows a card before
   an edit, a command, or a page change. Auto runs edits, ordinary commands, and the preview, and
   stops on a short list of known-dangerous commands (a forced `rm`, `sudo`, a git history rewrite,
@@ -175,9 +179,9 @@ browser, wired in already: no MCP config, no restart, no setup step.
 - **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
   a conversation you started in the terminal shows up in the rail, and a chat you started here shows
-  up in `claude --resume`. Codex chats appear in that rail too. So do Cursor, Grok and OpenCode chats: Conn
+  up in `claude --resume`. Codex chats appear in that rail too. So do Cursor, Grok, OpenCode and Copilot chats: Conn
   asks each CLI for its chats, including ones you started in its own terminal. Cursor opens a long
-  chat slowly, about ten seconds. Delete works for OpenCode only; the other two keep their chats
+  chat slowly, about ten seconds. Delete works for OpenCode only; the others keep their chats
   until you delete them in the CLI. Pick one and the
   thread replays, tool calls and screenshots included, and that chat is live again for the next thing
   you type. Switching chats does not stop one that is still running.

@@ -42,9 +42,6 @@ function isAuth(err) {
 }
 
 async function probeModels(bin, spec) {
-  if (typeof spec.discoverModels === 'function') {
-    return spec.discoverModels(bin);
-  }
   // An empty folder, not the home directory: cursor-agent indexes and syncs
   // whatever folder a session opens in, and this session only lists models.
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-probe-'));
@@ -63,7 +60,8 @@ async function probeModels(bin, spec) {
     }, HANDSHAKE_MS);
     const ses = await rpc.request('session/new', { cwd, mcpServers: [] }, PROBE_TIMEOUT_MS);
     const listed = modelsFrom(ses);
-    return listed.length ? listed : null;
+    if (listed.length) return listed;
+    return (await spec.discoverModels?.(bin)) || null;
   } catch (e) {
     if (isAuth(e)) throw e;
     return null;

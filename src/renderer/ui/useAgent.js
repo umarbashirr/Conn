@@ -17,7 +17,7 @@ import { handover } from './handover.js';
 
 const conn = () => window.conn;
 
-const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT' };
+const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT', copilot: 'Copilot' };
 
 const LONG_TURN_MS = 5000;
 

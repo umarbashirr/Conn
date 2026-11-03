@@ -1,0 +1,127 @@
+{
+ "agent": "copilot 1.0.105",
+ "cwd": "/tmp/c12-real-copilot-DX2zcv",
+ "file": "alpha\nBETA\ngamma\n",
+ "frames": [
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call_9I5EVxcsuQyvDC0e7EHgnAk5",
+    "title": "Viewing /tmp/c12-real-copilot-DX2zcv/notes.txt",
+    "kind": "read",
+    "status": "pending",
+    "rawInput": {
+     "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt",
+     "view_range": [
+      1,
+      200
+     ]
+    },
+    "locations": [
+     {
+      "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_9I5EVxcsuQyvDC0e7EHgnAk5",
+    "status": "completed",
+    "rawOutput": {
+     "content": "alpha\nbeta\ngamma\n",
+     "detailedContent": "\ndiff --git a/tmp/c12-real-copilot-DX2zcv/notes.txt b/tmp/c12-real-copilot-DX2zcv/notes.txt\nindex 0000000..0000000 100644\n--- a/tmp/c12-real-copilot-DX2zcv/notes.txt\n+++ b/tmp/c12-real-copilot-DX2zcv/notes.txt\n@@ -1,200 +1,200 @@\n alpha\n beta\n gamma\n \n"
+    }
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call",
+    "toolCallId": "call_16TNFduG7qb7VbEMtJ9G6mjV",
+    "title": "Editing /tmp/c12-real-copilot-DX2zcv/notes.txt",
+    "kind": "edit",
+    "status": "pending",
+    "rawInput": {
+     "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt",
+     "old_str": "beta",
+     "new_str": "BETA"
+    },
+    "locations": [
+     {
+      "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt"
+     }
+    ],
+    "content": [
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt",
+      "oldText": "beta",
+      "newText": "BETA"
+     }
+    ]
+   }
+  ],
+  [
+   "perm",
+   {
+    "sessionId": "949f5a9f-3766-4855-a6a9-01c167a9f93a",
+    "toolCall": {
+     "toolCallId": "call_16TNFduG7qb7VbEMtJ9G6mjV",
+     "title": "Edit file",
+     "kind": "edit",
+     "status": "pending",
+     "rawInput": {
+      "fileName": "/tmp/c12-real-copilot-DX2zcv/notes.txt",
+      "diff": "\ndiff --git a/tmp/c12-real-copilot-DX2zcv/notes.txt b/tmp/c12-real-copilot-DX2zcv/notes.txt\nindex 0000000..0000000 100644\n--- a/tmp/c12-real-copilot-DX2zcv/notes.txt\n+++ b/tmp/c12-real-copilot-DX2zcv/notes.txt\n@@ -1,4 +1,4 @@\n alpha\n-beta\n+BETA\n gamma\n \n"
+     },
+     "locations": [
+      {
+       "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt"
+      }
+     ]
+    },
+    "options": [
+     {
+      "optionId": "allow_once",
+      "kind": "allow_once",
+      "name": "Allow once"
+     },
+     {
+      "optionId": "allow_always",
+      "kind": "allow_always",
+      "name": "Always allow"
+     },
+     {
+      "optionId": "reject_once",
+      "kind": "reject_once",
+      "name": "Deny"
+     }
+    ]
+   }
+  ],
+  [
+   "raw",
+   {
+    "sessionUpdate": "tool_call_update",
+    "toolCallId": "call_16TNFduG7qb7VbEMtJ9G6mjV",
+    "status": "completed",
+    "content": [
+     {
+      "type": "diff",
+      "path": "/tmp/c12-real-copilot-DX2zcv/notes.txt",
+      "oldText": "beta",
+      "newText": "BETA"
+     }
+    ],
+    "rawOutput": {
+     "content": "File /tmp/c12-real-copilot-DX2zcv/notes.txt updated with changes.",
+     "detailedContent": "\ndiff --git a/tmp/c12-real-copilot-DX2zcv/notes.txt b/tmp/c12-real-copilot-DX2zcv/notes.txt\nindex 0000000..0000000 100644\n--- a/tmp/c12-real-copilot-DX2zcv/notes.txt\n+++ b/tmp/c12-real-copilot-DX2zcv/notes.txt\n@@ -1,4 +1,4 @@\n alpha\n-beta\n+BETA\n gamma\n \n"
+    }
+   }
+  ]
+ ]
+}

@@ -191,6 +191,51 @@ function opencodeMcp(base) {
   return mcp.servers && typeof mcp.servers === 'object' ? mcp.servers : mcp;
 }
 
+// Copilot's ACP command list mixes skills in with its own slash commands and
+// says nothing to tell them apart.
+function copilotSkills(out) {
+  const found = new Map();
+  let source = 'builtin';
+  for (const raw of out.replace(ANSI, '').split('\n')) {
+    const head = /^(\S.*?)\s+skills:\s*$/i.exec(raw);
+    if (head) {
+      source = /^personal/i.test(head[1]) ? 'user' : /^(project|workspace)/i.test(head[1]) ? 'project' : 'plugin';
+      continue;
+    }
+    const row = /^\s+(\S+)\s+-\s/.exec(raw);
+    if (row) found.set(row[1], source);
+  }
+  return found;
+}
+
+function copilotEntry(c, _dir, skills) {
+  const source = skills.get(c.name);
+  return {
+    kind: source ? 'skill' : 'command',
+    name: c.name,
+    description: c.description || '',
+    argumentHint: c.input?.hint || '',
+    source: source || 'builtin',
+    path: '',
+    enabled: true,
+  };
+}
+
+function copilotServers(out) {
+  const rows = [];
+  let scope = 'user';
+  for (const raw of out.replace(ANSI, '').split('\n')) {
+    const head = /^(\S.*?)\s+servers:\s*$/i.exec(raw);
+    if (head) {
+      scope = /^builtin/i.test(head[1]) ? 'builtin' : /^(workspace|project)/i.test(head[1]) ? 'project' : 'user';
+      continue;
+    }
+    const row = /^\s+(\S+)\s+\(([^)]*)\)/.exec(raw);
+    if (row) rows.push({ name: row[1], scope, type: row[2].split(',')[0].trim(), disabled: /\bdisabled\b/.test(row[2]) });
+  }
+  return rows;
+}
+
 const SOURCES = {
   grok: {
     entry: grokEntry,
@@ -243,6 +288,35 @@ const SOURCES = {
     login: (name) => ['mcp', 'login', name],
     addHint: 'a .cursor/mcp.json',
   },
+  copilot: {
+    entry: copilotEntry,
+    done: (h) => !!h.commands,
+    async prepare(bin, dir) {
+      return copilotSkills((await run(bin, ['skill', 'list'], dir)).out);
+    },
+    async servers(bin, dir) {
+      const found = new Map();
+      const files = [
+        ['project', path.join(dir, '.mcp.json')],
+        ['project', path.join(dir, '.github', 'mcp.json')],
+        ['user', path.join(os.homedir(), '.copilot', 'mcp-config.json')],
+      ];
+      for (const [scope, file] of files) {
+        for (const [name, s] of Object.entries(readJson(file)?.mcpServers || {})) {
+          if (!found.has(name)) found.set(name, { name, scope, type: s.url ? 'http' : 'stdio', target: targetOf(s), status: 'configured', error: null, tools: null });
+        }
+      }
+      const { out } = await run(bin, ['mcp', 'list'], dir);
+      for (const { name, scope, type, disabled } of copilotServers(out)) {
+        const known = found.get(name) || { name, scope, type: type === 'http' ? 'http' : 'stdio', target: '', error: null, tools: null };
+        found.set(name, { ...known, status: disabled ? 'disabled' : 'configured' });
+      }
+      return [...found.values()];
+    },
+    toggle: (name, on) => ['mcp', on ? 'enable' : 'disable', name],
+    login: null,
+    addHint: 'copilot mcp add',
+  },
   opencode: {
     entry: opencodeEntry,
     done: (h) => !!h.commands,
@@ -278,9 +352,10 @@ async function probe({ id, spec, bin, dir }) {
   const src = SOURCES[id];
   const heard = await listen({ bin, argv: spec.argv || ['acp'], dir, done: src.done });
   const servers = await src.servers(bin, dir, heard);
+  const known = await src.prepare?.(bin, dir);
   return {
     at: Date.now(),
-    skills: (heard.commands || []).map((c) => src.entry(c, dir))
+    skills: (heard.commands || []).map((c) => src.entry(c, dir, known))
       .sort((a, b) => a.name.localeCompare(b.name)),
     mcp: servers.sort((a, b) => a.name.localeCompare(b.name)),
     error: heard.commands ? null : `${spec.cli} did not list its commands in time`,
@@ -396,4 +471,4 @@ class AcpCatalog extends EventEmitter {
   runtimeName(_dir, name) { return name; }
 }
 
-module.exports = { AcpCatalog, grokEntry, cursorEntry, opencodeEntry, opencodeServers, opencodeMcp, grokStatus, cursorStatus };
+module.exports = { AcpCatalog, run, copilotSkills, copilotServers, grokEntry, cursorEntry, opencodeEntry, opencodeServers, opencodeMcp, grokStatus, cursorStatus };

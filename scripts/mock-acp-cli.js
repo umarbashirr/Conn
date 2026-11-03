@@ -23,6 +23,7 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // A prompt plays back what a real agent sent for one turn, from a capture in
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
+const MODE_IDS = (process.env.MOCK_ACP_MODE_IDS || '').split(',').filter(Boolean);
 const THINK = process.env.MOCK_ACP_THINK === '1';
 const PLAN = process.env.MOCK_ACP_PLAN === '1';
 const USAGE = process.env.MOCK_ACP_USAGE === '1';
@@ -403,12 +404,8 @@ function onMessage(msg) {
         ],
       },
       modes: {
-        currentModeId: 'ask',
-        availableModes: [
-          { id: 'ask', name: 'Ask' },
-          { id: 'plan', name: 'Plan' },
-          { id: 'bypass', name: 'Bypass' },
-        ],
+        currentModeId: MODE_IDS[0] || 'ask',
+        availableModes: (MODE_IDS.length ? MODE_IDS : ['ask', 'plan', 'bypass']).map((modeId) => ({ id: modeId, name: modeId })),
       },
     });
   }
@@ -424,7 +421,10 @@ function onMessage(msg) {
     chosen.model = params?.modelId || chosen.model;
     return result(id, {});
   }
-  if (method === 'session/set_mode') return result(id, {});
+  if (method === 'session/set_mode') {
+    record({ method, modeId: params?.modeId });
+    return result(id, {});
+  }
   if (method === 'session/close') return result(id, {});
 
   fail(id, `unknown method ${method}`, -32601);
