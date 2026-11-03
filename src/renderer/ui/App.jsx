@@ -22,6 +22,7 @@ import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
 import { TokenText } from '@/components/token-text';
+import { Sources, SourceList } from '@/components/sources';
 import { TurnEdits } from '@/components/turn-edits';
 import { CopyButton } from '@/components/copy-button';
 import { fileCount, UndoEditsDialog, undoneCaption, useEditsOffer } from '@/components/undo-edits';
@@ -36,6 +37,7 @@ import { editHunks, hunkStats } from '@/lib/diff';
 import { dropDraft, ownedStorageKey, readDraft, storageKeyOfRow, writeDraft } from '@/lib/drafts';
 import { inTerminal, matches } from '@/lib/keys';
 import { FOLD_AT_CALLS, runs } from '@/lib/runs';
+import { linksOf, turnSources, withoutLinks } from '@/lib/sources';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { parseTestRun } from '@/lib/test-runs';
 import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
@@ -764,11 +766,18 @@ export function Items({ items, agent, from = 0 }) {
   const { marks, rest } = useMemo(() => attachPerms(items), [items]);
   const turns = useMemo(() => turnEdits(rest), [rest]);
   const finished = (i) => i < turns.length - 1 || !agent.busy;
+  const sources = useMemo(() => turnSources(rest), [rest]);
   const footers = new Map(turns.flatMap((t, i) => (t.files.length && finished(i) ? [[t.end, t]] : [])));
   return runs(rest).slice(from).flatMap((g) => {
     const last = g.run ? g.run[g.run.length - 1] : g.item;
     const turn = footers.get(last.id);
-    const footer = turn && <TurnEdits turn={turn} transcript={rest} />;
+    const used = sources.get(last.id);
+    const footer = (turn || used) && (
+      <>
+        {used && <Sources sources={used} />}
+        {turn && <TurnEdits turn={turn} transcript={rest} />}
+      </>
+    );
     if (!g.run || g.calls < FOLD_AT_CALLS) {
       // Every row is a keyed Fragment, footer or not: if a footer arriving
       // changed the element type here, React would remount the row and replay
@@ -979,6 +988,7 @@ function Item({ item, agent, mark }) {
     const text = toolText(item.output);
     const failed = item.state === 'output-error';
     const run = label === 'Bash' && text ? parseTestRun(text) : null;
+    const found = label === 'WebSearch' && !failed ? linksOf(item.output) : [];
 
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (
@@ -1064,7 +1074,8 @@ function Item({ item, agent, mark }) {
           {run && <TestResults run={run} project={agent.project} />}
           {run && <RawOutput text={text} error={failed} project={agent.project} />}
           {!run && failed && text && <ToolOutput text={text} error className="mt-0" project={agent.project} />}
-          {!failed && !run && <InputFields input={item.input} />}
+          {!failed && !run && !found.length && <InputFields input={item.input} />}
+          {!failed && found.length > 0 && <SourceList sources={found} className="mt-1" />}
           {recording && (
             <video
               controls
@@ -1080,7 +1091,7 @@ function Item({ item, agent, mark }) {
               loading="lazy"
               src={imageSrc(b)} />
           ))}
-          {!failed && !run && text && <ToolOutput text={text} stack={label === 'Bash'} project={agent.project} />}
+          {!failed && !run && text && <ToolOutput text={found.length ? withoutLinks(text) : text} stack={label === 'Bash'} project={agent.project} />}
           {(failed || run) && <InputFold input={item.input} />}
         </ToolRow>
       </div>
