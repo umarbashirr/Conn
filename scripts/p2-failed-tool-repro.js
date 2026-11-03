@@ -54,6 +54,7 @@ async function main() {
       return {
         text: r.innerText,
         pres: [...r.querySelectorAll('pre')].map((p) => p.textContent),
+        fields: r.querySelector('[data-slot="tool-fields"]')?.innerText ?? '',
         input: !!toggle,
         expanded: toggle?.getAttribute('aria-expanded') ?? null,
         showAll: [...r.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Show all'),
@@ -66,14 +67,14 @@ async function main() {
     await run('toolu_fail', 'Bash', { command: 'npm test' }, ERROR, true);
     const failed = await until(async () => (await read('toolu_fail'))?.text.includes(ERROR) && (await read('toolu_fail')));
     const errAt = failed ? failed.text.indexOf(ERROR) : -1;
-    const jsonAt = failed ? failed.text.indexOf('"command"') : -1;
+    const jsonAt = failed && failed.fields ? failed.text.indexOf(failed.fields) : -1;
     check('failed-row-shows-the-error-before-the-input', errAt >= 0 && (jsonAt === -1 || errAt < jsonAt), J(failed));
     check('failed-row-input-fold-is-closed', !!failed && failed.input && failed.expanded === 'false' && jsonAt === -1, J(failed));
     await shot(s, SHOT('failed'));
     await click(s, 'css=#row-toolu_fail [data-slot="tool-input"]').catch(() => {});
-    const opened = await until(async () => (await read('toolu_fail'))?.text.includes('"command"') && (await read('toolu_fail')));
-    check('opening-the-input-fold-shows-the-json', !!opened && opened.pres.some((p) => p.includes('"command": "npm test"')) && opened.expanded === 'true', J(opened));
-    check('error-stays-above-the-opened-input', !!opened && opened.text.indexOf(ERROR) < opened.text.indexOf('"command"'), J(opened));
+    const opened = await until(async () => (await read('toolu_fail'))?.fields && (await read('toolu_fail')));
+    check('opening-the-input-fold-shows-labelled-fields', !!opened && /command\s+npm test/.test(opened.fields) && opened.expanded === 'true', J(opened));
+    check('error-stays-above-the-opened-input', !!opened && opened.text.indexOf(ERROR) < opened.text.indexOf(opened.fields), J(opened));
     await shot(s, SHOT('input-fold'));
 
     await run('toolu_long', 'Bash', { command: 'npm run build' }, DIGITS, true);
@@ -100,7 +101,7 @@ async function main() {
     await until(() => read('toolu_ok'));
     await click(s, 'css=#row-toolu_ok button').catch(() => {});
     const ok = await until(async () => (await read('toolu_ok'))?.text.includes('On branch main') && (await read('toolu_ok')));
-    check('successful-row-keeps-the-input-before-the-output', !!ok && ok.pres[0]?.includes('"command": "git status"') && ok.pres[1] === 'On branch main', J(ok));
+    check('successful-row-keeps-the-input-before-the-output', !!ok && /command\s+git status/.test(ok.fields) && ok.pres[0] === 'On branch main' && ok.text.indexOf(ok.fields) < ok.text.indexOf('On branch main'), J(ok));
     check('successful-row-has-no-input-fold', !!ok && !ok.input, J(ok));
     await shot(s, SHOT('success'));
 
@@ -109,7 +110,7 @@ async function main() {
     await click(s, 'css=#row-toolu_okLong button').catch(() => {});
     const okLong = await until(async () => (await read('toolu_okLong'))?.text.includes('more characters') && (await read('toolu_okLong')));
     check('long-successful-output-says-how-much-is-hidden',
-      !!okLong && okLong.text.includes('5,000 more characters') && okLong.pres[0]?.includes('"command"') && okLong.pres[1]?.length === 4000, J(lengths(okLong)));
+      !!okLong && okLong.text.includes('5,000 more characters') && /command\s+cat big.log/.test(okLong.fields) && okLong.pres[0]?.length === 4000, J(lengths(okLong)));
 
     const edit = { file_path: path.join(s.project, 'index.html'), old_string: 'Your cart', new_string: 'Your basket' };
     await run('toolu_edit', 'Edit', edit, 'old_string was not found in index.html', true);
