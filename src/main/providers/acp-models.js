@@ -1,6 +1,6 @@
 'use strict';
 
-const ACRONYM = new Set(['gpt', 'glm']);
+const ACRONYM = new Set(['gpt', 'glm', 'mai']);
 const NUMBER = /^\d+$/;
 
 function modelName(id) {

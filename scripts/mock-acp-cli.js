@@ -31,6 +31,7 @@ const COST = process.env.MOCK_ACP_COST || '';
 const TURN_USAGE = process.env.MOCK_ACP_TURN_USAGE === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
+const PREFACE_TITLES = process.env.MOCK_ACP_PREFACE_TITLES === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
 const trace = (what) => PIDS && require('fs').appendFileSync(PIDS, `${what} ${process.pid}\n`);
 trace('start');
@@ -353,8 +354,12 @@ function onMessage(msg) {
     trace('list');
     const page = params.cursor ? 1 : 0;
     const row = stored[page];
+    const title = () => {
+      const { ACP_INSTRUCTIONS } = require('../src/main/providers/acp-session');
+      return `${ACP_INSTRUCTIONS}\n\nmake the button red`.slice(0, 500) + '...';
+    };
     return result(id, {
-      sessions: row ? [{ ...row, cwd: params.cwd }] : [],
+      sessions: row ? [{ ...row, ...(PREFACE_TITLES && { title: title() }), cwd: params.cwd }] : [],
       ...(page === 0 && stored.length > 1 ? { nextCursor: 'page-2' } : {}),
     });
   }
@@ -377,7 +382,7 @@ function onMessage(msg) {
     if (AUTH) return fail(id, 'not authenticated; run login');
     const servers = params?.mcpServers || [];
     if (params?.cwd) cwd = params.cwd;
-    record({ method, cwd: params?.cwd, mcpServers: servers });
+    record({ method, sessionId: params?.sessionId, cwd: params?.cwd, mcpServers: servers });
     if (CONFIG) {
       return result(id, {
         sessionId: params?.sessionId || mint(),
