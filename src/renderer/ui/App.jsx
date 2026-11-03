@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, use
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ArrowUpCircleIcon, FileDownIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
-import { Conversation, ConversationContent } from '@/components/ai-elements/conversation';
+import { Conversation, ConversationContent, useTurnPin } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, FileDiffs } from '@/components/diff-view';
 import { RawOutput, TestResults, TestSummary } from '@/components/test-results';
@@ -725,7 +725,7 @@ export default function App() {
 // when it finishes a thought. The wrapper is keyed on the item, so a row that
 // merely changes underneath it — a tool filling in its output, a diff arriving
 // a beat after its row — sits still instead of replaying.
-const Row = ({ children }) => <div className="conn-in">{children}</div>;
+const Row = ({ children, ...props }) => <div className="conn-in" {...props}>{children}</div>;
 
 const TAIL = 30;
 
@@ -736,6 +736,7 @@ function Transcript({ items, agent }) {
   useEffect(() => { if (pinnedStart === null && total) setPinnedStart(start); }, [pinnedStart, total, start]);
 
   const { scrollRef } = useStickToBottomContext();
+  useTurnPin(items.findLast((it) => it.kind === 'user' && !it.parent)?.id);
   const fromBottom = useRef(null);
   const earlier = () => {
     const el = scrollRef.current;
@@ -787,7 +788,7 @@ export function Items({ items, agent, from = 0 }) {
       // its conn-in animation.
       return (g.run || [g.item]).map((it) => (
         <Fragment key={it.id}>
-          <Row><Item item={it} agent={agent} mark={marks.get(it.id)} calls={calls} /></Row>
+          <Row data-turn={it.kind === 'user' ? it.id : undefined}><Item item={it} agent={agent} mark={marks.get(it.id)} calls={calls} /></Row>
           {it === last && footer}
         </Fragment>
       ));
