@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 
-const { planOf, withPlan, planDone } = await import('../src/renderer/ui/lib/plan.js');
+const { planOf, withPlan, planDone, planComplete } = await import('../src/renderer/ui/lib/plan.js');
 
 const todo = (content, status = 'pending', extra = {}) => ({ content, status, ...extra });
 const three = [todo('Read'), todo('Patch'), todo('Test')];
@@ -76,5 +76,10 @@ const plans = (items) => items.filter((it) => it.kind === 'plan');
 
 assert.equal(planDone(ticked), 1, 'one entry is done');
 assert.equal(planDone(three), 0);
+
+assert.equal(planComplete(ticked), false, 'a plan with work left is not complete');
+assert.equal(planComplete([todo('A', 'completed'), todo('B', 'completed')]), true, 'every entry done is complete');
+assert.equal(planComplete([todo('A', 'completed'), todo('B')]), false, 'one pending entry is not complete');
+assert.equal(planComplete([]), false, 'an empty plan is not complete');
 
 console.log('plan-check: all passed');

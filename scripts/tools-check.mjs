@@ -10,7 +10,7 @@ import './renderer-esm.mjs';
 const require = createRequire(import.meta.url);
 const { z } = require('zod');
 const { browserTools, BROWSER_LABEL, BROWSER_BY_ROUTE } = require('../src/shared/browser-tools.js');
-const { toolLabel, toolName, toolSummary, bucketOf, toolImages, imageSrc, cutText } = await import('../src/renderer/ui/lib/tools.js');
+const { toolLabel, toolName, toolSummary, toolTitle, bucketOf, toolImages, imageSrc, cutText } = await import('../src/renderer/ui/lib/tools.js');
 await import('../src/renderer/ui/lib/subagents.js');
 
 const TOOLS = browserTools(z);
@@ -159,5 +159,35 @@ const iconKeys = new Set([...icons.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]));
 for (const name of [...TOOLS.map((t) => t.name), 'Skill']) assert.ok(iconKeys.has(name), `ICONS has an icon for ${name}`);
 
 assert.doesNotMatch(read('src/renderer/ui/lib/subagents.js'), /from '@\/components/, 'lib/subagents.js imports no component, so plain node can load it');
+
+const TITLES = [
+  ['Bash', 'input-available', 'Running'],
+  ['Bash', 'input-streaming', 'Running'],
+  ['Bash', 'output-available', 'Ran'],
+  ['Read', 'input-available', 'Reading'],
+  ['Read', 'output-available', 'Read'],
+  ['Edit', 'input-available', 'Editing'],
+  ['Edit', 'output-available', 'Edited'],
+  ['MultiEdit', 'output-available', 'Edited'],
+  ['Write', 'input-available', 'Writing'],
+  ['Write', 'output-available', 'Wrote'],
+  ['Grep', 'input-available', 'Searching'],
+  ['Grep', 'output-available', 'Searched'],
+  ['WebSearch', 'output-available', 'Searched'],
+  ['WebFetch', 'input-available', 'Fetching'],
+  ['WebFetch', 'output-available', 'Fetched'],
+];
+for (const [label, state, want] of TITLES) assert.equal(toolTitle(label, state), want, `${label} reads "${want}" while ${state}`);
+for (const t of TOOLS) {
+  for (const state of ['input-available', 'output-available', 'output-error']) {
+    assert.equal(toolTitle(t.name, state), t.label, `${t.name} keeps its label "${t.label}" while ${state}`);
+  }
+}
+for (const label of ['Bash', 'Edit', 'Write', 'WebFetch']) {
+  assert.equal(toolTitle(label, 'output-error'), toolName(label), `a failed ${label} keeps its name instead of a past-tense verb`);
+}
+assert.equal(toolTitle('ExitPlanMode', 'output-available'), 'Proposed plan', 'a tool with no verb keeps its name');
+assert.equal(toolTitle('create_issue', 'input-available'), 'create_issue', 'an MCP tool with no verb keeps its name');
+assert.equal(toolSummary('WebSearch', { query: 'electron  asar\nformat' }), 'electron asar format', 'a web search shows its query');
 
 console.log('tools-check: all passed');

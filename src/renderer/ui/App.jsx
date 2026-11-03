@@ -985,6 +985,7 @@ function Item({ item, agent, mark }) {
             input={item.input}
             state={item.state}
             at={item.at}
+          end={item.end}
             defaultOpen
             right={mark && <PermMark perm={mark} />}>
             <MessageResponse className="ml-1 border-l pl-3 text-[13px] [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-[13px]">
@@ -1005,6 +1006,7 @@ function Item({ item, agent, mark }) {
           input={item.input}
           state={item.state}
           at={item.at}
+          end={item.end}
           defaultOpen
           right={(
             <>
@@ -1031,6 +1033,7 @@ function Item({ item, agent, mark }) {
           input={item.input}
           state={item.state}
           at={item.at}
+          end={item.end}
           thumb={images.at(-1) ?? null}
           defaultOpen={item.state === 'output-error' || !!recording}
           right={(

@@ -15,7 +15,8 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Fold } from '@/components/fold';
 import { Button } from '@/components/ui/button';
 import { clock, useTick } from '@/lib/clock';
-import { bucketOf, cutText, imageSrc, toolImages, toolLabel, toolName, toolSummary } from '@/lib/tools';
+import { runSpan, callSpan } from '@/lib/runs';
+import { bucketOf, cutText, imageSrc, toolImages, toolLabel, toolName, toolSummary, toolTitle } from '@/lib/tools';
 import { cn } from '@/lib/utils';
 
 const ICONS = {
@@ -94,7 +95,7 @@ export function PermMark({ perm }) {
   );
 }
 
-export function ToolRow({ name, input, state, at, right, thumb = null, defaultOpen = false, children }) {
+export function ToolRow({ name, input, state, at, end, right, thumb = null, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen);
   // The input arrives after the row does, so a row can turn into a diff a beat
   // later. Follow defaultOpen until the reader takes over.
@@ -114,6 +115,8 @@ export function ToolRow({ name, input, state, at, right, thumb = null, defaultOp
   // its own kind of noise.
   useTick(running);
   const held = running && at ? Date.now() - at : 0;
+  const took = running ? null : callSpan({ at, end });
+  const title = toolTitle(name, state);
 
   return (
     <div className={cn('rounded-md', failed && 'bg-destructive/5')}>
@@ -128,8 +131,8 @@ export function ToolRow({ name, input, state, at, right, thumb = null, defaultOp
           ? <CircleAlertIcon className="size-3.5 shrink-0 text-destructive" />
           : <Icon className="size-3.5 shrink-0 text-muted-foreground" />}
         {running
-          ? <Shimmer as="span" className="shrink-0 text-[13px]">{toolName(name)}</Shimmer>
-          : <span className={cn('shrink-0 text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>{toolName(name)}</span>}
+          ? <Shimmer as="span" className="shrink-0 text-[13px]">{title}</Shimmer>
+          : <span className={cn('shrink-0 text-[13px]', failed ? 'text-destructive' : 'text-foreground/90')}>{title}</span>}
         {summary && (
           <span className="truncate font-mono text-muted-foreground text-xs">{summary}</span>
         )}
@@ -138,6 +141,9 @@ export function ToolRow({ name, input, state, at, right, thumb = null, defaultOp
             <span className="conn-in font-mono text-[11px] tabular-nums text-muted-foreground/70">
               {clock(held)}
             </span>
+          )}
+          {took && (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/50">{clock(took)}</span>
           )}
           {right}
           {!open && thumb && <Thumb block={thumb} />}
@@ -208,8 +214,15 @@ function summarise(items) {
 // matter, because that is the reader's own doing and they should see where the
 // rows came from.
 export function ToolStrip({ items, children }) {
-  const [open, setOpen] = useState(false);
   const failed = items.filter((i) => i.state === 'output-error').length;
+  const [open, setOpen] = useState(failed > 0);
+  // A failure that lands after the strip folded opens it once, so the failed
+  // row is seen. After that, or after any click, the reader decides.
+  const settled = useRef(failed > 0);
+  useEffect(() => {
+    if (failed > 0 && !settled.current) { settled.current = true; setOpen(true); }
+  }, [failed]);
+  const total = runSpan(items);
   const shot = items.flatMap((it) => toolImages(it.output)).at(-1);
 
   return (
@@ -217,7 +230,7 @@ export function ToolStrip({ items, children }) {
       <Button
         variant="ghost"
         size="sm"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { settled.current = true; setOpen((v) => !v); }}
         title={open ? 'Fold these back into one line' : 'Show each call'}
         className="h-7 w-full justify-start gap-1.5 px-1.5 font-normal">
         <ChevronRightIcon
@@ -236,7 +249,12 @@ export function ToolStrip({ items, children }) {
             {failed} failed
           </span>
         )}
-        {!open && shot && <Thumb block={shot} className="ml-auto" />}
+        <span className="ml-auto flex shrink-0 items-center gap-2 pl-2">
+          {total && (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground/50">{clock(total)}</span>
+          )}
+          {!open && shot && <Thumb block={shot} />}
+        </span>
       </Button>
 
       <Fold open={open} className="ml-3 flex flex-col gap-px border-l pl-1.5">{children}</Fold>

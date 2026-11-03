@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import './renderer-esm.mjs';
 
-const { runs, FOLD_AT_CALLS } = await import('../src/renderer/ui/lib/runs.js');
+const { runs, FOLD_AT_CALLS, runSpan, callSpan, SHOW_AFTER_MS } = await import('../src/renderer/ui/lib/runs.js');
 
 const tool = (id, name = 'Read') => ({ id, kind: 'tool', name, input: { file_path: `/${id}` }, state: 'output-available' });
 const edit = (id) => ({ id, kind: 'tool', name: 'Edit', input: { file_path: '/a.js', old_string: 'x', new_string: 'y' }, state: 'output-available' });
@@ -66,6 +66,22 @@ assert.deepEqual(shape(runs([tool('t1'), tool('t2'), thought('r1'), reply('a1'),
   }
   assert.deepEqual(got.flatMap((g) => (g.run ? g.run : [g.item])).map((it) => it.id), items.map((it) => it.id),
     'every row lands once, in order');
+}
+
+{
+  const t = (at, end, extra) => ({ ...tool('x'), at, end, ...extra });
+  assert.equal(SHOW_AFTER_MS, 2000, 'a duration shows from two seconds');
+  assert.equal(callSpan(t(1000, 4500)), 3500, 'a call spans its start to its end');
+  assert.equal(callSpan(t(1000, 2500)), null, 'under two seconds shows nothing');
+  assert.equal(callSpan(t(1000, 3000)), 2000, 'exactly two seconds shows');
+  assert.equal(callSpan(tool('r')), null, 'a replayed call has no times and so no duration');
+  assert.equal(callSpan(t(1000, undefined)), null, 'a call with no end has no duration');
+  assert.equal(callSpan(t(5000, 1000)), null, 'an end before the start is not a duration');
+  assert.equal(runSpan([t(1000, 2000), t(2000, 3000), t(3000, 6000)]), 5000, 'a run spans its first start to its last end');
+  assert.equal(runSpan([t(1000, 1500), t(1500, 2000)]), null, 'a run under two seconds shows nothing');
+  assert.equal(runSpan([tool('a'), tool('b')]), null, 'a replayed run has no total');
+  assert.equal(runSpan([t(1000, 2000), tool('b'), t(3000, 9000)]), 8000, 'a call without times does not hide the rest');
+  assert.equal(runSpan([t(1000, 9000), t(2000, 3000)]), 8000, 'the latest end counts, not the last in order');
 }
 
 console.log('runs-check: all passed');
