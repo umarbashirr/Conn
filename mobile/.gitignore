@@ -9,6 +9,7 @@
 # local verify transpile output
 scripts/.chat-check-out/
 scripts/.fold-check-out/
+scripts/.ticket-check-out/
 
 # dependencies
 node_modules/
