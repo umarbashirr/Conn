@@ -378,6 +378,12 @@ function AgentPage({ provider, settings, set, agent, updates }) {
   const version = state?.version || cli.running?.version || null;
   const path = state?.path || cli.path || null;
   const inUse = agent.provider === provider;
+  const account = state?.account
+    || (state?.status === 'error'
+      ? 'Sign-in needs attention'
+      : state?.status === 'ready'
+        ? 'CLI ready; account identity not exposed'
+        : state ? (installed ? 'Sign-in status unavailable' : 'Not installed') : 'Checking…');
   const saved = settings[provider]?.binary || '';
   const [draft, setDraft] = useState(saved);
   // Two things move this box: a settings reset, and a path saved elsewhere.
@@ -426,6 +432,11 @@ function AgentPage({ provider, settings, set, agent, updates }) {
           {inUse
             ? <Mono>In use</Mono>
             : <Button variant="outline" disabled={!installed} onClick={() => agent.changeProvider(provider)}>Use {p.label}</Button>}
+        </Row>
+        <Row
+          label="Account"
+          hint={`Conn uses the account stored by ${p.cli}. Credentials stay with that CLI.`}>
+          <Mono>{account}</Mono>
         </Row>
         {installed && (
           <Row label="Sign in" hint={`Runs ${p.cli} ${p.login.join(' ')} in a terminal, for a first login or one that has expired.`}>

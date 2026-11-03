@@ -38,6 +38,7 @@ const { reuseLive } = require('../shared/run-choice');
 const { ensurePrivateDir } = require('./private-dir');
 const { createUsageLedger } = require('./usage-ledger');
 const { createUsageHistory } = require('./usage-history');
+const { accountFor } = require('./provider-accounts');
 const { exportChat } = require('./chat-export');
 const { LANDS_WITHIN } = require('./history');
 const { createAgentSearch } = require('./search-handler');
@@ -175,6 +176,8 @@ function providerStates() {
       installed: !!d.installed,
       version: d.version || null,
       path: d.binaryPath || null,
+      status: d.status || null,
+      account: accountFor(row.id),
       message: d.message || (!d.installed ? row.missing : null) || null,
       count: (d.models || []).length,
     };

@@ -8,7 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useCommandState } from 'cmdk';
 import {
-  BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
+  BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
   FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,7 @@ import {
   pinChat, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
+import { useUpdates } from '../useSettings';
 
 /* The box is a contenteditable, not the textarea this used to reach for, so
    focusing it was quietly doing nothing. A new chat you have to click into is
@@ -679,6 +680,7 @@ function RenameDialog({ chat, onCancel, onConfirm }) {
 
 export default function Rail() {
   useRail();
+  const updates = useUpdates();
   const [doomed, setDoomed] = useState(null);
   const [naming, setNaming] = useState(null);
   const [leaving, setLeaving] = useState(null);
@@ -722,6 +724,33 @@ export default function Rail() {
     await closeProject(folder.dir);
     setLeaving(null);
   };
+
+  const downloading = updates.progress !== null;
+  const percent = updates.progress?.total
+    ? Math.max(0, Math.min(100, Math.round(updates.progress.received / updates.progress.total * 100)))
+    : 0;
+  const updateReady = updates.app.behind && updates.app.asset && updates.kind !== 'dev';
+  const needsRestart = updates.restart?.ready;
+
+  const updateClick = async () => {
+    if (updates.checking || downloading || updates.installing) return;
+    if (needsRestart) return updates.relaunch();
+    if (updates.file) return updates.install();
+    if (updateReady) return updates.download();
+    if (updates.app.behind) return window.connChat?.customize('updates');
+    return updates.check();
+  };
+
+  const updateLabel = updates.checking ? 'Checking…'
+    : downloading ? `Downloading ${percent}%`
+      : updates.installing ? 'Installing…'
+        : needsRestart ? 'Restart to update'
+          : updates.file ? (updates.kind === 'appimage' ? 'Show update' : 'Install update')
+            : updateReady ? 'Download update'
+              : updates.app.behind ? 'View update'
+                : 'Check for updates';
+
+  const updateTitle = updates.error ? `Update error: ${updates.error}` : updateLabel;
 
   // The handle beside this pane is the seam. A border here too sits against
   // it, and the line reads twice as thick.
@@ -785,6 +814,36 @@ export default function Rail() {
 
       <SidebarFooter data-slot="rail-foot" className="gap-0 border-t px-2 py-1.5">
         <SidebarMenu className="gap-px">
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className={FOOT}
+              title={updateTitle}
+              aria-label={updateLabel}
+              disabled={updates.checking || !!downloading || updates.installing}
+              onClick={updateClick}>
+              {downloading ? (
+                <svg viewBox="0 0 24 24" className="size-4 shrink-0" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeOpacity=".2" strokeWidth="2.5" />
+                  <circle
+                    cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2.5"
+                    strokeDasharray={2 * Math.PI * 9}
+                    strokeDashoffset={2 * Math.PI * 9 * (1 - percent / 100)}
+                    strokeLinecap="round" transform="rotate(-90 12 12)" />
+                </svg>
+              ) : updates.checking || updates.installing ? (
+                <LoaderCircleIcon className="size-4 animate-spin" />
+              ) : needsRestart ? (
+                <RotateCcwIcon />
+              ) : updates.file ? (
+                updates.kind === 'appimage' ? <FolderOpenIcon /> : <CheckIcon />
+              ) : updateReady ? (
+                <DownloadIcon />
+              ) : (
+                <RotateCcwIcon />
+              )}
+              <span>{updateLabel}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
           <SidebarMenuItem>
             {/* Skills, agents and MCP servers for this folder, and the app's
                 settings, on a page in the chat's place. */}

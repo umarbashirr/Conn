@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 const conn = () => window.conn;
 
@@ -45,74 +45,94 @@ const NO_UPDATES = {
   restart: { running: '', installed: null, kind: 'dev', ready: false },
 };
 
+const updateListeners = new Set();
+let updateState = {
+  ...NO_UPDATES,
+  checking: false,
+  progress: null,
+  file: null,
+  installing: false,
+  installed: false,
+  error: null,
+};
+let updateEventsStarted = false;
+
+const notifyUpdates = () => updateListeners.forEach((listener) => listener());
+const setUpdateState = (patch) => {
+  updateState = { ...updateState, ...patch };
+  notifyUpdates();
+};
+const subscribeUpdates = (listener) => {
+  updateListeners.add(listener);
+  return () => updateListeners.delete(listener);
+};
+const getUpdateState = () => updateState;
+
 export function useUpdates() {
-  const [info, setInfo] = useState(NO_UPDATES);
-  const [checking, setChecking] = useState(false);
-  // { received, total, done } while a file is coming down, then the path it
-  // landed at once it is here.
-  const [progress, setProgress] = useState(null);
-  const [file, setFile] = useState(null);
-  const [installing, setInstalling] = useState(false);
-  const [installed, setInstalled] = useState(false);
-  const [error, setError] = useState(null);
+  const state = useSyncExternalStore(subscribeUpdates, getUpdateState, getUpdateState);
 
   useEffect(() => {
-    conn().updates.info().then((v) => v && setInfo(v)).catch(() => {});
-    const offChanged = conn().updates.onChanged((v) => { if (v) setInfo(v); });
-    const offProgress = conn().updates.onProgress((p) => setProgress(p));
-    return () => { offChanged?.(); offProgress?.(); };
+    if (updateEventsStarted) return;
+    updateEventsStarted = true;
+    conn().updates.info().then((v) => v && setUpdateState(v)).catch(() => {});
+    conn().updates.onChanged((v) => { if (v) setUpdateState(v); });
+    conn().updates.onProgress((progress) => setUpdateState({ progress }));
   }, []);
 
   const check = useCallback(async () => {
-    setChecking(true);
-    setError(null);
+    setUpdateState({ checking: true, error: null });
     try {
       const next = await conn().updates.check();
-      if (next) setInfo(next);
+      if (next) setUpdateState(next);
       return next;
     } catch (e) {
-      setError(e.message);
+      setUpdateState({ error: e.message });
       return null;
     } finally {
-      setChecking(false);
+      setUpdateState({ checking: false });
     }
   }, []);
 
   // A quarter of a gigabyte over a home connection, so this is deliberately two
   // steps: fetch, then hand the file to the installer when the person says so.
   const download = useCallback(async () => {
-    setError(null);
-    setProgress({ received: 0, total: info.app?.asset?.size || 0, done: false });
-    const res = await conn().updates.download();
-    setProgress(null);
-    if (res?.error) { setError(res.error); return null; }
-    setFile(res.path);
-    return res.path;
-  }, [info]);
+    setUpdateState({
+      error: null,
+      progress: { received: 0, total: updateState.app?.asset?.size || 0, done: false },
+    });
+    try {
+      const res = await conn().updates.download();
+      if (res?.error) {
+        setUpdateState({ error: res.error });
+        return null;
+      }
+      setUpdateState({ file: res.path });
+      return res.path;
+    } catch (e) {
+      setUpdateState({ error: e.message });
+      return null;
+    } finally {
+      setUpdateState({ progress: null });
+    }
+  }, []);
 
   // apt unpacking a quarter of a gigabyte takes long enough that a button which
   // does nothing visible reads as a button that did nothing.
   const install = useCallback(async (target) => {
-    setError(null);
-    setInstalling(true);
+    setUpdateState({ error: null, installing: true });
     try {
-      const res = await conn().updates.install(target || file);
-      if (res?.error) setError(res.error);
-      else if (res?.action === 'installed') setInstalled(true);
+      const res = await conn().updates.install(target || updateState.file);
+      if (res?.error) setUpdateState({ error: res.error });
+      else if (res?.action === 'installed') setUpdateState({ installed: true });
       return res;
     } finally {
-      setInstalling(false);
+      setUpdateState({ installing: false });
     }
-  }, [file]);
+  }, []);
 
   return {
-    ...info,
-    checking,
-    progress,
-    file,
-    installing,
-    installed,
-    error: error || info.error,
+    ...state,
+    error: state.error || null,
     check,
     download,
     install,

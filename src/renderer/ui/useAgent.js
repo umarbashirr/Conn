@@ -2,6 +2,7 @@ import { chatTitle } from '../../shared/chat-title';
 import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
+import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
@@ -102,7 +103,9 @@ function replay(messages, parent, first = 0) {
         const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
         if (plan) out = withPlan(out, { parent, ...plan });
         else if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
-        else if (b.type === 'text' && b.text?.trim()) out.push({ id: `${id}.${k}`, kind: 'assistant', text: b.text, ...base });
+        else if (b.type === 'text' && b.text?.trim() && !isInternalAnswerArtifact(b.text)) {
+          out.push({ id: `${id}.${k}`, kind: 'assistant', text: b.text, ...base });
+        }
         else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${id}.${k}`, kind: 'reasoning', text: b.thinking, ...base });
       }
       continue;
@@ -596,7 +599,7 @@ export function useAgent() {
                 ms: 0,
               } : {}),
             });
-          } else if (b.type === 'text' && st.open?.kind !== 'assistant') {
+          } else if (b.type === 'text' && st.open?.kind !== 'assistant' && !isInternalAnswerArtifact(b.text)) {
             // Only render text that did not already arrive as deltas.
             const key = (b.text || '').slice(0, 80);
             if (!st.seen.has(key)) {

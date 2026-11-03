@@ -58,6 +58,7 @@ import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
 import { mentionsIn } from './lib/tokens.js';
 import { plainText } from '../../shared/attachments.js';
+import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -298,21 +299,18 @@ export default function App() {
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
   const [customizeAt, setCustomizeAt] = useState(null);
-  const customize = useCallback((at) => {
-    enterFullPage();
-    setCustomizeAt(at);
-  }, []);
-  const closeCustomize = useCallback(() => {
-    leaveFullPage();
-    setCustomizeAt(null);
-  }, []);
+  useLayoutEffect(() => {
+    if (customizeAt === null) leaveFullPage();
+    else enterFullPage();
+  }, [customizeAt]);
+  const customize = useCallback((at) => setCustomizeAt(at), []);
+  const closeCustomize = useCallback(() => setCustomizeAt(null), []);
   const [usageOpen, setUsageOpen] = useState(false);
   const openUsage = useCallback(() => setUsageOpen(true), []);
   const closeUsage = useCallback(() => setUsageOpen(false), []);
   // Picking a chat, from the rail or the palette, means you want to read it, so
   // whichever full page is up gives the window back.
   const showChat = useCallback(() => {
-    leaveFullPage();
     setUsageOpen(false);
     setCustomizeAt(null);
   }, []);
@@ -337,7 +335,8 @@ export default function App() {
     return undefined;
   }, []);
   const copyLastReply = useCallback(async () => {
-    const reply = agentRef.current.items.findLast((it) => !it.parent && it.kind === 'assistant' && it.text && !it.streaming);
+    const reply = agentRef.current.items.findLast((it) =>
+      !it.parent && it.kind === 'assistant' && it.text && !it.streaming && !isInternalAnswerArtifact(it.text));
     if (!reply) return toast('Nothing to copy yet', 'The assistant has not replied.');
     try {
       await navigator.clipboard.writeText(reply.text);
@@ -974,6 +973,7 @@ function TurnErrorRow({ item, agent }) {
 
 function AssistantRow({ item }) {
   const [hot, bind] = useMountOnHover();
+  if (isInternalAnswerArtifact(item.text)) return null;
   return (
     <Message from="assistant" aria-busy={item.streaming || undefined} className="relative mt-2 w-fit" {...bind}>
       <MessageContent>
