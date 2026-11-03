@@ -183,6 +183,6 @@ const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.route
    server named `preview`, which it namespaces; codex and the ACP agents get
    them from the `conn` MCP server, which codex namespaces and the ACP agents
    list under their bare names. */
-const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '' };
+const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '', copilot: '' };
 
 module.exports = { browserTools, keyframeBlocks, INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX };

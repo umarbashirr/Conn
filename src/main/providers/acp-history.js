@@ -16,6 +16,8 @@ const CALL_MS = 20000;
 const LIST_MS = 15000;
 const LOAD_MS = 60000;
 const MAX_PAGES = 20;
+const TITLE_LOADS = 3;
+const MIN_PREFACE_HEAD = 40;
 
 const message = (role, content) => ({ type: role, message: { role, content } });
 
@@ -107,20 +109,44 @@ function cwdAndRealpath(cwd) {
   return paths;
 }
 
+const squash = (t) => t.replace(/\s+/g, ' ').trim();
+
+// An agent that titles a chat from the raw prompt cuts the preface at a fixed
+// length and adds "...", so a title that is only a leading slice of it says
+// nothing about the chat.
+function isPrefaceSlice(title) {
+  const head = squash(title).replace(/\.{3}$/, '').trimEnd();
+  return head.length >= MIN_PREFACE_HEAD && squash(ACP_INSTRUCTIONS).startsWith(head);
+}
+
 const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
-function rowOf(s) {
+function rowOf(s, dir) {
   if (!s?.sessionId) return null;
-  const title = chatTitle(s.title);
+  const at = Date.parse(s.updatedAt) || 0;
+  const raw = String(s.title || '');
+  if (isPrefaceSlice(raw)) return { id: s.sessionId, title: '', at, dir };
+  const title = chatTitle(withoutPreface(raw));
   if (!title) return null;
-  return { id: s.sessionId, title: title.slice(0, 120), at: Date.parse(s.updatedAt) || 0 };
+  return { id: s.sessionId, title: title.slice(0, 120), at };
 }
+
+const firstUserTitle = (messages) => {
+  for (const m of messages) {
+    if (m.type !== 'user') continue;
+    const block = m.message.content.find((b) => b.type === 'text');
+    const title = block && chatTitle(block.text);
+    if (title) return title.slice(0, 120);
+  }
+  return '';
+};
 
 function createAcpHistory({ spec, label }) {
   let live = null;
   let idleTimer = null;
   const updatesBySession = new Map();
   const reads = new Map();
+  const resolvedTitles = new Map();
 
   function close() {
     clearTimeout(idleTimer);
@@ -201,7 +227,11 @@ function createAcpHistory({ spec, label }) {
         for (let page = 0; page < MAX_PAGES; page++) {
           const res = await rpc.request('session/list', { cwd: dir, ...(cursor && { cursor }) }, CALL_MS);
           for (const s of res?.sessions || []) {
-            const row = rowOf(s);
+            const row = rowOf(s, dir);
+            if (row && resolvedTitles.has(row.id)) {
+              row.title = resolvedTitles.get(row.id);
+              delete row.dir;
+            }
             if (row) byId.set(row.id, row);
           }
           cursor = res?.nextCursor;
@@ -213,9 +243,40 @@ function createAcpHistory({ spec, label }) {
     return (rows || []).sort((a, b) => b.at - a.at).slice(0, limit);
   }
 
+  async function titleOf(dir, id) {
+    if (resolvedTitles.has(id)) return resolvedTitles.get(id);
+    const { messages } = await read(dir, id);
+    const title = firstUserTitle(messages);
+    if (title) resolvedTitles.set(id, title);
+    return title;
+  }
+
+  async function resolveTitles(rows, deadline) {
+    const todo = rows.filter((r) => r.dir);
+    let next = 0;
+    const worker = async () => {
+      while (next < todo.length) {
+        const row = todo[next++];
+        const left = deadline - Date.now();
+        if (left <= 0) return;
+        try {
+          row.title = await within(left, titleOf(row.dir, row.id));
+        } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TITLE_LOADS, todo.length) }, worker));
+    for (const row of rows) {
+      row.title ||= `${label} chat`;
+      delete row.dir;
+    }
+    return rows;
+  }
+
   async function listSessions(cwd, limit = 200) {
+    const deadline = Date.now() + LIST_MS;
     try {
-      return await within(LIST_MS, collect(cwd, limit));
+      const rows = await within(LIST_MS, collect(cwd, limit));
+      return await resolveTitles(rows, deadline);
     } catch {
       return [];
     }
@@ -239,13 +300,17 @@ function createAcpHistory({ spec, label }) {
     return { messages: foldUpdates(updates), ...(usage && { usage }) };
   }
 
-  async function readSession(cwd, id, opts) {
-    let read = reads.get(id);
-    if (!read) {
-      read = load(cwd, id).finally(() => reads.delete(id));
-      reads.set(id, read);
+  function read(cwd, id) {
+    let pending = reads.get(id);
+    if (!pending) {
+      pending = load(cwd, id).finally(() => reads.delete(id));
+      reads.set(id, pending);
     }
-    const { messages, ...rest } = await read;
+    return pending;
+  }
+
+  async function readSession(cwd, id, opts) {
+    const { messages, ...rest } = await read(cwd, id);
     return { ...clip(id, messages, opts), ...rest };
   }
 

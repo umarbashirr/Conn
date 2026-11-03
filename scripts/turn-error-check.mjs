@@ -68,6 +68,9 @@ assert.match(other.message, /the sandbox refused/, 'an unknown codex error keeps
 const acpAuth = classify.acp({ code: -32000, message: 'Authentication required' }, 'cursor');
 is(acpAuth, { kind: 'auth', action: 'login' }, 'acp auth_required');
 assert.match(acpAuth.message, /agent login/, 'the cursor auth row names its login command');
+const copilotAuth = classify.acp({ code: -32000, message: 'Authentication required' }, 'copilot');
+is(copilotAuth, { kind: 'auth', action: 'login' }, 'copilot auth_required');
+assert.match(copilotAuth.message, /copilot login/, 'the copilot auth row names its login command');
 is(classify.acp({ code: -32603, message: 'Rate limit exceeded, retry later' }, 'opencode'), { kind: 'rate_limit', action: 'retry' }, 'acp rate limit by message');
 is(classify.acp({ code: -32603, message: 'fetch failed: getaddrinfo ENOTFOUND api.x.ai' }, 'grok'), { kind: 'network', action: 'retry' }, 'acp network failure');
 is(classify.acp({ code: -32603, message: 'model exploded' }, 'grok'), { kind: 'unknown', action: 'retry' }, 'acp unknown');

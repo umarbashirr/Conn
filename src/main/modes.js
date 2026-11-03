@@ -13,7 +13,7 @@ function browserTool(tool) {
 }
 
 // The four modes the composer offers. Plan, Ask, Auto, and Full bypass mean the
-// same thing for Claude, ChatGPT, Cursor, Grok, and OpenCode: decide() below is
+// same thing for every provider: decide() below is
 // the gate, and each CLI is only told the closest mode it already has. The ACP
 // agents keep that in a `modes` table on their spec in providers/. The
 // renderer keeps these ids and the labels in ui/components/composer.jsx.

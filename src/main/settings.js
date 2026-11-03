@@ -39,7 +39,7 @@ const DEFAULTS = {
     effort: '',
     // Which CLI the panel drives. Both are the person's own install; neither
     // ships with Conn. See driver.js and codex-driver.js.
-    provider: 'claude',     // claude | cursor | grok | opencode | codex
+    provider: 'claude',
     // The model each one is set to. Kept apart because a name from one is
     // meaningless to the other, and switching provider should not lose the
     // choice you made on the one you switched away from.
@@ -47,6 +47,7 @@ const DEFAULTS = {
     cursorModel: '',
     grokModel: '',
     opencodeModel: '',
+    copilotModel: '',
   },
   notifications: {
     enabled: true,
@@ -82,6 +83,10 @@ const DEFAULTS = {
     binary: '',
     hidden: [],
   },
+  copilot: {
+    binary: '',
+    hidden: [],
+  },
   opencode: {
     binary: '',
     // Which models the picker lists. Null until someone chooses, which means
@@ -105,6 +110,7 @@ const DEFAULTS = {
     cursor: '',
     grok: '',
     opencode: '',
+    copilot: '',
     whatsNew: '',
   },
   // One chord per command. Empty means the command has no shortcut until
@@ -133,7 +139,7 @@ function normalize(raw) {
   // It holds a path now, and either old word left in place would be shown as
   // one in the settings box and then written back on the next edit.
   if (out.claude.binary === 'bundled' || out.claude.binary === 'path') out.claude.binary = '';
-  for (const id of ['claude', 'cursor', 'grok', 'codex']) {
+  for (const id of ['claude', 'cursor', 'grok', 'codex', 'copilot']) {
     const hidden = out[id].hidden;
     out[id].hidden = Array.isArray(hidden) ? hidden.filter((v) => typeof v === 'string' && v) : [];
   }

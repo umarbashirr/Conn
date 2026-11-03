@@ -32,6 +32,7 @@ export const VISIBILITY = {
   cursor: hiding('cursor', (m) => cursorModelId(m.value), 'Cursor'),
   grok: hiding('grok', byValue, 'Grok'),
   codex: hiding('codex', byValue, 'Codex'),
+  copilot: hiding('copilot', byValue, 'Copilot'),
   opencode: {
     id: byValue,
     isShown: (row, s) => (s.opencode.shown ? s.opencode.shown.includes(row.id) : !!row.free),

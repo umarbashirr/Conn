@@ -112,7 +112,7 @@ function checkUiLabels() {
 
 function checkRegistry() {
   const { createRegistry, isProviderId, PROVIDER_IDS } = require(path.join(ROOT, 'src/main/providers'));
-  if (PROVIDER_IDS.join(',') === 'claude,cursor,grok,opencode,codex' && isProviderId('opencode') && !isProviderId('gemini')) {
+  if (PROVIDER_IDS.join(',') === 'claude,cursor,grok,opencode,codex,copilot' && isProviderId('opencode') && isProviderId('copilot') && !isProviderId('gemini')) {
     pass('registry-ids');
   } else fail('registry-ids', PROVIDER_IDS.join(','));
   const settings = { get: () => ({}) };

@@ -79,14 +79,7 @@ const settings = new Settings();
 let updates = null;
 const UPDATE_CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 let provider = isProviderId(settings.get('agent').provider) ? settings.get('agent').provider : 'claude';
-const chosenModels = {
-  claude: settings.get('agent').model || null,
-  codex: settings.get('agent').codexModel || null,
-  cursor: settings.get('agent').cursorModel || null,
-  grok: settings.get('agent').grokModel || null,
-  opencode: settings.get('agent').opencodeModel || null,
-};
-if (chosenModels.claude === 'default') chosenModels.claude = null;
+const chosenModels = {};
 let chosenMode = normalizeMode(settings.get('agent').mode);
 if (settings.get('agent').mode !== chosenMode) settings.patch({ agent: { mode: chosenMode } });
 // How hard the model thinks. Empty means the CLI's own default, which is the
@@ -1514,11 +1507,7 @@ function registerIpc() {
     settings: settings.file,
     userData: app.getPath('userData'),
     downloads: app.getPath('downloads'),
-    claude: claudeBinary(),
-    cursor: rowOf('cursor')?.binary?.() || null,
-    grok: rowOf('grok')?.binary?.() || null,
-    opencode: rowOf('opencode')?.binary?.() || null,
-    codex: rowOf('codex')?.binary?.() || null,
+    ...Object.fromEntries(registry.all().map((row) => [row.id, row.binary?.() || null])),
   }));
   ipcMain.handle('settings:reveal', () => {
     shell.showItemInFolder(settings.file);
@@ -1536,14 +1525,10 @@ function registerIpc() {
       chosenMode = mode;
       if (mode !== partial.agent.mode) settings.patch({ agent: { mode } });
     }
-    if (partial?.agent?.model !== undefined) {
-      chosenModels.claude = partial.agent.model || null;
+    for (const row of registry.all()) {
+      if (partial?.agent?.[row.modelKey] !== undefined) chosenModels[row.id] = partial.agent[row.modelKey] || null;
     }
-    if (partial?.agent?.codexModel !== undefined) chosenModels.codex = partial.agent.codexModel || null;
-    if (partial?.agent?.cursorModel !== undefined) chosenModels.cursor = partial.agent.cursorModel || null;
-    if (partial?.agent?.grokModel !== undefined) chosenModels.grok = partial.agent.grokModel || null;
-    if (partial?.agent?.opencodeModel !== undefined) chosenModels.opencode = partial.agent.opencodeModel || null;
-    const binaryTouched = ['claude', 'codex', 'cursor', 'grok', 'opencode'].some((id) => partial?.[id]?.binary !== undefined);
+    const binaryTouched = registry.all().some((row) => partial?.[row.settingsKey]?.binary !== undefined);
     if (binaryTouched) {
       await applyBinaries();
     }
@@ -2045,6 +2030,8 @@ app.whenReady().then(async () => {
   // Finding claude reads this, so the model probe runs after it lands rather
   // than against the launcher's stunted PATH.
   registry = createRegistry({ cacheDir: app.getPath('userData'), settings });
+  for (const row of registry.all()) chosenModels[row.id] = settings.get('agent')[row.modelKey] || null;
+  if (chosenModels.claude === 'default') chosenModels.claude = null;
   shellEnv.ready().then(() => applyBinaries()).catch(() => {});
   for (const row of registry.all()) {
     row.catalog?.on?.('changed', (dir, listing) => {

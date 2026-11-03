@@ -9,10 +9,18 @@ const path = require('path');
 const readline = require('readline');
 const { EventEmitter } = require('events');
 
+const MODE_URL = 'https://agentclientprotocol.com/protocol/session-modes#';
+
 const FLAVORS = {
   cursor: {
+    echoesMode: true,
     session: { modes: { currentModeId: 'agent', availableModes: [{ id: 'agent' }, { id: 'plan' }, { id: 'ask' }] } },
     options: [['allow-once', 'allow_once'], ['allow-always', 'allow_always'], ['reject-once', 'reject_once']],
+  },
+  copilot: {
+    echoesMode: true,
+    session: { modes: { currentModeId: `${MODE_URL}agent`, availableModes: ['agent', 'plan', 'autopilot'].map((m) => ({ id: `${MODE_URL}${m}` })) } },
+    options: [['allow_once', 'allow_once'], ['allow_always', 'allow_always'], ['reject_once', 'reject_once']],
   },
   opencode: {
     session: { configOptions: [{ id: 'mode', category: 'mode', type: 'select', currentValue: 'build', options: [{ value: 'build' }, { value: 'plan' }] }] },
@@ -51,7 +59,7 @@ function agent() {
     if (method === 'session/set_mode' || method === 'session/set_config_option') {
       const mode = params.modeId || params.value;
       log({ set: mode });
-      if (process.env.FAKE_FLAVOR === 'cursor') update(params.sessionId, { sessionUpdate: 'current_mode_update', currentModeId: mode });
+      if (flavor.echoesMode) update(params.sessionId, { sessionUpdate: 'current_mode_update', currentModeId: mode });
       return send({ id, result: {} });
     }
     if (method === 'session/prompt') {
@@ -110,6 +118,7 @@ const PROVIDERS = {
   cursor: require(path.join(ROOT, 'src/main/providers/cursor.js')),
   opencode: require(path.join(ROOT, 'src/main/providers/opencode.js')),
   grok: require(path.join(ROOT, 'src/main/providers/grok.js')),
+  copilot: require(path.join(ROOT, 'src/main/providers/copilot.js')),
 };
 
 const failures = [];
@@ -161,16 +170,19 @@ const NATIVE = {
   cursor: (s) => launched(s).argv.join(' ') === '--force acp',
   opencode: (s) => permission(s, 'allow'),
   grok: (s) => began(s).meta?.yoloMode === true && launched(s).argv.join(' ') === 'agent stdio',
+  copilot: (s) => launched(s).argv.join(' ') === '--acp --stdio' && began(s).meta === null && launched(s).config === null,
 };
 const GATED = {
   cursor: (s) => launched(s).argv.join(' ') === 'acp',
   opencode: (s) => permission(s, 'ask'),
   grok: (s) => began(s).meta === null,
+  copilot: (s) => launched(s).argv.join(' ') === '--acp --stdio' && began(s).meta === null,
 };
-const WORKING = { cursor: 'agent', opencode: 'build', grok: undefined };
-const PLAN = { cursor: 'plan', opencode: 'plan', grok: undefined };
-const ALLOW_ONCE = { cursor: 'allow-once', opencode: 'once', grok: 'allow' };
-const REJECT = { cursor: 'reject-once', opencode: 'reject', grok: 'deny' };
+const RESTARTS_FOR_BYPASS = { cursor: true, opencode: true, grok: true, copilot: false };
+const WORKING = { cursor: 'agent', opencode: 'build', grok: undefined, copilot: `${MODE_URL}agent` };
+const PLAN = { cursor: 'plan', opencode: 'plan', grok: undefined, copilot: `${MODE_URL}plan` };
+const ALLOW_ONCE = { cursor: 'allow-once', opencode: 'once', grok: 'allow', copilot: 'allow_once' };
+const REJECT = { cursor: 'reject-once', opencode: 'reject', grok: 'deny', copilot: 'reject_once' };
 
 async function checkAcp(flavor) {
   const bypass = await open(flavor, 'bypass');
@@ -212,7 +224,7 @@ async function checkAcp(flavor) {
   // Into bypass needs launch settings the process lacks, so main restarts it on the same session.
   await plan.setMode('bypass');
   check(`${flavor}-plan-to-bypass-leaves-plan`, modesSet(plan).at(-1) === WORKING[flavor], modesSet(plan));
-  check(`${flavor}-plan-to-bypass-is-stale`, plan.stale === true, plan.stale);
+  check(`${flavor}-plan-to-bypass-stale-only-if-launch-differs`, plan.stale === RESTARTS_FOR_BYPASS[flavor], plan.stale);
   const sessionId = plan.sessionId;
   plan.stop();
   const resumed = await open(flavor, 'bypass', sessionId);
@@ -224,7 +236,7 @@ async function checkAcp(flavor) {
 
   // Leaving bypass drops the launch settings the same way.
   await resumed.setMode('ask');
-  check(`${flavor}-bypass-to-ask-is-stale`, resumed.stale === true, resumed.stale);
+  check(`${flavor}-bypass-to-ask-stale-only-if-launch-differs`, resumed.stale === RESTARTS_FOR_BYPASS[flavor], resumed.stale);
   const still = await turn(resumed, 'execute:ls');
   check(`${flavor}-bypass-to-ask-cards-next-action`, resumed.cards.length === 1 && still === REJECT[flavor], `${still} cards=${resumed.cards.length}`);
 

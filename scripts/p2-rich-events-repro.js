@@ -679,12 +679,12 @@ async function realAgent(name) {
   const rowAtAsk = [];
   session.on('message', (m) => seen.push(m));
   session.on('permission', (p) => {
-    rowAtAsk.push(seen.filter((m) => m.type === 'tool_input' && m.tool_use_id === p.forId));
+    rowAtAsk.push(filesFor(p.forId));
     session.decide(p.id, 'allow');
   });
-  const filesFor = () => [
-    ...toolUses(seen).filter((b) => b.id === editId).map((b) => b.input.files),
-    ...seen.filter((m) => m.type === 'tool_input' && m.tool_use_id === editId).map((m) => m.input.files),
+  const filesFor = (id) => [
+    ...toolUses(seen).filter((b) => b.id === id).map((b) => b.input.files),
+    ...seen.filter((m) => m.type === 'tool_input' && m.tool_use_id === id).map((m) => m.input.files),
   ].filter(Boolean);
   try {
     await session.start();
@@ -697,13 +697,13 @@ async function realAgent(name) {
       assert.strictEqual(call.name, 'Edit');
     });
     await check(`${name}-edit-row-gets-files`, () => {
-      const files = filesFor().at(-1);
+      const files = filesFor(editId).at(-1);
       assert.ok(files?.length, 'no files on the edit row');
       assert.ok(files.every((f) => typeof f.path === 'string' && Array.isArray(f.hunks)), JSON.stringify(files));
     });
     if (rowAtAsk.length) {
       await check(`${name}-waiting-edit-row-has-files-before-the-card`, () => {
-        assert.ok(rowAtAsk[0].some((m) => m.input.files?.length), 'the row had no files when the permission arrived');
+        assert.ok(rowAtAsk[0].some((files) => files?.length), 'the row had no files when the permission arrived');
       });
     }
   } finally {
@@ -712,7 +712,7 @@ async function realAgent(name) {
 }
 
 (async () => {
-  for (const name of ['cursor', 'grok', 'opencode']) {
+  for (const name of ['cursor', 'grok', 'opencode', 'copilot']) {
     await realAgent(name).catch((e) => { console.log(`FAIL ${name}: ${e.message}`); failures.push(name); });
   }
   await acp().catch((e) => { console.log(`FAIL acp: ${e.message}`); failures.push('acp'); });

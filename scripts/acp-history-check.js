@@ -1,8 +1,14 @@
 'use strict';
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
-const { foldUpdates, usageOf } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
+const shellEnv = require(path.join(ROOT, 'src/main/shell-env.js'));
+shellEnv.ready = async () => process.env.PATH || '';
+shellEnv.env = () => ({ ...process.env });
+shellEnv.cached = () => process.env.PATH || '';
+const { createAcpHistory, foldUpdates, usageOf } = require(path.join(ROOT, 'src/main/providers/acp-history.js'));
 const { ACP_INSTRUCTIONS, turnTokens } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
 const { clip, MAX_MESSAGES, MAX_TEXT } = require(path.join(ROOT, 'src/main/transcript-clip.js'));
 
@@ -141,5 +147,33 @@ const said = (m) => m.message.content[0].text;
   check('clip-slims-long-text', said(big.messages[0]).endsWith('… truncated') && said(big.messages[0]).length < MAX_TEXT + 30, `${said(big.messages[0]).length}`);
 }
 
-console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
-process.exit(failures.length ? 1 : 0);
+async function prefaceTitles() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-preface-titles-'));
+  const log = path.join(dir, 'log');
+  const bin = path.join(dir, 'agent');
+  fs.writeFileSync(bin, [
+    '#!/bin/sh',
+    `export MOCK_ACP_STORE=copilot MOCK_ACP_PREFACE_TITLES=1 MOCK_ACP_LOG=${JSON.stringify(log)}`,
+    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(ROOT, 'scripts/mock-acp-cli.js'))} "$@"`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const history = createAcpHistory({ spec: { binary: () => bin }, label: 'Copilot' });
+  const loads = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : [])
+    .filter((e) => e.method === 'session/load').map((e) => e.sessionId);
+  try {
+    const rows = await history.listSessions(dir);
+    check('preface-only-title-lists-under-the-first-message', rows.length === 2 && rows.every((r) => r.title === 'make the button red'), JSON.stringify(rows));
+    const again = await history.listSessions(dir);
+    check('listing-again-keeps-the-resolved-titles', again.every((r) => r.title === 'make the button red') && again.length === 2, JSON.stringify(again));
+    const seen = loads();
+    check('resolved-title-is-not-loaded-twice', seen.length === 2 && new Set(seen).size === 2, JSON.stringify(seen));
+  } finally {
+    history.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+prefaceTitles().then(() => {
+  console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
+  process.exit(failures.length ? 1 : 0);
+}, (e) => { console.error(e); process.exit(2); });

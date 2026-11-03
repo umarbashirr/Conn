@@ -505,7 +505,7 @@ export default function App() {
   // file is here. An agent update runs in a terminal, which is the same command
   // the settings page would have run. Later is the only button that stops the
   // news coming back for this version.
-  const AGENTS = ['claude', 'codex', 'cursor', 'grok', 'opencode'];
+  const AGENTS = ['claude', 'codex', 'cursor', 'grok', 'opencode', 'copilot'];
   useEffect(() => {
     if (settings?.startup.checkUpdates) updates.check();
   }, [settings?.startup.checkUpdates, updates.check]);
@@ -550,7 +550,7 @@ export default function App() {
   }, [
     updates.app.behind, updates.app.latest, updates.app.current, updates.app.asset,
     updates.kind, updates.file, updates.progress,
-    updates.claude, updates.codex, updates.cursor, updates.grok, updates.opencode,
+    updates.claude, updates.codex, updates.cursor, updates.grok, updates.opencode, updates.copilot,
     updates.download, updates.check,
     settings?.startup.checkUpdates, settings?.notices,
     set,

@@ -23,6 +23,7 @@ const RICH = process.env.MOCK_ACP_RICH === '1';
 // A prompt plays back what a real agent sent for one turn, from a capture in
 // scripts/fixtures/acp-real, stopping at its permission request until answered.
 const REPLAY = process.env.MOCK_ACP_REPLAY || '';
+const MODE_IDS = (process.env.MOCK_ACP_MODE_IDS || '').split(',').filter(Boolean);
 const THINK = process.env.MOCK_ACP_THINK === '1';
 const PLAN = process.env.MOCK_ACP_PLAN === '1';
 const USAGE = process.env.MOCK_ACP_USAGE === '1';
@@ -30,6 +31,7 @@ const COST = process.env.MOCK_ACP_COST || '';
 const TURN_USAGE = process.env.MOCK_ACP_TURN_USAGE === '1';
 const STORE = process.env.MOCK_ACP_STORE || '';
 const DELETE = process.env.MOCK_ACP_DELETE === '1';
+const PREFACE_TITLES = process.env.MOCK_ACP_PREFACE_TITLES === '1';
 const PIDS = process.env.MOCK_ACP_PIDS || '';
 const trace = (what) => PIDS && require('fs').appendFileSync(PIDS, `${what} ${process.pid}\n`);
 trace('start');
@@ -352,8 +354,12 @@ function onMessage(msg) {
     trace('list');
     const page = params.cursor ? 1 : 0;
     const row = stored[page];
+    const title = () => {
+      const { ACP_INSTRUCTIONS } = require('../src/main/providers/acp-session');
+      return `${ACP_INSTRUCTIONS}\n\nmake the button red`.slice(0, 500) + '...';
+    };
     return result(id, {
-      sessions: row ? [{ ...row, cwd: params.cwd }] : [],
+      sessions: row ? [{ ...row, ...(PREFACE_TITLES && { title: title() }), cwd: params.cwd }] : [],
       ...(page === 0 && stored.length > 1 ? { nextCursor: 'page-2' } : {}),
     });
   }
@@ -376,7 +382,7 @@ function onMessage(msg) {
     if (AUTH) return fail(id, 'not authenticated; run login');
     const servers = params?.mcpServers || [];
     if (params?.cwd) cwd = params.cwd;
-    record({ method, cwd: params?.cwd, mcpServers: servers });
+    record({ method, sessionId: params?.sessionId, cwd: params?.cwd, mcpServers: servers });
     if (CONFIG) {
       return result(id, {
         sessionId: params?.sessionId || mint(),
@@ -403,12 +409,8 @@ function onMessage(msg) {
         ],
       },
       modes: {
-        currentModeId: 'ask',
-        availableModes: [
-          { id: 'ask', name: 'Ask' },
-          { id: 'plan', name: 'Plan' },
-          { id: 'bypass', name: 'Bypass' },
-        ],
+        currentModeId: MODE_IDS[0] || 'ask',
+        availableModes: (MODE_IDS.length ? MODE_IDS : ['ask', 'plan', 'bypass']).map((modeId) => ({ id: modeId, name: modeId })),
       },
     });
   }
@@ -424,7 +426,10 @@ function onMessage(msg) {
     chosen.model = params?.modelId || chosen.model;
     return result(id, {});
   }
-  if (method === 'session/set_mode') return result(id, {});
+  if (method === 'session/set_mode') {
+    record({ method, modeId: params?.modeId });
+    return result(id, {});
+  }
   if (method === 'session/close') return result(id, {});
 
   fail(id, `unknown method ${method}`, -32601);

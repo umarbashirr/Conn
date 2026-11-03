@@ -6,6 +6,7 @@ const PROVIDERS = {
   cursor: { name: 'Cursor', login: 'agent login' },
   grok: { name: 'Grok', login: 'grok login' },
   opencode: { name: 'OpenCode', login: 'opencode auth login' },
+  copilot: { name: 'Copilot', login: 'copilot login' },
 };
 
 const ACP_AUTH_REQUIRED = -32000;
