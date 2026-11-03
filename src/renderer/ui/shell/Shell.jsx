@@ -82,6 +82,7 @@ export function usePaneCover(open) {
 }
 
 const RAIL_FLOOR = 160;
+const RAIL_DEFAULT = 240;
 const RAIL_MAX = 420;
 const PANE_FLOOR = 300;
 const HANDLE = 1;
@@ -301,7 +302,7 @@ export default function Shell() {
       <TitleBar />
 
       <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1" onLayoutChange={onLayoutChange}>
-        <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize="18" minSize={RAIL_FLOOR} maxSize={RAIL_MAX}>
+        <ResizablePanel id="rail" panelRef={rail} collapsible defaultSize={RAIL_DEFAULT} minSize={RAIL_FLOOR} maxSize={RAIL_MAX}>
             {/* The provider is here for the rail's context. The shortcut lives
                 with the other chords, on the keyboard page. */}
             <SidebarProvider
