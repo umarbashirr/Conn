@@ -326,7 +326,10 @@ function onAssistant(session: SessionId, msg: Record<string, unknown>, fold: Ses
     return;
   }
   const blocks = blocksOf(msg);
-  if (blocks.some((block) => block.type === 'tool_use' || block.type === 'text')) finishOpen(session, stream);
+  if (
+    blocks.some((block) => block.type === 'tool_use' || block.type === 'text')
+    && stream.open?.kind === 'reasoning'
+  ) finishOpen(session, stream);
   for (const block of blocks) {
     if (block.type === 'tool_use') {
       const name = typeof block.name === 'string' ? block.name : 'tool';
