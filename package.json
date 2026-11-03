@@ -18,7 +18,11 @@
     "dist": "npm run build:renderer && electron-builder --linux AppImage deb",
     "build:renderer": "vite build",
     "dist:win": "npm run build:renderer && electron-builder --win nsis",
-    "dist:win:docker": "npm run build:renderer && bash scripts/build-win.sh"
+    "dist:win:docker": "npm run build:renderer && bash scripts/build-win.sh",
+    "mobile": "npm --prefix mobile start",
+    "mobile:android": "npm --prefix mobile run android",
+    "mobile:ios": "npm --prefix mobile run ios",
+    "mobile:web": "npm --prefix mobile run web"
   },
   "license": "MIT",
   "dependencies": {
@@ -55,6 +59,7 @@
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.6.0",
     "use-stick-to-bottom": "^1.1.6",
+    "ws": "^8.22.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
