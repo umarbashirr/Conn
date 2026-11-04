@@ -6,6 +6,8 @@ const os = require('os');
 const path = require('path');
 const { WebSocketServer, WebSocket } = require('ws');
 const { encodeTicket } = require('../shared/phone-ticket');
+const { MAX_FRAME_BYTES, MAX_PHOTOS, PHOTO_MEDIA } = require('../shared/phone-wire');
+const { isProviderId } = require('./providers');
 
 const FANOUT = new Set([
   'agent:message',
@@ -16,9 +18,10 @@ const FANOUT = new Set([
   'agent:closed',
 ]);
 
-const MAX_BYTES = 1_000_000;
 const DECISIONS = new Set(['allow', 'deny', 'always']);
-const SEND_KEYS = new Set(['op', 'chat', 'text', 'project', 'session', 'nonce']);
+const SEND_KEYS = new Set(['op', 'chat', 'text', 'project', 'session', 'nonce', 'provider', 'images']);
+const IMAGE_KEYS = new Set(['media', 'data']);
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const DECIDE_KEYS = new Set(['op', 'chat', 'id', 'decision', 'input']);
 const AUTH_KEYS = new Set(['op', 'token']);
 const CHATS_KEYS = new Set(['op', 'project', 'nonce']);
@@ -29,6 +32,7 @@ function idle(note) {
   return {
     publish() {},
     stop() {},
+    follow() {},
     card() { return off; },
   };
 }
@@ -89,6 +93,19 @@ function listen(server, host, port) {
   });
 }
 
+function parseImages(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_PHOTOS) return null;
+  const images = [];
+  for (const entry of value) {
+    const keys = keysOf(entry);
+    if (!keys || keys.length !== IMAGE_KEYS.size || hasExtra(keys, IMAGE_KEYS)) return null;
+    if (!PHOTO_MEDIA.includes(entry.media)) return null;
+    if (typeof entry.data !== 'string' || entry.data === '' || !BASE64.test(entry.data)) return null;
+    images.push({ media: entry.media, data: entry.data });
+  }
+  return images;
+}
+
 function parseSend(value) {
   const keys = keysOf(value);
   if (!keys || value.op !== 'send' || hasExtra(keys, SEND_KEYS)) return { error: 'bad send' };
@@ -107,11 +124,24 @@ function parseSend(value) {
     if (!nonEmpty(value.nonce)) return { error: 'bad send' };
     nonce = value.nonce;
   }
+  let provider = 'claude';
+  if (Object.hasOwn(value, 'provider')) {
+    if (!isProviderId(value.provider)) return { error: 'bad send' };
+    provider = value.provider;
+  }
+  let images = [];
+  if (Object.hasOwn(value, 'images')) {
+    const parsed = parseImages(value.images);
+    if (!parsed) return { error: 'bad send' };
+    images = parsed;
+  }
   return {
     chat: value.chat,
     text: value.text,
     project: value.project,
     session,
+    provider,
+    images,
     nonce,
   };
 }
@@ -124,6 +154,7 @@ function parseDecide(value) {
   }
   let input;
   if (Object.hasOwn(value, 'input')) {
+    if (value.decision !== 'allow') return { error: 'bad decide' };
     if (!value.input || typeof value.input !== 'object' || Array.isArray(value.input)) {
       return { error: 'bad decide' };
     }
@@ -180,18 +211,13 @@ function failure(err) {
 }
 
 async function startMobileGate({
-  packaged,
+  focused,
   knownProject,
   deliverTurn,
   deliverDecision,
   listChats,
   readTranscript,
 }) {
-  if (packaged) {
-    console.log('[conn] mobile gate off');
-    return idle('Phone link is off in an installed Conn. Run a checkout to use it.');
-  }
-
   const plan = portPlan();
   if (plan.invalid) {
     console.log('[conn] mobile gate off');
@@ -205,13 +231,17 @@ async function startMobileGate({
   const authed = new WeakSet();
   let stopped = false;
   let opened = null;
+  // Folder last written to the current authed socket. Unset until that write
+  // lands, so a phone that dropped during a move hears the new folder on auth.
+  let followedSocket = null;
+  let followedFolder = null;
 
   const server = http.createServer((_req, res) => {
     res.writeHead(404);
     res.end();
   });
   server.on('error', () => {});
-  const wss = new WebSocketServer({ server, maxPayload: MAX_BYTES });
+  const wss = new WebSocketServer({ server, maxPayload: MAX_FRAME_BYTES });
   wss.on('error', () => {});
 
   function write(socket, frame) {
@@ -245,9 +275,10 @@ async function startMobileGate({
         result = await deliverTurn({
           chat,
           text: parsed.text,
+          images: parsed.images,
           project: dir,
           session: parsed.session,
-          provider: 'claude',
+          provider: parsed.provider,
         });
       } catch (err) {
         result = { error: failure(err) };
@@ -392,6 +423,7 @@ async function startMobileGate({
         }
         authed.add(socket);
         write(socket, { op: 'ack', of: 'auth' });
+        follow();
         return;
       }
       if (!keys || typeof frame.op !== 'string') {
@@ -435,6 +467,7 @@ async function startMobileGate({
       }
       if (frame.op === 'auth') {
         write(socket, { op: 'ack', of: 'auth' });
+        follow();
         return;
       }
       write(socket, { op: 'ack', error: 'unknown op' });
@@ -492,15 +525,28 @@ async function startMobileGate({
     };
   }
 
-  function card(project) {
+  function card() {
     const dialHost = advertised();
     if (!dialHost) {
       return { status: 'off', note: 'This computer has no network address the phone can reach.' };
     }
+    const project = focused();
     if (typeof project !== 'string' || project.trim() === '') {
       return { status: 'off', note: 'Open a folder to put it on the phone link.' };
     }
     return present({ url: `ws://${dialHost}:${bound}`, token, project });
+  }
+
+  function follow() {
+    const socket = client;
+    if (!socket || !authed.has(socket) || socket.readyState !== WebSocket.OPEN) return;
+    const now = focused();
+    if (socket === followedSocket && now === followedFolder) return;
+    const shown = card();
+    if (shown.status !== 'ready') return;
+    write(socket, { op: 'ticket', ticket: shown.ticket });
+    followedSocket = socket;
+    followedFolder = now;
   }
 
   opened = {
@@ -519,6 +565,7 @@ async function startMobileGate({
       wss.close();
       server.close();
     },
+    follow,
     card,
   };
   return opened;

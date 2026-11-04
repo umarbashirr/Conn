@@ -31,6 +31,11 @@ function attachedLabel(head, detail, tail) {
   return detail.trim() || head;
 }
 
+/** The head line a composer writes for a picture. plainText reads it back as `[name]`. */
+function imageHead(name) {
+  return `[attached image] ${name}`;
+}
+
 function plainText(input) {
   let rest = String(input ?? '');
   const heads = [];
@@ -43,4 +48,4 @@ function plainText(input) {
   return [...heads, rest].filter(Boolean).join('\n');
 }
 
-module.exports = { ATTACHED, HEAD_KIND, attachedLabel, basename, plainText };
+module.exports = { ATTACHED, HEAD_KIND, attachedLabel, basename, imageHead, plainText };

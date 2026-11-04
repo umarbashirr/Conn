@@ -57,7 +57,8 @@ import { canvasState, onSelection, select, setBoard } from './shell/canvas-store
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
 import { mentionsIn } from './lib/tokens.js';
-import { plainText } from '../../shared/attachments.js';
+import { imageHead, plainText } from '../../shared/attachments.js';
+import { withAnswers } from '../../shared/ask-answers.js';
 import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
@@ -93,7 +94,7 @@ function attachmentText(list, body, names, { provider, canvas }) {
       ].filter(Boolean).join('\n'));
     } else if (a.kind === 'image') {
       lines.push([
-        `[attached image] ${a.name}`,
+        imageHead(a.name),
         a.path ? `  file: ${a.path}` : null,
         noteLine(a),
       ].filter(Boolean).join('\n'));
@@ -1176,8 +1177,7 @@ function Item({ item, agent, mark, calls }) {
           <QuestionCard
             titleId={permTitleId(item.id)}
             input={item.input}
-            onAnswer={(answers, annotations) =>
-              onDecide(item.id, 'allow', { ...item.input, answers, ...(annotations ? { annotations } : {}) })}
+            onAnswer={(reply) => onDecide(item.id, 'allow', withAnswers(item.input, reply))}
             onSkip={() => onDecide(item.id, 'deny')} />
         </div>
       );
