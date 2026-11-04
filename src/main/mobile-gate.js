@@ -21,6 +21,8 @@ const DECISIONS = new Set(['allow', 'deny', 'always']);
 const SEND_KEYS = new Set(['op', 'chat', 'text', 'project', 'session', 'nonce']);
 const DECIDE_KEYS = new Set(['op', 'chat', 'id', 'decision', 'input']);
 const AUTH_KEYS = new Set(['op', 'token']);
+const CHATS_KEYS = new Set(['op', 'project', 'nonce']);
+const TRANSCRIPT_KEYS = new Set(['op', 'project', 'id', 'provider', 'nonce']);
 
 function idle(note) {
   const off = { status: 'off', note };
@@ -134,7 +136,57 @@ function sendAck(chat, nonce, body) {
   return { op: 'ack', of: 'send', chat, ...(nonce ? { nonce } : {}), ...body };
 }
 
-async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDecision }) {
+function nonceOf(value) {
+  return nonEmpty(value) ? value : undefined;
+}
+
+function parseChats(value) {
+  const nonce = value && nonEmpty(value.nonce) ? value.nonce : undefined;
+  const keys = keysOf(value);
+  if (!keys || value.op !== 'chats' || hasExtra(keys, CHATS_KEYS)) return { error: 'bad chats', nonce };
+  if (!nonEmpty(value.project) || !nonce) return { error: 'bad chats', nonce };
+  return { project: value.project, nonce };
+}
+
+function parseTranscript(value) {
+  const nonce = value && nonEmpty(value.nonce) ? value.nonce : undefined;
+  const id = value && nonEmpty(value.id) ? value.id : '';
+  const keys = keysOf(value);
+  if (!keys || value.op !== 'transcript' || hasExtra(keys, TRANSCRIPT_KEYS)) {
+    return { error: 'bad transcript', id, nonce };
+  }
+  if (!nonEmpty(value.project) || !id || !nonce) return { error: 'bad transcript', id, nonce };
+  if (Object.hasOwn(value, 'provider') && !nonEmpty(value.provider)) {
+    return { error: 'bad transcript', id, nonce };
+  }
+  return {
+    project: value.project,
+    id,
+    provider: nonEmpty(value.provider) ? value.provider : null,
+    nonce,
+  };
+}
+
+function chatsAck(project, nonce, body) {
+  return { op: 'ack', of: 'chats', project, nonce, ...body };
+}
+
+function transcriptAck(id, nonce, body) {
+  return { op: 'ack', of: 'transcript', id, nonce, ...body };
+}
+
+function failure(err) {
+  return err && err.message ? err.message : String(err);
+}
+
+async function startMobileGate({
+  packaged,
+  knownProject,
+  deliverTurn,
+  deliverDecision,
+  listChats,
+  readTranscript,
+}) {
   if (packaged) {
     console.log('[conn] mobile gate off');
     return idle('Phone link is off in an installed Conn. Run a checkout to use it.');
@@ -198,7 +250,7 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
           provider: 'claude',
         });
       } catch (err) {
-        result = { error: err && err.message ? err.message : String(err) };
+        result = { error: failure(err) };
       }
       ack = result && result.error
         ? sendAck(chat, nonce, { error: result.error })
@@ -231,7 +283,7 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
         of: 'decide',
         chat: parsed.chat,
         id: parsed.id,
-        error: err && err.message ? err.message : String(err),
+        error: failure(err),
       });
       return;
     }
@@ -243,6 +295,70 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
       ok: true,
       ...(accepted ? {} : { already: true }),
     });
+  }
+
+  async function onChats(parsed) {
+    const nonce = nonceOf(parsed.nonce);
+    if (parsed.error) {
+      writeClient(chatsAck('', nonce, { error: parsed.error }));
+      return;
+    }
+    const dir = path.resolve(parsed.project);
+    if (!knownProject(dir)) {
+      writeClient(chatsAck(dir, nonce, { error: 'That folder is not open in Conn.' }));
+      return;
+    }
+    if (typeof listChats !== 'function') {
+      writeClient(chatsAck(dir, nonce, { error: 'unavailable' }));
+      return;
+    }
+    let result;
+    try {
+      result = await listChats(dir);
+    } catch (err) {
+      result = { error: failure(err) };
+    }
+    if (!result || result.error) {
+      writeClient(chatsAck(dir, nonce, { error: result && result.error ? result.error : 'unavailable' }));
+      return;
+    }
+    writeClient(chatsAck(dir, nonce, {
+      ok: true,
+      folder: typeof result.folder === 'string' && result.folder !== '' ? result.folder : path.basename(dir),
+      chats: Array.isArray(result.chats) ? result.chats : [],
+    }));
+  }
+
+  async function onTranscript(parsed) {
+    const nonce = nonceOf(parsed.nonce);
+    const id = nonEmpty(parsed.id) ? parsed.id : '';
+    if (parsed.error) {
+      writeClient(transcriptAck(id, nonce, { error: parsed.error }));
+      return;
+    }
+    const dir = path.resolve(parsed.project);
+    if (!knownProject(dir)) {
+      writeClient(transcriptAck(id, nonce, { error: 'That folder is not open in Conn.' }));
+      return;
+    }
+    if (typeof readTranscript !== 'function') {
+      writeClient(transcriptAck(id, nonce, { error: 'unavailable' }));
+      return;
+    }
+    let result;
+    try {
+      result = await readTranscript(dir, parsed.id, parsed.provider);
+    } catch (err) {
+      result = { error: failure(err) };
+    }
+    if (!result || result.error) {
+      writeClient(transcriptAck(id, nonce, { error: result && result.error ? result.error : 'unavailable' }));
+      return;
+    }
+    writeClient(transcriptAck(id, nonce, {
+      ok: true,
+      messages: Array.isArray(result.messages) ? result.messages : [],
+    }));
   }
 
   function take(socket) {
@@ -293,14 +409,28 @@ async function startMobileGate({ packaged, knownProject, deliverTurn, deliverDec
           return;
         }
         onSend(parsed).catch((err) => {
-          writeClient(sendAck(parsed.chat, parsed.nonce, {
-            error: err && err.message ? err.message : String(err),
-          }));
+          writeClient(sendAck(parsed.chat, parsed.nonce, { error: failure(err) }));
         });
         return;
       }
       if (frame.op === 'decide') {
         onDecide(parseDecide(frame));
+        return;
+      }
+      if (frame.op === 'chats') {
+        onChats(parseChats(frame)).catch((err) => {
+          writeClient(chatsAck('', nonceOf(frame.nonce), { error: failure(err) }));
+        });
+        return;
+      }
+      if (frame.op === 'transcript') {
+        onTranscript(parseTranscript(frame)).catch((err) => {
+          writeClient(transcriptAck(
+            nonEmpty(frame.id) ? frame.id : '',
+            nonceOf(frame.nonce),
+            { error: failure(err) },
+          ));
+        });
         return;
       }
       if (frame.op === 'auth') {

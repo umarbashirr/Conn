@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { LiveEvent, SessionId } from './chat';
+import type { CatalogChat, LiveEvent, SessionId } from './chat';
 import { decodeTicket } from '../../src/shared/phone-ticket.js';
 
 type Upsert = Extract<LiveEvent, { readonly type: 'upsert' }>;
@@ -91,6 +91,11 @@ const phoneListeners = new Set<(status: PhoneStatus) => void>();
 let storageTail: Promise<void> = Promise.resolve();
 
 const cli = new Map<string, string>();
+const remote = new Map<string, { resume: string; provider: string }>();
+let chatsNonce = 0;
+let chatsWait = '';
+let transcriptNonce = 0;
+const transcriptWait = new Map<string, string>();
 const folds = new Map<string, SessionFold>();
 const inflight = new Map<string, SendJob>();
 const decides = new Map<string, DecideJob>();
@@ -98,6 +103,29 @@ const decides = new Map<string, DecideJob>();
 function nextId(prefix: string): string {
   seq += 1;
   return `${prefix}${seq}`;
+}
+
+// The gate rejects a send whose chat key equals the resume id, so a listed
+// chat keeps a prefixed key and stores the desktop id beside it.
+function phoneKey(provider: string, id: string): SessionId {
+  return `h:${provider}:${id}` as SessionId;
+}
+
+function folderName(project: string): string {
+  const parts = project.split(/[/\\]/).filter((part) => part !== '');
+  return parts.length === 0 ? project : parts[parts.length - 1];
+}
+
+function forgetRemote(): void {
+  remote.clear();
+  transcriptWait.clear();
+  for (const key of [...cli.keys()]) {
+    if (key.startsWith('h:')) cli.delete(key);
+  }
+}
+
+function canSend(): boolean {
+  return binding !== null && authed && socket !== null && socket.readyState === WebSocket.OPEN;
 }
 
 function asSession(raw: string): SessionId {
@@ -515,7 +543,16 @@ function onAck(frame: Record<string, unknown>): void {
     const down = wasDown;
     wasDown = false;
     flush();
+    refreshChats();
     if (down && lastChat) note(lastChat, 'reconnected to Conn');
+    return;
+  }
+  if (frame.of === 'chats') {
+    onChats(frame);
+    return;
+  }
+  if (frame.of === 'transcript') {
+    onTranscript(frame);
     return;
   }
   if (frame.of === 'send') {
@@ -542,6 +579,53 @@ function onAck(frame: Record<string, unknown>): void {
   if (chat === '' || id === '') return;
   decides.delete(`${chat}\0${id}`);
   if (typeof frame.error === 'string') note(asSession(chat), frame.error, { error: true });
+}
+
+function onChats(frame: Record<string, unknown>): void {
+  const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
+  if (nonce === '' || nonce !== chatsWait || !binding) return;
+  if (typeof frame.error === 'string' || !Array.isArray(frame.chats)) return;
+  const folder = typeof frame.folder === 'string' && frame.folder !== '' ? frame.folder : folderName(binding.project);
+  const seen = new Set<string>();
+  const chats: CatalogChat[] = [];
+  for (const row of frame.chats) {
+    if (!isRecord(row) || typeof row.id !== 'string' || row.id === '' || typeof row.provider !== 'string' || row.provider === '') {
+      continue;
+    }
+    const id = phoneKey(row.provider, row.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const title = typeof row.title === 'string' && row.title.trim() !== '' ? row.title : 'Chat';
+    const at = typeof row.at === 'number' ? row.at : Date.now();
+    remote.set(id, { resume: row.id, provider: row.provider });
+    cli.set(id, row.id);
+    chats.push({ id, title, at, provider: row.provider, resume: row.id });
+  }
+  const stale = [...remote.keys()].filter((key) => !seen.has(key));
+  for (const key of stale) {
+    remote.delete(key);
+    cli.delete(key);
+    transcriptWait.delete(key);
+  }
+  emit({ type: 'catalog', folder, chats });
+}
+
+function onTranscript(frame: Record<string, unknown>): void {
+  const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
+  const id = typeof frame.id === 'string' ? frame.id : '';
+  if (nonce === '' || id === '') return;
+  let session: SessionId | null = null;
+  for (const [key, row] of remote) {
+    if (row.resume === id && transcriptWait.get(key) === nonce) session = key as SessionId;
+  }
+  if (session === null) return;
+  transcriptWait.delete(session);
+  if (typeof frame.error === 'string') {
+    note(session, frame.error, { error: true, id: 'transcript' });
+    return;
+  }
+  if (!Array.isArray(frame.messages)) return;
+  emit({ type: 'transcript', session, messages: frame.messages });
 }
 
 function onFrame(raw: unknown): void {
@@ -713,6 +797,8 @@ export function adoptTicket(raw: string): Promise<boolean> {
     if (gen !== hydrateGen) return false;
     binding = next;
     emitPhone('bound');
+    forgetRemote();
+    emit({ type: 'catalog', folder: folderName(next.project), chats: [] });
     replaceSocket();
     return true;
   });
@@ -733,6 +819,29 @@ export function resumeLive(): void {
   if (!started) return;
   authFailed = false;
   openSocket();
+  refreshChats();
+}
+
+export function refreshChats(): void {
+  if (!canSend() || !binding || !socket) return;
+  chatsNonce += 1;
+  chatsWait = String(chatsNonce);
+  socket.send(JSON.stringify({ op: 'chats', project: binding.project, nonce: chatsWait }));
+}
+
+export function requestTranscript(session: SessionId): void {
+  const row = remote.get(session);
+  if (!row || !canSend() || !binding || !socket) return;
+  transcriptNonce += 1;
+  const nonce = String(transcriptNonce);
+  transcriptWait.set(session, nonce);
+  socket.send(JSON.stringify({
+    op: 'transcript',
+    project: binding.project,
+    id: row.resume,
+    provider: row.provider,
+    nonce,
+  }));
 }
 
 function tokenRejected(session: SessionId): boolean {

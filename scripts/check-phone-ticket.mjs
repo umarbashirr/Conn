@@ -92,10 +92,29 @@ async function withEnv(vars, fn) {
   }
 }
 
+const asked = { chats: [], transcripts: [] };
 const gateDeps = {
-  knownProject: () => true,
+  knownProject: (dir) => dir !== '/tmp/closed',
   deliverTurn: async () => ({ sessionId: null }),
   deliverDecision: () => true,
+  listChats: async (dir) => {
+    asked.chats.push(dir);
+    return {
+      folder: 'folder',
+      chats: [{ id: 'abc', title: 'Zinc tokens', at: 10, provider: 'claude' }],
+    };
+  },
+  readTranscript: async (dir, id, provider) => {
+    asked.transcripts.push({ dir, id, provider });
+    return {
+      id,
+      messages: [{
+        type: 'user',
+        uuid: 'u1',
+        message: { content: [{ type: 'text', text: 'hello' }] },
+      }],
+    };
+  },
 };
 
 const packaged = await startMobileGate({ packaged: true, ...gateDeps });
@@ -168,6 +187,62 @@ try {
     phone.on('message', check);
   });
   assert.equal(frames.some((frame) => frame.channel === 'phone:card'), false);
+
+  function waitFor(pred, label) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${label} ${JSON.stringify(frames)}`)), 2000);
+      const check = () => {
+        if (!pred()) return;
+        clearTimeout(timer);
+        resolve();
+      };
+      check();
+      phone.on('message', check);
+    });
+  }
+
+  phone.send(JSON.stringify({ op: 'chats', project, nonce: 'c1' }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'chats' && frame.nonce === 'c1' && frame.ok === true),
+    'chats',
+  );
+  const listed = frames.find((frame) => frame.of === 'chats' && frame.nonce === 'c1');
+  assert.equal(listed.folder, 'folder');
+  assert.deepEqual(listed.chats, [{ id: 'abc', title: 'Zinc tokens', at: 10, provider: 'claude' }]);
+  assert.deepEqual(asked.chats, [project]);
+
+  phone.send(JSON.stringify({
+    op: 'transcript',
+    project,
+    id: 'abc',
+    provider: 'claude',
+    nonce: 't1',
+  }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'transcript' && frame.nonce === 't1' && frame.ok === true),
+    'transcript',
+  );
+  const replay = frames.find((frame) => frame.of === 'transcript' && frame.nonce === 't1');
+  assert.equal(replay.id, 'abc');
+  assert.equal(replay.messages[0].message.content[0].text, 'hello');
+  assert.deepEqual(asked.transcripts, [{ dir: project, id: 'abc', provider: 'claude' }]);
+
+  phone.send(JSON.stringify({ op: 'chats', project: '/tmp/closed', nonce: 'c2' }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'chats' && frame.nonce === 'c2'),
+    'closed folder',
+  );
+  const closed = frames.find((frame) => frame.of === 'chats' && frame.nonce === 'c2');
+  assert.equal(closed.error, 'That folder is not open in Conn.');
+  assert.equal(asked.chats.length, 1);
+
+  phone.send(JSON.stringify({ op: 'chats', project, nonce: 'c3', extra: true }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'chats' && frame.nonce === 'c3'),
+    'bad chats',
+  );
+  assert.equal(frames.find((frame) => frame.of === 'chats' && frame.nonce === 'c3').error, 'bad chats');
+
   phone.close();
 } finally {
   gate.stop();
@@ -219,7 +294,10 @@ const preloadSrc = readFileSync(join(root, 'src/preload/index.js'), 'utf8');
 assert.match(preloadSrc, /card: \(\) => ipcRenderer\.invoke\('phone:card'\)/);
 assert.match(preloadSrc, /onCard: on\('phone:card'\)/);
 
-const skip = new Set(['node_modules', '.git', 'dist', 'out', '.fold-check-out', '.ticket-check-out']);
+const skip = new Set([
+  'node_modules', '.git', 'dist', 'out',
+  '.chat-check-out', '.fold-check-out', '.ticket-check-out',
+]);
 const allowed = new Map([
   ['src/main/mobile-gate.js', 'encodeTicket'],
   ['mobile/src/conn-live.ts', 'decodeTicket'],
