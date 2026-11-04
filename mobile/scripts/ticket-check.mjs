@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
@@ -348,5 +349,155 @@ assert.equal(await scanning, true);
 await until('scan won', () => pending.mem.get(KEY) === ticketB && openSockets().some((sock) => sock.url === 'ws://10.0.0.8:4788'));
 assert.equal(pending.mem.get(KEY), ticketB);
 assert.equal(openSockets().some((sock) => sock.url === 'ws://10.0.0.8:4788'), true);
+
+const gateRequire = createRequire(join(root, '..', 'src', 'main', 'mobile-gate.js'));
+const { imageHead } = gateRequire('../shared/attachments.js');
+const { replyOf, withAnswers } = gateRequire('../shared/ask-answers.js');
+const { startMobileGate } = gateRequire('./mobile-gate.js');
+const { WebSocket: GateSocket } = gateRequire('ws');
+
+const replayProject = '/tmp/conn phone/replay';
+const replayTicket = `conn://gate?${new URLSearchParams({
+  url: 'ws://127.0.0.1:4777',
+  token: 'alpha-token',
+  project: replayProject,
+}).toString()}`;
+const jpeg = 'aaaa';
+freshStore();
+const replayPhone = await load();
+replayPhone.connectLive();
+assert.equal(await replayPhone.adoptTicket(replayTicket), true);
+await until('replay socket', () => openSockets().some((sock) => sock.sent.length > 0));
+const replaySock = openSockets()[0];
+replaySock.onmessage({ data: JSON.stringify({ op: 'ack', of: 'auth' }) });
+const replayChats = parsed(replaySock).filter((frame) => frame.op === 'chats').at(-1);
+replaySock.onmessage({
+  data: JSON.stringify({
+    op: 'ack',
+    of: 'chats',
+    nonce: replayChats.nonce,
+    ok: true,
+    folder: 'replay',
+    chats: [{ id: '019a6c', title: 'Zinc', at: 10, provider: 'codex' }],
+  }),
+});
+await replayPhone.sendTurn('h:codex:019a6c', {
+  text: 'see this',
+  photos: [{
+    name: 'desk.jpg',
+    media: 'image/jpeg',
+    data: jpeg,
+    uri: 'file:///desk.jpg',
+    width: 32,
+    height: 24,
+  }],
+});
+const questions = [{
+  question: 'Which files?',
+  options: [{ label: 'src/a.ts', preview: 'keep' }],
+}];
+const reply = replyOf(questions, { 'Which files?': ['src/a.ts'] }, {});
+const replacement = withAnswers({ questions }, reply);
+await replayPhone.decidePerm('h:codex:019a6c', 'p-ask', {
+  kind: 'answers',
+  input: replacement,
+});
+const rawSend = replaySock.sent.find((raw) => {
+  const frame = JSON.parse(raw);
+  return frame.op === 'send' && Array.isArray(frame.images);
+});
+const rawDecide = replaySock.sent.find((raw) => {
+  const frame = JSON.parse(raw);
+  return frame.op === 'decide' && frame.id === 'p-ask';
+});
+assert.equal(typeof rawSend, 'string');
+assert.equal(typeof rawDecide, 'string');
+const phoneSend = JSON.parse(rawSend);
+assert.equal(phoneSend.provider, 'codex');
+assert.equal(phoneSend.chat, 'h:codex:019a6c');
+assert.equal(phoneSend.session, '019a6c');
+assert.notEqual(phoneSend.chat, phoneSend.session);
+assert.equal(phoneSend.text, `${imageHead('desk.jpg')}\n\nsee this`);
+assert.deepEqual(phoneSend.images, [{ media: 'image/jpeg', data: jpeg }]);
+
+const savedEnv = {
+  host: process.env.CONN_MOBILE_HOST,
+  port: process.env.CONN_MOBILE_PORT,
+  token: process.env.CONN_MOBILE_TOKEN,
+};
+process.env.CONN_MOBILE_HOST = '127.0.0.1';
+process.env.CONN_MOBILE_PORT = '0';
+process.env.CONN_MOBILE_TOKEN = 'replay-token';
+const turns = [];
+const decisions = [];
+let gate;
+let client;
+try {
+  gate = await startMobileGate({
+    focused: () => replayProject,
+    knownProject: (dir) => dir === resolve(replayProject),
+    deliverTurn: async (turn) => {
+      turns.push(turn);
+      return { sessionId: 'kept' };
+    },
+    deliverDecision: (decision) => {
+      decisions.push(decision);
+      return true;
+    },
+    listChats: async () => ({ folder: 'replay', chats: [] }),
+    readTranscript: async () => ({ messages: [] }),
+  });
+  const card = gate.card();
+  assert.equal(card.status, 'ready', card.note);
+  const dial = card.lines.find((line) => line.label === 'Address').value;
+  client = new GateSocket(dial);
+  await new Promise((resolveOpen, rejectOpen) => {
+    client.once('open', resolveOpen);
+    client.once('error', rejectOpen);
+  });
+  const heard = [];
+  const authed = new Promise((resolveAuth, rejectAuth) => {
+    const timer = setTimeout(() => rejectAuth(new Error(`auth ack missing: ${heard.join(' | ')}`)), 2000);
+    client.on('message', (data) => {
+      const text = String(data);
+      heard.push(text);
+      const frame = JSON.parse(text);
+      if (frame.op === 'ack' && frame.of === 'auth') {
+        clearTimeout(timer);
+        resolveAuth();
+      }
+    });
+  });
+  client.send(JSON.stringify({ op: 'auth', token: 'replay-token' }));
+  await authed;
+  client.send(rawSend);
+  client.send(rawDecide);
+  const started = Date.now();
+  while (turns.length < 1 || decisions.length < 1) {
+    if (Date.now() - started > 2000) {
+      throw new Error(`gate did not deliver: ${heard.join(' | ')}`);
+    }
+    await new Promise((settle) => setTimeout(settle, 10));
+  }
+  assert.equal(turns[0].provider, 'codex');
+  assert.equal(turns[0].chat, 'h:codex:019a6c');
+  assert.equal(turns[0].session, '019a6c');
+  assert.notEqual(turns[0].chat, turns[0].session);
+  assert.equal(turns[0].text, `${imageHead('desk.jpg')}\n\nsee this`);
+  assert.deepEqual(turns[0].images, [{ media: 'image/jpeg', data: jpeg }]);
+  assert.equal(turns[0].project, resolve(replayProject));
+  assert.equal(decisions[0].decision, 'allow');
+  assert.equal(decisions[0].id, 'p-ask');
+  assert.deepEqual(decisions[0].input, replacement);
+} finally {
+  if (client) client.close();
+  if (gate) gate.stop();
+  if (savedEnv.host === undefined) delete process.env.CONN_MOBILE_HOST;
+  else process.env.CONN_MOBILE_HOST = savedEnv.host;
+  if (savedEnv.port === undefined) delete process.env.CONN_MOBILE_PORT;
+  else process.env.CONN_MOBILE_PORT = savedEnv.port;
+  if (savedEnv.token === undefined) delete process.env.CONN_MOBILE_TOKEN;
+  else process.env.CONN_MOBILE_TOKEN = savedEnv.token;
+}
 
 console.log('ticket-check ok');

@@ -8,6 +8,7 @@ import assert from 'assert';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'scripts', '.chat-check-out');
 const stubPath = join(outDir, 'react-native-stub.js');
+const photosStub = join(outDir, 'photos-stub.js');
 const entry = join(outDir, 'entry.mjs');
 const require = createRequire(import.meta.url);
 const esbuildBin = require.resolve('esbuild');
@@ -39,6 +40,17 @@ export function Pressable(props) { return props; }
 export function TextInput(props) { return props; }
 export function ScrollView(props) { return props; }
 export function KeyboardAvoidingView(props) { return props; }
+export function Image(props) { return props; }
+`,
+);
+
+writeFileSync(
+  photosStub,
+  `export async function takePhotos(source, room) {
+  const pick = globalThis.__photoPick;
+  if (typeof pick === 'function') return pick(source, room);
+  return { kind: 'cancelled' };
+}
 `,
 );
 
@@ -54,6 +66,14 @@ await build({
     'react-native': stubPath,
     '@react-native-async-storage/async-storage': join(outDir, 'async-storage.js'),
   },
+  plugins: [
+    {
+      name: 'photos-stub',
+      setup(build) {
+        build.onResolve({ filter: /^\.\/photos$/ }, () => ({ path: photosStub }));
+      },
+    },
+  ],
 });
 
 writeFileSync(
@@ -174,6 +194,132 @@ const titles = snap().sections.flatMap((section) => section.rows.map((row) => ro
 assert.ok(titles.includes('New chat'));
 assert.ok(titles.includes('Zinc tokens'));
 assert.ok(!titles.includes('Empty draft'));
+
+const { replyOf, withAnswers } = require(${JSON.stringify(join(root, '..', 'src/shared/ask-answers.js'))});
+const questions = [{
+  question: 'Which files?',
+  header: 'Scope',
+  options: [
+    { label: 'src/a.ts', preview: 'keep' },
+    { label: 'src/b.ts' },
+  ],
+  multiSelect: false,
+}];
+const picked = { 'Which files?': ['src/a.ts'] };
+const typed = {};
+const reply = replyOf(questions, picked, typed);
+const input = { questions };
+const zinc = snap().sections.flatMap((section) => section.rows).find((row) => row.title === 'Zinc tokens');
+chat.open(zinc.id);
+acceptLive({
+  type: 'upsert',
+  session: zinc.id,
+  item: {
+    id: 'p-ask',
+    kind: 'perm',
+    parent: null,
+    tool: 'AskUserQuestion',
+    title: 'Which files?',
+    input,
+    ask: { kind: 'questions', questions },
+    forId: null,
+  },
+});
+const asked = snap().rows.find((row) => row.item.kind === 'perm');
+assert.equal(asked.item.ask.kind, 'questions');
+assert.deepEqual(
+  withAnswers(asked.item.input, replyOf(asked.item.ask.questions, picked, typed)),
+  withAnswers(input, reply),
+);
+assert.deepEqual(withAnswers(input, reply), {
+  questions,
+  answers: { 'Which files?': 'src/a.ts' },
+  annotations: { 'Which files?': { preview: 'keep' } },
+});
+
+chat.back();
+chat.newChat();
+const fresh = snap();
+assert.equal(fresh.name, 'chat');
+assert.equal(fresh.canSend, false);
+assert.equal(fresh.canAttach, true);
+assert.equal(fresh.photos.length, 0);
+
+function photo(index) {
+  return {
+    name: 'p' + index + '.jpg',
+    media: 'image/jpeg',
+    data: 'aaaa',
+    uri: 'file:///p' + index + '.jpg',
+    width: 40,
+    height: 20,
+  };
+}
+
+async function until(label, fn) {
+  for (let i = 0; i < 30; i += 1) {
+    if (fn()) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error('timed out waiting for ' + label);
+}
+
+const askedRoom = [];
+globalThis.__photoPick = async (source, room) => {
+  askedRoom.push({ source, room });
+  return { kind: 'cancelled' };
+};
+chat.attach('library');
+await until('cancel', () => askedRoom.length === 1);
+assert.deepEqual(askedRoom, [{ source: 'library', room: 4 }]);
+assert.equal(snap().photos.length, 0);
+assert.equal(snap().canSend, false);
+
+globalThis.__photoPick = async () => ({ kind: 'denied' });
+chat.attach('camera');
+await until('denied', () => snap().rows.some((row) => row.item.kind === 'note'));
+assert.equal(
+  snap().rows.some((row) => row.item.text === 'Conn needs photo or camera access in Settings.'),
+  true,
+);
+
+let fitted = 0;
+globalThis.__photoPick = async () => {
+  fitted += 1;
+  return {
+    kind: 'picked',
+    dropped: 2,
+    photos: [0, 1, 2, 3, 4, 5].map(photo),
+  };
+};
+chat.attach('library');
+await until('clamped', () => snap().photos.length === 4);
+assert.equal(fitted, 1);
+assert.equal(snap().canAttach, false);
+assert.equal(snap().canSend, true);
+assert.equal(snap().draft, '');
+for (const shot of snap().photos) assert.equal(Object.hasOwn(shot, 'data'), false);
+assert.equal(snap().rows.some((row) => row.item.text === '2 photos did not fit.'), true);
+chat.attach('library');
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(fitted, 1);
+assert.equal(snap().photos.length, 4);
+chat.setDraft('   ');
+assert.equal(snap().canSend, true);
+chat.dropPhoto(0);
+assert.equal(snap().photos.length, 3);
+assert.equal(snap().canAttach, true);
+chat.send();
+const sent = snap().rows.at(-1);
+assert.equal(sent.item.kind, 'user');
+assert.equal(sent.item.text, '');
+assert.equal(sent.item.photos.length, 3);
+assert.equal(JSON.stringify(sent.item).includes('aaaa'), false);
+assert.equal(snap().draft, '');
+assert.equal(snap().photos.length, 0);
+assert.equal(snap().canSend, false);
+chat.send();
+assert.equal(snap().rows.filter((row) => row.item.kind === 'user').length, 1);
 
 console.log('chat-check ok');
 `,
