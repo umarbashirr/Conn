@@ -27,8 +27,9 @@ npx expo-doctor             # diagnose dependency and config issues
 
 - Entry: `App.tsx` → `SafeAreaProvider` → `Shell` → sessions or chat.
 - Domain: one store in `src/chat.tsx` (`useScreen`, `chat` intents, `ChatItemView`).
-- The session list comes from the desktop folder on the scanned ticket. Opening a row loads that transcript. A new chat sends on the scanned folder.
+- The session list comes from the desktop's focused folder. Opening a row loads that transcript, and a later send continues on that chat's provider. A new chat sends as Claude on the current folder.
+- `App.tsx` passes an incoming `conn://` URL to `adoptTicket`. `Shell` stays the navigator.
 
 ## When adding screens
 
-Prefer keeping the `Shell` + `chat` store until deep links need a URL. Expo Router can mirror `activeId` later without becoming a second writer.
+Keep the `Shell` + `chat` store. Expo Router can mirror `activeId` later without becoming a second writer.
