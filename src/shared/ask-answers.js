@@ -56,7 +56,7 @@ function questionsOf(input) {
   return questions;
 }
 
-/** @param {Question[]} questions @param {Picked} picked @param {Typed} typed @returns {Reply} */
+/** @param {readonly Question[]} questions @param {Picked} picked @param {Typed} typed @returns {Reply} */
 function replyOf(questions, picked, typed) {
   const answers = {};
   const annotations = {};
@@ -75,7 +75,7 @@ function replyOf(questions, picked, typed) {
 }
 
 /** The replacement input an answered card sends with allow. Claude replaces the whole tool input with it.
- * @param {Record<string, unknown>} input
+ * @param {Readonly<Record<string, unknown>>} input
  * @param {Reply} reply
  * @returns {Record<string, unknown>}
  */

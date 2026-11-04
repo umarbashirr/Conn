@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CatalogChat, LiveEvent, SessionId } from './chat';
+import type { Photo } from './photos';
 import { decodeTicket } from '../../src/shared/phone-ticket.js';
+import { MAX_FRAME_BYTES } from '../../src/shared/phone-wire.js';
+import { imageHead } from '../../src/shared/attachments.js';
+import { questionsOf } from '../../src/shared/ask-answers.js';
 
 type Upsert = Extract<LiveEvent, { readonly type: 'upsert' }>;
 type Decide = Extract<LiveEvent, { readonly type: 'decide' }>;
@@ -48,20 +52,51 @@ type SessionFold = {
   tools: Map<string, ToolSnap>;
 };
 
+/** What the human sends: the words they typed and the photos on the draft. */
+export type Turn = {
+  readonly text: string;
+  readonly photos: readonly Photo[];
+};
+
+/** How the human settled a permission card. Only an answered question carries input. */
+export type PermChoice =
+  | { readonly kind: 'verdict'; readonly verdict: PermVerdict }
+  | { readonly kind: 'answers'; readonly input: Readonly<Record<string, unknown>> };
+
+// Where a chat runs on the desktop. The only place a follow-up reads its folder,
+// provider and resume id from.
+type Route = {
+  readonly from: 'catalog' | 'phone';
+  readonly project: string;
+  readonly provider: string;
+  readonly resume: string | null;
+};
+
+declare const outgoingBrand: unique symbol;
+// A serialized frame already measured against MAX_FRAME_BYTES. writeFrame takes nothing else.
+type Outgoing = string & { readonly [outgoingBrand]: true };
+
 type SendJob = {
-  nonce: string;
-  text: string;
-  session: SessionId;
+  readonly nonce: string;
+  readonly session: SessionId;
+  readonly frame: Outgoing;
   attempts: number;
   sentOnThisSocket: boolean;
 };
 
 type DecideJob = {
-  session: SessionId;
-  id: ItemId;
-  verdict: PermVerdict;
+  readonly session: SessionId;
+  readonly id: ItemId;
+  readonly frame: Outgoing;
   sentOnThisSocket: boolean;
 };
+
+type TicketSource = 'scan' | 'desktop';
+
+type LinkStep =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'folder'; readonly binding: Ticket; readonly persist: boolean }
+  | { readonly kind: 'link'; readonly binding: Ticket };
 
 const HAS_FINAL_ANSWER_TAG = /<\/?final_answer>/i;
 const FINAL_ANSWER_TAG = /<\/?final_answer>/gi;
@@ -90,12 +125,9 @@ let hydrateGen = 0;
 const phoneListeners = new Set<(status: PhoneStatus) => void>();
 let storageTail: Promise<void> = Promise.resolve();
 
-const cli = new Map<string, string>();
-const remote = new Map<string, { resume: string; provider: string }>();
-let chatsNonce = 0;
-let chatsWait = '';
-let transcriptNonce = 0;
-const transcriptWait = new Map<string, string>();
+const routes = new Map<SessionId, Route>();
+let chatsWait: { readonly nonce: string; readonly project: string } | null = null;
+const transcriptWait = new Map<string, SessionId>();
 const folds = new Map<string, SessionFold>();
 const inflight = new Map<string, SendJob>();
 const decides = new Map<string, DecideJob>();
@@ -111,16 +143,82 @@ function phoneKey(provider: string, id: string): SessionId {
   return `h:${provider}:${id}` as SessionId;
 }
 
+function isListed(session: string): boolean {
+  return session.startsWith('h:');
+}
+
 function folderName(project: string): string {
   const parts = project.split(/[/\\]/).filter((part) => part !== '');
   return parts.length === 0 ? project : parts[parts.length - 1];
 }
 
-function forgetRemote(): void {
-  remote.clear();
+function forgetCatalog(): void {
+  for (const [key, route] of routes) {
+    if (route.from === 'catalog') routes.delete(key);
+  }
   transcriptWait.clear();
-  for (const key of [...cli.keys()]) {
-    if (key.startsWith('h:')) cli.delete(key);
+}
+
+const utf8 = new TextEncoder();
+
+function encodeFrame(frame: Record<string, unknown>): Outgoing | null {
+  const text = JSON.stringify(frame);
+  if (utf8.encode(text).length >= MAX_FRAME_BYTES) return null;
+  return text as Outgoing;
+}
+
+function writeFrame(ws: WebSocket, frame: Outgoing): void {
+  ws.send(frame);
+}
+
+function promptOf(turn: Turn): string {
+  const heads = turn.photos.map((photo) => `${imageHead(photo.name)}\n\n`).join('');
+  return `${heads}${turn.text}`;
+}
+
+// A listed key with no route was dropped with its folder. A Claude route here
+// would start a different chat under that same key.
+function routeFor(session: SessionId): Route | null {
+  const existing = routes.get(session);
+  if (existing) return existing;
+  if (isListed(session) || binding === null) return null;
+  const created: Route = {
+    from: 'phone',
+    project: binding.project,
+    provider: 'claude',
+    resume: null,
+  };
+  routes.set(session, created);
+  return created;
+}
+
+function learnResume(session: SessionId, id: unknown): void {
+  if (typeof id !== 'string' || id === '') return;
+  const route = routes.get(session);
+  if (!route || route.resume === id) return;
+  routes.set(session, { ...route, resume: id });
+}
+
+function nextBinding(prev: Ticket | null, next: Ticket, source: TicketSource): LinkStep {
+  switch (source) {
+    case 'scan':
+      if (prev === null || prev.url !== next.url || prev.token !== next.token) {
+        return { kind: 'link', binding: next };
+      }
+      if (prev.project !== next.project) return { kind: 'folder', binding: next, persist: true };
+      return { kind: 'none' };
+    case 'desktop':
+      if (prev === null || prev.token !== next.token) return { kind: 'none' };
+      if (prev.project === next.project) return { kind: 'none' };
+      return {
+        kind: 'folder',
+        binding: { ...prev, project: next.project },
+        persist: prev.url === next.url,
+      };
+    default: {
+      const _never: never = source;
+      return _never;
+    }
   }
 }
 
@@ -474,6 +572,7 @@ function onPermission(session: SessionId, payload: Record<string, unknown>): voi
   const askedBy = isRecord(payload.agent) && typeof payload.agent.label === 'string' && payload.agent.label !== ''
     ? payload.agent.label
     : undefined;
+  const questions = tool === 'AskUserQuestion' ? questionsOf(payload.input) : [];
   const item: LiveItem = {
     id: asItem(payload.id),
     kind: 'perm',
@@ -481,6 +580,7 @@ function onPermission(session: SessionId, payload: Record<string, unknown>): voi
     tool,
     title,
     input: record(payload.input),
+    ask: questions.length > 0 ? { kind: 'questions', questions } : { kind: 'tool' },
     forId: parentOf(payload.forId),
     ...(reason ? { reason } : {}),
     ...(askedBy ? { askedBy } : {}),
@@ -503,7 +603,7 @@ function onLive(frame: Record<string, unknown>): void {
           && typeof payload.msg.session_id === 'string'
           && payload.msg.session_id !== ''
         ) {
-          cli.set(session, payload.msg.session_id);
+          learnResume(session, payload.msg.session_id);
         }
         foldMessage(session, payload.msg);
       }
@@ -512,7 +612,7 @@ function onLive(frame: Record<string, unknown>): void {
       onPermission(session, payload);
       return;
     case 'agent:ready':
-      if (typeof payload.sessionId === 'string' && payload.sessionId !== '') cli.set(session, payload.sessionId);
+      learnResume(session, payload.sessionId);
       return;
     case 'agent:decided':
       if (typeof payload.id === 'string' && payload.id !== '' && isVerdict(payload.decision)) {
@@ -528,10 +628,6 @@ function onLive(frame: Record<string, unknown>): void {
     default:
       return;
   }
-}
-
-function rememberCli(session: SessionId, sessionId: unknown): void {
-  if (typeof sessionId === 'string' && sessionId !== '') cli.set(session, sessionId);
 }
 
 function onAck(frame: Record<string, unknown>): void {
@@ -569,7 +665,7 @@ function onAck(frame: Record<string, unknown>): void {
     }
     if (frame.ok === true) {
       inflight.delete(session);
-      rememberCli(session, frame.sessionId);
+      learnResume(session, frame.sessionId);
     }
     return;
   }
@@ -583,9 +679,10 @@ function onAck(frame: Record<string, unknown>): void {
 
 function onChats(frame: Record<string, unknown>): void {
   const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
-  if (nonce === '' || nonce !== chatsWait || !binding) return;
+  if (!chatsWait || nonce === '' || nonce !== chatsWait.nonce) return;
   if (typeof frame.error === 'string' || !Array.isArray(frame.chats)) return;
-  const folder = typeof frame.folder === 'string' && frame.folder !== '' ? frame.folder : folderName(binding.project);
+  const project = chatsWait.project;
+  const folder = typeof frame.folder === 'string' && frame.folder !== '' ? frame.folder : folderName(project);
   const seen = new Set<string>();
   const chats: CatalogChat[] = [];
   for (const row of frame.chats) {
@@ -597,29 +694,25 @@ function onChats(frame: Record<string, unknown>): void {
     seen.add(id);
     const title = typeof row.title === 'string' && row.title.trim() !== '' ? row.title : 'Chat';
     const at = typeof row.at === 'number' ? row.at : Date.now();
-    remote.set(id, { resume: row.id, provider: row.provider });
-    cli.set(id, row.id);
+    routes.set(id, { from: 'catalog', project, provider: row.provider, resume: row.id });
     chats.push({ id, title, at, provider: row.provider, resume: row.id });
   }
-  const stale = [...remote.keys()].filter((key) => !seen.has(key));
-  for (const key of stale) {
-    remote.delete(key);
-    cli.delete(key);
-    transcriptWait.delete(key);
+  for (const [key, route] of routes) {
+    if (route.from !== 'catalog' || seen.has(key)) continue;
+    routes.delete(key);
+    for (const [waitNonce, session] of transcriptWait) {
+      if (session === key) transcriptWait.delete(waitNonce);
+    }
   }
   emit({ type: 'catalog', folder, chats });
 }
 
 function onTranscript(frame: Record<string, unknown>): void {
   const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
-  const id = typeof frame.id === 'string' ? frame.id : '';
-  if (nonce === '' || id === '') return;
-  let session: SessionId | null = null;
-  for (const [key, row] of remote) {
-    if (row.resume === id && transcriptWait.get(key) === nonce) session = key as SessionId;
-  }
-  if (session === null) return;
-  transcriptWait.delete(session);
+  if (nonce === '') return;
+  const session = transcriptWait.get(nonce);
+  if (session === undefined) return;
+  transcriptWait.delete(nonce);
   if (typeof frame.error === 'string') {
     note(session, frame.error, { error: true, id: 'transcript' });
     return;
@@ -630,6 +723,10 @@ function onTranscript(frame: Record<string, unknown>): void {
 
 function onFrame(raw: unknown): void {
   if (!isRecord(raw) || typeof raw.op !== 'string') return;
+  if (raw.op === 'ticket' && typeof raw.ticket === 'string') {
+    void adopt(raw.ticket, 'desktop');
+    return;
+  }
   if (raw.op === 'ack') onAck(raw);
   else if (raw.op === 'live') onLive(raw);
   else if (raw.op === 'reject') {
@@ -657,7 +754,7 @@ export function onPhone(cb: (status: PhoneStatus) => void): () => void {
 }
 
 function flush(): void {
-  if (!binding || !authed || !socket || socket.readyState !== WebSocket.OPEN) return;
+  if (!authed || !socket || socket.readyState !== WebSocket.OPEN) return;
   const ws = socket;
   for (const [key, job] of inflight) {
     if (job.sentOnThisSocket) continue;
@@ -668,25 +765,12 @@ function flush(): void {
     }
     job.sentOnThisSocket = true;
     job.attempts += 1;
-    const cliSession = cli.get(job.session) ?? null;
-    ws.send(JSON.stringify({
-      op: 'send',
-      chat: job.session,
-      text: job.text,
-      project: binding.project,
-      session: cliSession,
-      nonce: job.nonce,
-    }));
+    writeFrame(ws, job.frame);
   }
   for (const job of decides.values()) {
     if (job.sentOnThisSocket) continue;
     job.sentOnThisSocket = true;
-    ws.send(JSON.stringify({
-      op: 'decide',
-      chat: job.session,
-      id: job.id,
-      decision: job.verdict,
-    }));
+    writeFrame(ws, job.frame);
   }
 }
 
@@ -721,7 +805,8 @@ function openSocket(): void {
   markUnsent();
   ws.onopen = () => {
     if (socket !== ws) return;
-    ws.send(JSON.stringify({ op: 'auth', token: ticket.token }));
+    const frame = encodeFrame({ op: 'auth', token: ticket.token });
+    if (frame) writeFrame(ws, frame);
   };
   ws.onmessage = (event: MessageEvent) => {
     if (socket !== ws || typeof event.data !== 'string') return;
@@ -788,20 +873,48 @@ function replaceSocket(): void {
   openSocket();
 }
 
-export function adoptTicket(raw: string): Promise<boolean> {
-  const text = typeof raw === 'string' ? raw.trim() : '';
+function adopt(raw: string, source: TicketSource): Promise<boolean> {
+  const text = raw.trim();
   const next = decodeTicket(text);
   if (!next) return Promise.resolve(false);
-  const gen = ++hydrateGen;
-  return enqueueStorage(() => AsyncStorage.setItem(KEY, text)).then(() => {
+  const gen = source === 'scan' ? ++hydrateGen : hydrateGen;
+  return enqueueStorage(async () => {
     if (gen !== hydrateGen) return false;
-    binding = next;
-    emitPhone('bound');
-    forgetRemote();
-    emit({ type: 'catalog', folder: folderName(next.project), chats: [] });
-    replaceSocket();
-    return true;
+    const step = nextBinding(binding, next, source);
+    switch (step.kind) {
+      case 'none':
+        if (source === 'scan') {
+          authFailed = false;
+          if (!canSend()) replaceSocket();
+        }
+        return true;
+      case 'folder':
+        if (step.persist) await AsyncStorage.setItem(KEY, text);
+        if (gen !== hydrateGen) return false;
+        binding = step.binding;
+        forgetCatalog();
+        emit({ type: 'catalog', folder: folderName(step.binding.project), chats: [] });
+        refreshChats();
+        return true;
+      case 'link':
+        await AsyncStorage.setItem(KEY, text);
+        if (gen !== hydrateGen) return false;
+        binding = step.binding;
+        emitPhone('bound');
+        forgetCatalog();
+        emit({ type: 'catalog', folder: folderName(step.binding.project), chats: [] });
+        replaceSocket();
+        return true;
+      default: {
+        const _never: never = step;
+        return _never;
+      }
+    }
   });
+}
+
+export function adoptTicket(raw: string): Promise<boolean> {
+  return adopt(raw, 'scan');
 }
 
 export function connectLive(): void {
@@ -824,24 +937,26 @@ export function resumeLive(): void {
 
 export function refreshChats(): void {
   if (!canSend() || !binding || !socket) return;
-  chatsNonce += 1;
-  chatsWait = String(chatsNonce);
-  socket.send(JSON.stringify({ op: 'chats', project: binding.project, nonce: chatsWait }));
+  const nonce = nextId('c');
+  chatsWait = { nonce, project: binding.project };
+  const frame = encodeFrame({ op: 'chats', project: binding.project, nonce });
+  if (frame) writeFrame(socket, frame);
 }
 
 export function requestTranscript(session: SessionId): void {
-  const row = remote.get(session);
-  if (!row || !canSend() || !binding || !socket) return;
-  transcriptNonce += 1;
-  const nonce = String(transcriptNonce);
-  transcriptWait.set(session, nonce);
-  socket.send(JSON.stringify({
+  const route = routes.get(session);
+  if (!route || route.from !== 'catalog' || route.resume === null || !canSend() || !socket) return;
+  const nonce = nextId('t');
+  const frame = encodeFrame({
     op: 'transcript',
-    project: binding.project,
-    id: row.resume,
-    provider: row.provider,
+    project: route.project,
+    id: route.resume,
+    provider: route.provider,
     nonce,
-  }));
+  });
+  if (!frame) return;
+  transcriptWait.set(nonce, session);
+  writeFrame(socket, frame);
 }
 
 function tokenRejected(session: SessionId): boolean {
@@ -850,7 +965,7 @@ function tokenRejected(session: SessionId): boolean {
   return true;
 }
 
-export function sendTurn(session: SessionId, text: string): Promise<void> {
+export function sendTurn(session: SessionId, turn: Turn): Promise<void> {
   lastChat = session;
   if (!started) return Promise.resolve();
   if (tokenRejected(session)) return Promise.resolve();
@@ -858,27 +973,52 @@ export function sendTurn(session: SessionId, text: string): Promise<void> {
     note(session, 'Scan the code in Conn on your computer.', { error: true, id: 'gate-project' });
     return Promise.resolve();
   }
-  inflight.set(session, {
-    nonce: nextId('n'),
-    text,
-    session,
-    attempts: 0,
-    sentOnThisSocket: false,
+  const route = routeFor(session);
+  if (!route) {
+    note(session, 'That chat is not in this folder.', { error: true });
+    return Promise.resolve();
+  }
+  const nonce = nextId('n');
+  const frame = encodeFrame({
+    op: 'send',
+    chat: session,
+    text: promptOf(turn),
+    project: route.project,
+    session: route.resume,
+    provider: route.provider,
+    nonce,
+    ...(turn.photos.length > 0
+      ? { images: turn.photos.map(({ media, data }) => ({ media, data })) }
+      : {}),
   });
+  if (!frame) {
+    note(session, 'That message is too big for the phone link. Remove a photo and send it again.', { error: true });
+    return Promise.resolve();
+  }
+  inflight.set(session, { nonce, session, frame, attempts: 0, sentOnThisSocket: false });
   flush();
   return Promise.resolve();
 }
 
-export function decidePerm(session: SessionId, id: ItemId, verdict: PermVerdict): Promise<void> {
+export function decidePerm(session: SessionId, id: ItemId, choice: PermChoice): Promise<void> {
   lastChat = session;
   if (!started) return Promise.resolve();
   if (tokenRejected(session)) return Promise.resolve();
-  decides.set(`${session}\0${id}`, {
-    session,
-    id,
-    verdict,
-    sentOnThisSocket: false,
-  });
+  let frame: Outgoing | null;
+  switch (choice.kind) {
+    case 'verdict':
+      frame = encodeFrame({ op: 'decide', chat: session, id, decision: choice.verdict });
+      break;
+    case 'answers':
+      frame = encodeFrame({ op: 'decide', chat: session, id, decision: 'allow', input: choice.input });
+      break;
+    default: {
+      const _never: never = choice;
+      return _never;
+    }
+  }
+  if (!frame) return Promise.resolve();
+  decides.set(`${session}\0${id}`, { session, id, frame, sentOnThisSocket: false });
   flush();
   return Promise.resolve();
 }

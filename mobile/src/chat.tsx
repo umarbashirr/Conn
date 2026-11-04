@@ -1,6 +1,8 @@
 import { useState, useSyncExternalStore, type ReactElement } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { withAnswers, type Question, type Reply } from '../../src/shared/ask-answers.js';
 import { attachLive, decidePerm, refreshChats, requestTranscript, sendTurn } from './conn-live';
+import { QuestionCard } from './question-card';
 import { layout, zinc } from './theme/zinc';
 
 declare const sessionBrand: unique symbol;
@@ -62,11 +64,16 @@ type ToolItem = ItemBase & {
 
 type PermVerdict = 'allow' | 'deny' | 'always';
 
+type PermAsk =
+  | { readonly kind: 'tool' }
+  | { readonly kind: 'questions'; readonly questions: readonly Question[] };
+
 type PermItem = ItemBase & {
   readonly kind: 'perm';
   readonly tool: string;
   readonly title: string;
   readonly input: Readonly<Record<string, unknown>>;
+  readonly ask: PermAsk;
   readonly forId: ItemId | null;
   readonly askedBy?: string;
   readonly reason?: string;
@@ -142,7 +149,13 @@ export type CatalogChat = {
 
 export type LiveEvent =
   | { readonly type: 'upsert'; readonly session: SessionId; readonly item: LiveItem }
-  | { readonly type: 'decide'; readonly session: SessionId; readonly itemId: ItemId; readonly verdict: PermVerdict }
+  | {
+      readonly type: 'decide';
+      readonly session: SessionId;
+      readonly itemId: ItemId;
+      readonly verdict: PermVerdict;
+      readonly answers?: Readonly<Record<string, string>>;
+    }
   | { readonly type: 'catalog'; readonly folder: string; readonly chats: readonly CatalogChat[] }
   | { readonly type: 'transcript'; readonly session: SessionId; readonly messages: readonly unknown[] };
 
@@ -350,7 +363,7 @@ function present(projected: Projected): Screen {
   const marks = new Map<ItemId, PermMark>();
   const placed = new Set<ItemId>();
   for (const item of projected.items) {
-    if (item.kind !== 'perm' || !item.decided || item.answers || item.tool === 'AskUserQuestion') continue;
+    if (item.kind !== 'perm' || !item.decided || item.answers || item.ask.kind === 'questions') continue;
     if (!item.forId || !toolIds.has(item.forId) || marks.has(item.forId)) continue;
     marks.set(item.forId, { verdict: item.decided });
     placed.add(item.id);
@@ -482,15 +495,22 @@ function upsertItem(state: ChatState, session: SessionId, item: LiveItem, now: n
   return { ...ready, itemsBySession: { ...ready.itemsBySession, [session]: next } };
 }
 
-function markPerm(state: ChatState, session: SessionId, target: ItemId, verdict: PermVerdict): ChatState {
+function markPerm(
+  state: ChatState,
+  session: SessionId,
+  target: ItemId,
+  verdict: PermVerdict,
+  answers?: Readonly<Record<string, string>>,
+): ChatState {
   if (!state.sessions.some((entry) => entry.id === session)) return state;
   const items = state.itemsBySession[session];
   const index = items.findIndex((entry) => entry.id === target);
   if (index === -1) return state;
   const current = items[index];
-  if (current.kind !== 'perm' || current.decided === verdict) return state;
+  if (current.kind !== 'perm') return state;
+  if (current.decided === verdict && answers === undefined) return state;
   const next = items.slice();
-  next[index] = { ...current, decided: verdict };
+  next[index] = answers ? { ...current, decided: verdict, answers } : { ...current, decided: verdict };
   return { ...state, itemsBySession: { ...state.itemsBySession, [session]: next } };
 }
 
@@ -638,7 +658,7 @@ function reduceLive(state: ChatState, event: LiveEvent, now: number): ChatState 
     case 'upsert':
       return upsertItem(state, event.session, event.item, now);
     case 'decide':
-      return markPerm(state, event.session, event.itemId, event.verdict);
+      return markPerm(state, event.session, event.itemId, event.verdict, event.answers);
     case 'catalog':
       return applyCatalog(state, event, now);
     case 'transcript':
@@ -727,7 +747,7 @@ export const chat = {
     const id = state.activeId;
     const text = id === null ? '' : state.draftBySession[id].trim();
     dispatch({ type: 'send' });
-    if (id !== null && text !== '') void sendTurn(id, text);
+    if (id !== null && text !== '') void sendTurn(id, { text, photos: [] });
   },
 };
 
@@ -880,10 +900,38 @@ function answerPerm(target: ItemId, verdict: PermVerdict): void {
   if (state.activeId === null) return;
   const session = state.activeId;
   decide(session, target, verdict);
-  void decidePerm(session, target, verdict);
+  void decidePerm(session, target, { kind: 'verdict', verdict });
 }
 
-function PermCard({ item }: { item: PermItem }) {
+function answerQuestions(item: PermItem, reply: Reply): void {
+  const session = state.activeId;
+  if (session === null) return;
+  applyLive({ type: 'decide', session, itemId: item.id, verdict: 'allow', answers: reply.answers });
+  void decidePerm(session, item.id, { kind: 'answers', input: withAnswers(item.input, reply) });
+}
+
+function ToolPermCard({ item }: { item: PermItem }): ReactElement {
+  return (
+    <View style={styles.permCard}>
+      <Text style={styles.assistant}>{item.title}</Text>
+      {item.reason ? <Text style={styles.permReason}>{item.reason}</Text> : null}
+      {item.askedBy ? <Text style={styles.reasoning}>{item.askedBy}</Text> : null}
+      <View style={styles.permActions}>
+        <Pressable onPress={() => answerPerm(item.id, 'allow')} accessibilityLabel="Allow">
+          <Text style={styles.permAction}>Allow</Text>
+        </Pressable>
+        <Pressable onPress={() => answerPerm(item.id, 'always')} accessibilityLabel="Always">
+          <Text style={styles.permAction}>Always</Text>
+        </Pressable>
+        <Pressable onPress={() => answerPerm(item.id, 'deny')} accessibilityLabel="Deny">
+          <Text style={styles.permAction}>Deny</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PermCard({ item }: { item: PermItem }): ReactElement {
   if (item.answers) {
     return (
       <View style={styles.plan}>
@@ -903,24 +951,22 @@ function PermCard({ item }: { item: PermItem }) {
       </Text>
     );
   }
-  return (
-    <View style={styles.permCard}>
-      <Text style={styles.assistant}>{item.title}</Text>
-      {item.reason ? <Text style={styles.permReason}>{item.reason}</Text> : null}
-      {item.askedBy ? <Text style={styles.reasoning}>{item.askedBy}</Text> : null}
-      <View style={styles.permActions}>
-        <Pressable onPress={() => answerPerm(item.id, 'allow')} accessibilityLabel="Allow">
-          <Text style={styles.permAction}>Allow</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'always')} accessibilityLabel="Always">
-          <Text style={styles.permAction}>Always</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'deny')} accessibilityLabel="Deny">
-          <Text style={styles.permAction}>Deny</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
+  switch (item.ask.kind) {
+    case 'questions':
+      return (
+        <QuestionCard
+          questions={item.ask.questions}
+          onAnswer={(reply) => answerQuestions(item, reply)}
+          onSkip={() => answerPerm(item.id, 'deny')}
+        />
+      );
+    case 'tool':
+      return <ToolPermCard item={item} />;
+    default: {
+      const _never: never = item.ask;
+      return _never;
+    }
+  }
 }
 
 function AgentRow({ item }: { item: AgentItem }) {
