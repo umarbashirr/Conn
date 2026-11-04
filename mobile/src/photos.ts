@@ -10,7 +10,6 @@ import { MAX_FRAME_BYTES, MAX_PHOTOS } from '../../src/shared/phone-wire.js';
 
 export type PhotoSource = 'library' | 'camera';
 
-/** A picture ready for the link: JPEG, long edge at most 1568, base64 at most PHOTO_CHARS. */
 export type Photo = {
   readonly name: string;
   readonly media: 'image/jpeg';
@@ -27,9 +26,8 @@ export type PhotoPick =
 
 const EDGES = [1568, 1280, 1024, 768] as const;
 const QUALITY = [0.8, 0.65, 0.5] as const;
-// The typed text, the envelope, and JSON quoting get this much of every frame.
-const FRAME_ROOM = 100_000;
-const PHOTO_CHARS = Math.floor((MAX_FRAME_BYTES - FRAME_ROOM) / MAX_PHOTOS);
+const TEXT_JSON_RESERVE = 100_000;
+const PHOTO_CHARS = Math.floor((MAX_FRAME_BYTES - TEXT_JSON_RESERVE) / MAX_PHOTOS);
 
 function photoName(fileName: string | null | undefined): string {
   return fileName && fileName !== '' ? fileName : 'photo.jpg';
@@ -123,7 +121,6 @@ async function collect(result: ImagePickerResult): Promise<PhotoPick> {
   return { kind: 'picked', photos, dropped };
 }
 
-/** Opens the picker or the camera and returns photos that already fit the link. */
 export async function takePhotos(source: PhotoSource, room: number): Promise<PhotoPick> {
   if (room < 1) return { kind: 'picked', photos: [], dropped: 0 };
   switch (source) {

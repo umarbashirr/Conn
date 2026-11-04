@@ -835,9 +835,7 @@ export const chat = {
           return _never;
         }
       }
-    }, () => {
-      // A failed system sheet leaves the draft as it was.
-    });
+    }, keepDraft);
   },
   dropPhoto(index: number): void {
     dispatch({ type: 'drop-photo', index });
@@ -855,6 +853,8 @@ export const chat = {
 };
 
 let photoNotes = 0;
+
+function keepDraft(): void {}
 
 function droppedNote(count: number): string {
   return count === 1 ? '1 photo did not fit.' : `${count} photos did not fit.`;

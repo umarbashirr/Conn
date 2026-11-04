@@ -231,8 +231,6 @@ async function startMobileGate({
   const authed = new WeakSet();
   let stopped = false;
   let opened = null;
-  // Folder last written to the current authed socket. Unset until that write
-  // lands, so a phone that dropped during a move hears the new folder on auth.
   let followedSocket = null;
   let followedFolder = null;
 

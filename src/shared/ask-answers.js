@@ -1,6 +1,4 @@
 'use strict';
-// How an AskUserQuestion card turns picks into the input the tool reads back.
-// The desktop card and the phone card both build their reply here.
 
 const OTHER = '__other__';
 
@@ -74,7 +72,7 @@ function replyOf(questions, picked, typed) {
   };
 }
 
-/** The replacement input an answered card sends with allow. Claude replaces the whole tool input with it.
+/**
  * @param {Readonly<Record<string, unknown>>} input
  * @param {Reply} reply
  * @returns {Record<string, unknown>}

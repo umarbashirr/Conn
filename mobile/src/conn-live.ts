@@ -52,19 +52,15 @@ type SessionFold = {
   tools: Map<string, ToolSnap>;
 };
 
-/** What the human sends: the words they typed and the photos on the draft. */
 export type Turn = {
   readonly text: string;
   readonly photos: readonly Photo[];
 };
 
-/** How the human settled a permission card. Only an answered question carries input. */
 export type PermChoice =
   | { readonly kind: 'verdict'; readonly verdict: PermVerdict }
   | { readonly kind: 'answers'; readonly input: Readonly<Record<string, unknown>> };
 
-// Where a chat runs on the desktop. The only place a follow-up reads its folder,
-// provider and resume id from.
 type Route = {
   readonly from: 'catalog' | 'phone';
   readonly project: string;
@@ -72,14 +68,13 @@ type Route = {
   readonly resume: string | null;
 };
 
-declare const outgoingBrand: unique symbol;
-// A serialized frame already measured against MAX_FRAME_BYTES. writeFrame takes nothing else.
-type Outgoing = string & { readonly [outgoingBrand]: true };
+declare const measuredFrameBrand: unique symbol;
+type MeasuredFrame = string & { readonly [measuredFrameBrand]: true };
 
 type SendJob = {
   readonly nonce: string;
   readonly session: SessionId;
-  readonly frame: Outgoing;
+  readonly frame: MeasuredFrame;
   attempts: number;
   sentOnThisSocket: boolean;
 };
@@ -87,7 +82,7 @@ type SendJob = {
 type DecideJob = {
   readonly session: SessionId;
   readonly id: ItemId;
-  readonly frame: Outgoing;
+  readonly frame: MeasuredFrame;
   sentOnThisSocket: boolean;
 };
 
@@ -161,13 +156,13 @@ function forgetCatalog(): void {
 
 const utf8 = new TextEncoder();
 
-function encodeFrame(frame: Record<string, unknown>): Outgoing | null {
+function encodeFrame(frame: Record<string, unknown>): MeasuredFrame | null {
   const text = JSON.stringify(frame);
   if (utf8.encode(text).length >= MAX_FRAME_BYTES) return null;
-  return text as Outgoing;
+  return text as MeasuredFrame;
 }
 
-function writeFrame(ws: WebSocket, frame: Outgoing): void {
+function writeFrame(ws: WebSocket, frame: MeasuredFrame): void {
   ws.send(frame);
 }
 
@@ -1004,7 +999,7 @@ export function decidePerm(session: SessionId, id: ItemId, choice: PermChoice): 
   lastChat = session;
   if (!started) return Promise.resolve();
   if (tokenRejected(session)) return Promise.resolve();
-  let frame: Outgoing | null;
+  let frame: MeasuredFrame | null;
   switch (choice.kind) {
     case 'verdict':
       frame = encodeFrame({ op: 'decide', chat: session, id, decision: choice.verdict });
