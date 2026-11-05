@@ -29,7 +29,7 @@ const os = require('os');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
-const { chatTitle } = require('../shared/chat-title');
+const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
 const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
@@ -144,7 +144,7 @@ async function threads(cwd, limit) {
     // to find an attachment block.
     const title = chatTitle(t.name || t.preview);
     if (!title) continue;
-    rows.push({ id: t.id, title: title.slice(0, 120), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt), stamp: t.updatedAt });
+    rows.push({ id: t.id, title: title.slice(0, TITLE_MAX), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt), stamp: t.updatedAt });
   }
   rows.sort((a, b) => b.at - a.at);
   return rows.slice(0, limit);

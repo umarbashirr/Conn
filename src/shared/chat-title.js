@@ -32,4 +32,7 @@ function chatTitle(text) {
   return '';
 }
 
-module.exports = { chatTitle };
+const TITLE_MAX = 120;
+const RENAME_MAX = 80;
+
+module.exports = { chatTitle, TITLE_MAX, RENAME_MAX };

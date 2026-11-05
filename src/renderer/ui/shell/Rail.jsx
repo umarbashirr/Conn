@@ -6,6 +6,7 @@
    its structure and its palette. The folders fold on their own, which is a
    different thing and belongs to the Collapsible inside each group. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
+import { RENAME_MAX } from '../../../shared/chat-title';
 import { useCommandState } from 'cmdk';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
@@ -655,7 +656,7 @@ function RenameDialog({ chat, onCancel, onConfirm }) {
         <Input
           autoFocus
           value={name}
-          maxLength={80}
+          maxLength={RENAME_MAX}
           placeholder="Chat name"
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {

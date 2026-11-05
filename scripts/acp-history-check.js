@@ -173,7 +173,31 @@ async function prefaceTitles() {
   }
 }
 
-prefaceTitles().then(() => {
+async function renamedAfterPreface() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-preface-rename-'));
+  const log = path.join(dir, 'log');
+  const titleFile = path.join(dir, 'title.txt');
+  const bin = path.join(dir, 'agent');
+  fs.writeFileSync(bin, [
+    '#!/bin/sh',
+    `export MOCK_ACP_STORE=copilot MOCK_ACP_PREFACE_TITLES=1 MOCK_ACP_TITLE_FILE=${JSON.stringify(titleFile)} MOCK_ACP_LOG=${JSON.stringify(log)}`,
+    `exec ${JSON.stringify(process.execPath)} ${JSON.stringify(path.join(ROOT, 'scripts/mock-acp-cli.js'))} "$@"`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const history = createAcpHistory({ spec: { binary: () => bin }, label: 'Copilot' });
+  try {
+    const rows = await history.listSessions(dir);
+    check('preface-title-resolves-before-a-rename', rows.length === 2 && rows.every((r) => r.title === 'make the button red'), JSON.stringify(rows));
+    fs.writeFileSync(titleFile, 'Ship the rename');
+    const again = await history.listSessions(dir);
+    check('a-later-cli-title-replaces-the-resolved-one', again.length === 2 && again.every((r) => r.title === 'Ship the rename'), JSON.stringify(again));
+  } finally {
+    history.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+prefaceTitles().then(() => renamedAfterPreface()).then(() => {
   console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
   process.exit(failures.length ? 1 : 0);
 }, (e) => { console.error(e); process.exit(2); });

@@ -1,12 +1,8 @@
 'use strict';
-/* Names a person gave a chat.
-
-   A transcript's title is the first thing typed in it, and claude never writes
-   another. Renaming has to live beside that, the way a completed mark does,
-   or the next history read puts the first message back. */
+const { RENAME_MAX } = require('../shared/chat-title');
 const { sessionStore } = require('./session-store');
 
-const clean = (title) => (typeof title === 'string' ? title.trim().slice(0, 80) : '');
+const clean = (title) => (typeof title === 'string' ? title.trim().slice(0, RENAME_MAX) : '');
 
 module.exports = sessionStore('chat-titles.json', {
   value: (title) => clean(title) || null,

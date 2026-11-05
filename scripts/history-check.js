@@ -20,6 +20,7 @@ const check = (name, ok, detail) => {
 };
 
 const history = require(path.join(ROOT, 'src/main/history.js'));
+const chatTitles = require(path.join(ROOT, 'src/main/chat-titles.js'));
 
 const cwd = path.join(home, 'work', 'my.app');
 const dir = path.join(home, '.claude', 'projects', cwd.replace(/[/.]/g, '-'));
@@ -71,8 +72,7 @@ const laterAt = fs.readFileSync(path.join(dir, `${slashFirst}.jsonl`), 'utf8').i
 check('fixture-image-line-is-over-200kb', lineBytes > 200 * 1024, `${lineBytes} bytes`);
 check('fixture-later-prompt-starts-past-128kb', laterAt > 1 << 17, `starts at ${laterAt}`);
 
-const rows = history.listSessions(cwd);
-const titleFor = (id) => rows.find((r) => r.id === id)?.title;
+const titleFor = (id) => history.listSessions(cwd).find((r) => r.id === id)?.title;
 const expect = (name, id, want) => check(name, titleFor(id) === want, `title ${JSON.stringify(titleFor(id))}, want ${JSON.stringify(want)}`);
 
 expect('plain-typed-chat-is-listed-with-what-was-typed', plain, 'fix the login redirect loop');
@@ -88,6 +88,34 @@ fs.appendFileSync(path.join(dir, `${live}.jsonl`), JSON.stringify(user('now the 
 check('live-chat-retitled-once-the-prompt-lands', history.listSessions(cwd).find((r) => r.id === live)?.title === 'now the real question',
   JSON.stringify(history.listSessions(cwd).find((r) => r.id === live)?.title));
 
+const named = write([user('original prompt about the login'), { type: 'ai-title', aiTitle: 'Generated login title', sessionId: 's' }]);
+expect('generated-title-replaces-the-first-message', named, 'Generated login title');
+fs.mkdirSync(path.join(dir, named), { recursive: true });
+fs.writeFileSync(path.join(dir, named, 'custom-title.json'), JSON.stringify({ customTitle: 'Renamed in Claude' }));
+expect('sidecar-rename-replaces-the-generated-title', named, 'Renamed in Claude');
+
+const fromTail = write([
+  user('the first thing typed'),
+  { type: 'custom-title', customTitle: 'Renamed in the transcript', sessionId: 's' },
+]);
+fs.mkdirSync(path.join(dir, fromTail), { recursive: true });
+fs.writeFileSync(path.join(dir, fromTail, 'custom-title.json'), JSON.stringify({ customTitle: 'Older sidecar name' }));
+expect('tail-rename-wins-over-the-sidecar', fromTail, 'Renamed in the transcript');
+
+const folded = write([user('a long first prompt'), { type: 'summary', summary: 'Folded topic' }]);
+expect('summary-replaces-the-first-message', folded, 'Folded topic');
+
+const linkCwd = path.join(home, 'work', 'link.app');
+const realCwd = path.join(home, 'work', 'real.app');
+fs.mkdirSync(realCwd, { recursive: true });
+fs.symlinkSync(realCwd, linkCwd);
+const realDir = path.join(home, '.claude', 'projects', realCwd.replace(/[/.]/g, '-'));
+fs.mkdirSync(realDir, { recursive: true });
+const linkedId = `${SESSION}${'9'.repeat(12)}`;
+fs.writeFileSync(path.join(realDir, `${linkedId}.jsonl`), JSON.stringify(user('chat stored on the real path')) + '\n');
+check('symlink-folder-lists-the-realpath-transcript', history.listSessions(linkCwd).some((r) => r.id === linkedId && r.title === 'chat stored on the real path'),
+  JSON.stringify(history.listSessions(linkCwd).map((r) => r.title)));
+
 // projectDir falls back to reading the cwd out of a transcript when the slug
 // rule misses, and that read goes through the same head parser.
 const other = path.join(home, 'elsewhere');
@@ -102,9 +130,18 @@ const limited = write([
   { type: 'assistant', message: { content: [{ type: 'text', text: 'fine' }] } },
 ]);
 
-history.readSession(cwd, limited).then(({ messages }) => {
+history.readSession(cwd, limited).then(async ({ messages }) => {
   check('api-error-line-keeps-its-reason', messages[1]?.error === 'rate_limit', JSON.stringify(messages[1]));
   check('ordinary-reply-has-no-error', messages[2] && !('error' in messages[2]), JSON.stringify(messages[2]));
+  const word = 'zzuniqtoken';
+  const searched = write([user(`please look at ${word}`), { type: 'ai-title', aiTitle: 'Generated search title', sessionId: 's' }]);
+  chatTitles.set(searched, 'Named in Conn');
+  const found = await history.search(cwd, word);
+  const hit = found.hits.find((h) => h.id === searched);
+  check('search-uses-a-conn-rename', hit?.title === 'Named in Conn', JSON.stringify(hit));
+  const opened = await history.readSession(linkCwd, linkedId);
+  check('symlink-folder-opens-the-realpath-transcript', opened.messages.some((m) => JSON.stringify(m).includes('chat stored on the real path')),
+    JSON.stringify(opened.messages.map((m) => m.type)));
 }).finally(() => {
   fs.rmSync(home, { recursive: true, force: true });
   console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
