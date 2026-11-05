@@ -8,7 +8,8 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { execFile } = require('child_process');
-const { chatTitle } = require('../shared/chat-title');
+const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
+const chatTitles = require('./chat-titles');
 const shellEnv = require('./shell-env');
 const { parseQuery, snippetOf } = require('./transcript-search');
 const { windowOf, MAX_MESSAGES } = require('./transcript-clip');
@@ -122,14 +123,119 @@ function typedCommand(o) {
   return args ? `${name} ${args}` : name;
 }
 
-// A title comes out of the head of the file and never changes once it is there,
-// so each transcript is read once rather than on every refresh. A file nothing
-// was found in, or only a bare command, is read again only after it has grown.
-const titles = new Map(); // path -> { title, size, settled }
+// Claude's resume picker reads 64KB at each end of the transcript. The same
+// budget here, so a name it would show is a name we show.
+const TAIL_BYTES = 65536;
+
+// A later /rename grows the transcript or rewrites custom-title.json.
+const titles = new Map();
+
+function readAt(file, start, length) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(length);
+    const n = fs.readSync(fd, buf, 0, length, start);
+    return buf.subarray(0, n).toString('utf8');
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) try { fs.closeSync(fd); } catch {}
+  }
+}
+
+function edge(file, size, fromEnd) {
+  const length = Math.min(size, TAIL_BYTES);
+  const start = fromEnd ? size - length : 0;
+  return readAt(file, start, length);
+}
+
+// Last `"key":"..."` in the slice. Claude walks the same way, last one wins,
+// and a line that began before the slice still counts when the value is inside it.
+function lastString(text, key) {
+  if (!text) return '';
+  const markers = [`"${key}":"`, `"${key}": "`];
+  let best = '';
+  let at = -1;
+  for (const marker of markers) {
+    let from = 0;
+    while (from < text.length) {
+      const i = text.indexOf(marker, from);
+      if (i < 0) break;
+      const start = i + marker.length;
+      let c = start;
+      while (c < text.length) {
+        if (text[c] === '\\') { c += 2; continue; }
+        if (text[c] === '"') {
+          if (i > at) {
+            at = i;
+            try { best = JSON.parse(`"${text.slice(start, c)}"`); } catch { best = ''; }
+          }
+          break;
+        }
+        c++;
+      }
+      from = c + 1;
+    }
+  }
+  return typeof best === 'string' ? best.trim() : '';
+}
+
+function lastSummary(text) {
+  if (!text) return '';
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line.includes('"summary"')) continue;
+    if (!line.includes('"type":"summary"') && !line.includes('"type": "summary"')) continue;
+    try {
+      const o = JSON.parse(line);
+      if (o.type === 'summary' && typeof o.summary === 'string' && o.summary.trim()) return o.summary.trim();
+    } catch {}
+  }
+  return '';
+}
+
+// custom-title.json sits next to the transcript, in the session directory
+// Claude already uses for subagent metadata.
+function sidecarOf(full) {
+  const file = path.join(path.dirname(full), path.basename(full, '.jsonl'), 'custom-title.json');
+  let st;
+  try { st = fs.statSync(file); } catch { return { mtime: 0, title: '' }; }
+  try {
+    const o = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const title = typeof o.customTitle === 'string' ? o.customTitle.trim() : '';
+    return { mtime: st.mtimeMs, title };
+  } catch {
+    return { mtime: st.mtimeMs, title: '' };
+  }
+}
+
+// The order Claude uses when it builds the name `claude --resume` shows.
+// A custom title in the tail beats the sidecar, which beats one in the head,
+// then the generated title, then a summary.
+function claudeName(full, size, sideTitle) {
+  const tail = edge(full, size, true);
+  const head = size <= TAIL_BYTES ? tail : edge(full, size, false);
+  return lastString(tail, 'customTitle')
+    || sideTitle
+    || lastString(head, 'customTitle')
+    || lastString(tail, 'aiTitle')
+    || lastString(head, 'aiTitle')
+    || lastSummary(tail)
+    || '';
+}
 
 function titleOf(full, size) {
+  const side = sidecarOf(full);
   const hit = titles.get(full);
-  if (hit && (hit.settled || hit.size === size)) return hit.title;
+  if (hit && hit.size === size && hit.sidecarMtime === side.mtime) return hit.title;
+
+  const named = claudeName(full, size, side.title);
+  if (named) {
+    titles.set(full, { title: named, size, sidecarMtime: side.mtime });
+    return named;
+  }
 
   let title = null;
   let bare = null;
@@ -142,8 +248,33 @@ function titleOf(full, size) {
     if (command && /\s/.test(command)) { title = command; break; }
     bare ||= command;
   }
-  titles.set(full, { title: title || bare, size, settled: !!title });
-  return title || bare;
+  const picked = title || bare;
+  titles.set(full, { title: picked, size, sidecarMtime: side.mtime });
+  return picked;
+}
+
+function historyDirs(cwd) {
+  const out = [];
+  const add = (dir) => { if (dir && !out.includes(dir)) out.push(dir); };
+  add(projectDir(cwd));
+  try {
+    const real = fs.realpathSync(cwd);
+    if (real !== cwd) {
+      const alt = path.join(PROJECTS, slugFor(real));
+      if (fs.existsSync(alt)) add(alt);
+    }
+  } catch {}
+  return out;
+}
+
+function sessionFiles(cwd) {
+  const files = [];
+  for (const dir of historyDirs(cwd)) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { continue; }
+    for (const name of names) files.push(path.join(dir, name));
+  }
+  return files;
 }
 
 // The rail groups by day and searches across the lot, so the limit is high on
@@ -151,25 +282,31 @@ function titleOf(full, size) {
 // the cut-off dropped off the list every time another chat was written to and
 // came back the next time the order moved.
 function listSessions(cwd, limit = 200) {
-  const dir = projectDir(cwd);
-  let files = [];
-  try { files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return []; }
-
-  const rows = [];
-  for (const f of files) {
-    const full = path.join(dir, f);
+  const byId = new Map();
+  for (const full of sessionFiles(cwd)) {
     let st;
     try { st = fs.statSync(full); } catch { continue; }
     if (!st.size) continue;
 
-    // nothing a human said: an aborted or empty session
     const title = titleOf(full, st.size);
     if (!title) continue;
 
-    rows.push({ id: f.replace(/\.jsonl$/, ''), title: chatTitle(title).slice(0, 120), at: st.mtimeMs });
+    const id = path.basename(full, '.jsonl');
+    const prev = byId.get(id);
+    if (prev && prev.at >= st.mtimeMs) continue;
+    byId.set(id, { id, title: chatTitle(title).slice(0, TITLE_MAX), at: st.mtimeMs });
   }
-  rows.sort((a, b) => b.at - a.at);
-  return rows.slice(0, limit);
+  return [...byId.values()].sort((a, b) => b.at - a.at).slice(0, limit);
+}
+
+function located(cwd, id) {
+  const name = `${id}.jsonl`;
+  for (const dir of historyDirs(cwd)) {
+    const file = path.join(dir, name);
+    if (fs.existsSync(file)) return { dir, file };
+  }
+  const dir = projectDir(cwd);
+  return { dir, file: path.join(dir, name) };
 }
 
 // Deleting a chat for good. The transcript is the chat: drop the file and
@@ -184,8 +321,7 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 function deleteSession(cwd, id) {
   if (!SESSION_ID.test(String(id || ''))) throw new Error(`not a session id: ${id}`);
-  const dir = projectDir(cwd);
-  const file = path.join(dir, `${id}.jsonl`);
+  const { dir, file } = located(cwd, id);
 
   let gone = false;
   try {
@@ -254,12 +390,9 @@ async function scanFiles(files, needle, signal) {
   return out;
 }
 
-function recent(dir, bytes) {
-  let names = [];
-  try { names = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { return { kept: [], total: 0 }; }
+function recent(cwd, bytes) {
   const all = [];
-  for (const f of names) {
-    const file = path.join(dir, f);
+  for (const file of sessionFiles(cwd)) {
     try {
       const st = fs.statSync(file);
       if (st.size) all.push({ file, size: st.size, at: st.mtimeMs });
@@ -311,7 +444,7 @@ async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } =
   const none = { hits: [], searched: 0, left: 0 };
   if (!parsed) return none;
   await shellEnv.ready();
-  const { kept, total } = recent(projectDir(cwd), bytes);
+  const { kept, total } = recent(cwd, bytes);
   if (!kept.length) return { ...none, left: total };
   const names = kept.map((f) => f.file);
   const matched = (await rgFiles(names, parsed.needle, signal)) ?? await scanFiles(names, parsed.needle, signal);
@@ -323,10 +456,11 @@ async function search(cwd, query, { limit = 20, signal, bytes = SEARCH_BYTES } =
     const snippets = await Promise.all(batch.map((f) => firstHit(f.file, parsed, signal)));
     batch.forEach((f, k) => {
       if (!snippets[k] || hits.length >= limit) return;
-      const title = titleOf(f.file, f.size);
+      const id = path.basename(f.file, '.jsonl');
+      const title = chatTitles.get(id) || titleOf(f.file, f.size);
       hits.push({
-        id: path.basename(f.file, '.jsonl'),
-        title: title ? chatTitle(title).slice(0, 120) : '',
+        id,
+        title: title ? chatTitle(title).slice(0, TITLE_MAX) : '',
         at: f.at,
         snippet: snippets[k],
       });
@@ -371,7 +505,7 @@ function slimBlock(b, budget) {
 
 // Replayable messages for one session, oldest first.
 async function readSession(cwd, id, { whole, ...opts } = {}) {
-  const file = path.join(projectDir(cwd), `${id}.jsonl`);
+  const { file } = located(cwd, id);
   if (!fs.existsSync(file)) throw new Error(`no transcript for session ${id}`);
 
   const out = [];
@@ -474,7 +608,7 @@ const summarise = (r) => ({
 // it. Listing the metas is enough to draw every agent row on a replayed chat
 // without reading a single transcript.
 function subagentDir(cwd, session) {
-  return path.join(projectDir(cwd), session, 'subagents');
+  return path.join(located(cwd, session).dir, session, 'subagents');
 }
 
 function listSubagents(cwd, session) {

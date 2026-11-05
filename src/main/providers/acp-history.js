@@ -4,7 +4,7 @@ const os = require('os');
 const { AcpRpc } = require('./acp-rpc');
 const { CLIENT, ACP_INSTRUCTIONS, toolOf, callInput, textOf, readingOf, readingMessage } = require('./acp-session');
 const shellEnv = require('../shell-env');
-const { chatTitle } = require('../../shared/chat-title');
+const { chatTitle, TITLE_MAX } = require('../../shared/chat-title');
 const { clip } = require('../transcript-clip');
 const { todoInput } = require('../../shared/plan');
 
@@ -128,7 +128,7 @@ function rowOf(s, dir) {
   if (isPrefaceSlice(raw)) return { id: s.sessionId, title: '', at, dir };
   const title = chatTitle(withoutPreface(raw));
   if (!title) return null;
-  return { id: s.sessionId, title: title.slice(0, 120), at };
+  return { id: s.sessionId, title: title.slice(0, TITLE_MAX), at };
 }
 
 const firstUserTitle = (messages) => {
@@ -136,7 +136,7 @@ const firstUserTitle = (messages) => {
     if (m.type !== 'user') continue;
     const block = m.message.content.find((b) => b.type === 'text');
     const title = block && chatTitle(block.text);
-    if (title) return title.slice(0, 120);
+    if (title) return title.slice(0, TITLE_MAX);
   }
   return '';
 };
@@ -229,8 +229,11 @@ function createAcpHistory({ spec, label }) {
           for (const s of res?.sessions || []) {
             const row = rowOf(s, dir);
             if (row && resolvedTitles.has(row.id)) {
-              row.title = resolvedTitles.get(row.id);
-              delete row.dir;
+              if (row.title) resolvedTitles.delete(row.id);
+              else {
+                row.title = resolvedTitles.get(row.id);
+                delete row.dir;
+              }
             }
             if (row) byId.set(row.id, row);
           }

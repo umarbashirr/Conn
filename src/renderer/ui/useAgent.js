@@ -1,4 +1,4 @@
-import { chatTitle } from '../../shared/chat-title';
+import { chatTitle, TITLE_MAX, RENAME_MAX } from '../../shared/chat-title';
 import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
@@ -768,7 +768,7 @@ export function useAgent() {
         startedAt: c.busy ? c.startedAt : Date.now(),
         // Same as a message typed here: the first one names the chat, which is
         // what the rail shows until claude has written a transcript to read.
-        title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
+        title: c.title === 'New chat' ? chatTitle(text).slice(0, TITLE_MAX) : c.title,
         items: [...c.items, { id: uid('u'), kind: 'user', text, ...(forkAt && { forkAt }) }],
       }));
     }) ?? (() => {}));
@@ -911,7 +911,7 @@ export function useAgent() {
       busy: true,
       failure: null,
       stopped: false,
-      title: c.title === 'New chat' ? chatTitle(text).slice(0, 80) : c.title,
+      title: c.title === 'New chat' ? chatTitle(text).slice(0, TITLE_MAX) : c.title,
       items: [...c.items, { id, kind: 'user', text, images, ...(resent && { resent }) }],
     }));
     try {
@@ -1303,7 +1303,7 @@ export function useAgent() {
       // A chat from before boards has none on record and keeps the fresh one
       // blankChat minted.
       ...(s.canvas && { canvas: s.canvas }),
-      title: s.title.slice(0, 80),
+      title: s.title.slice(0, TITLE_MAX),
     };
     chatsRef.current = [...chatsRef.current, chat];
     setChats(chatsRef.current);
@@ -1519,7 +1519,7 @@ export function useAgent() {
   // message back. A chat with no session yet keeps the name in memory, and
   // onReady writes it down once there is one.
   const renameChat = useCallback(async (key, title) => {
-    const next = String(title || '').trim().slice(0, 80);
+    const next = String(title || '').trim().slice(0, RENAME_MAX);
     if (!next) return { error: 'Give the chat a name.' };
     const chat = chatsRef.current.find((c) => c.key === key);
     edit(key, (c) => ({ ...c, title: next, renamed: true }));

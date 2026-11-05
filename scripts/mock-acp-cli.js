@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Stand-in ACP agent for tests. Speaks newline-delimited JSON-RPC on stdio.
+const fs = require('fs');
 const readline = require('readline');
 
 if (process.argv.includes('--version')) {
@@ -355,6 +356,9 @@ function onMessage(msg) {
     const page = params.cursor ? 1 : 0;
     const row = stored[page];
     const title = () => {
+      if (process.env.MOCK_ACP_TITLE_FILE && fs.existsSync(process.env.MOCK_ACP_TITLE_FILE)) {
+        return fs.readFileSync(process.env.MOCK_ACP_TITLE_FILE, 'utf8');
+      }
       const { ACP_INSTRUCTIONS } = require('../src/main/providers/acp-session');
       return `${ACP_INSTRUCTIONS}\n\nmake the button red`.slice(0, 500) + '...';
     };
