@@ -58,9 +58,10 @@ const isDev = process.argv.includes('--dev');
 
 let win = null;
 let mobileGate = {
+  card() { return { status: 'off', note: 'Phone link is off.' }; },
+  follow() {},
   publish() {},
   stop() {},
-  card() { return { status: 'off', note: 'Phone link is off.' }; },
 };
 let tray = null;
 // One preview per preview tab. The right column is a strip of tabs and a folder
@@ -689,7 +690,8 @@ function closeProject(dir) {
 function announce() {
   refreshMenu();
   send('project:changed', projectInfo());
-  send('phone:card', mobileGate.card(focused));
+  mobileGate.follow();
+  send('phone:card', mobileGate.card());
 }
 
 async function pickFolder(newWindow) {
@@ -1228,7 +1230,7 @@ function registerIpc() {
     node: path.join(nodeShimDir(), process.platform === 'win32' ? 'node.cmd' : 'node'),
     root: ROOT,
   }));
-  ipcMain.handle('phone:card', () => mobileGate.card(focused));
+  ipcMain.handle('phone:card', () => mobileGate.card());
 
   // --- window frame ---
   ipcMain.handle('win:state', () => windowState());
@@ -2201,7 +2203,7 @@ app.whenReady().then(async () => {
   });
   await bridge.start();
   mobileGate = await startMobileGate({
-    packaged: app.isPackaged,
+    focused: () => focused,
     knownProject: known,
     deliverTurn,
     deliverDecision,

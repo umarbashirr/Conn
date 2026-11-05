@@ -1,4 +1,5 @@
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -11,6 +12,23 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chat, ChatItemView, type ChatView } from '../chat';
 import { layout, zinc } from '../theme/zinc';
+
+function PhotoChip({
+  photo,
+  onRemove,
+}: {
+  photo: ChatView['photos'][number];
+  onRemove: () => void;
+}) {
+  return (
+    <View style={styles.chipPhoto}>
+      <Image source={{ uri: photo.uri }} accessibilityLabel="Attached photo" style={styles.chipImage} />
+      <Pressable onPress={onRemove} accessibilityLabel="Remove photo" hitSlop={6} style={styles.chipRemove}>
+        <Text style={styles.chipRemoveText}>×</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 export function ChatScreen({ screen }: { screen: ChatView }) {
   const insets = useSafeAreaInsets();
@@ -57,25 +75,48 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
         ]}
       >
         <View style={styles.composerBox}>
-          <TextInput
-            value={screen.draft}
-            onChangeText={chat.setDraft}
-            placeholder="Message"
-            placeholderTextColor={zinc.faint}
-            accessibilityLabel="Message"
-            multiline
-            style={styles.input}
-          />
-          <Pressable
-            onPress={chat.send}
-            disabled={!screen.canSend}
-            accessibilityLabel="Send"
-            accessibilityState={{ disabled: !screen.canSend }}
-            hitSlop={6}
-            style={[styles.send, !screen.canSend && styles.sendOff]}
-          >
-            <Text style={styles.sendGlyph}>↑</Text>
-          </Pressable>
+          {screen.photos.length === 0 ? null : (
+            <View style={styles.photoRow}>
+              {screen.photos.map((photo, index) => (
+                <PhotoChip
+                  key={`${photo.uri}:${index}`}
+                  photo={photo}
+                  onRemove={() => chat.dropPhoto(index)}
+                />
+              ))}
+            </View>
+          )}
+          <View style={styles.composerLine}>
+            <Pressable
+              onPress={() => chat.attach('library')}
+              disabled={!screen.canAttach}
+              accessibilityLabel="Add photo"
+              accessibilityState={{ disabled: !screen.canAttach }}
+              hitSlop={6}
+              style={[styles.attach, !screen.canAttach && styles.sendOff]}
+            >
+              <Text style={styles.attachGlyph}>＋</Text>
+            </Pressable>
+            <TextInput
+              value={screen.draft}
+              onChangeText={chat.setDraft}
+              placeholder="Message"
+              placeholderTextColor={zinc.faint}
+              accessibilityLabel="Message"
+              multiline
+              style={styles.input}
+            />
+            <Pressable
+              onPress={chat.send}
+              disabled={!screen.canSend}
+              accessibilityLabel="Send"
+              accessibilityState={{ disabled: !screen.canSend }}
+              hitSlop={6}
+              style={[styles.send, !screen.canSend && styles.sendOff]}
+            >
+              <Text style={styles.sendGlyph}>↑</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -147,16 +188,62 @@ const styles = StyleSheet.create({
     backgroundColor: zinc.ground,
   },
   composerBox: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 8,
     backgroundColor: zinc.input,
     borderColor: zinc.border,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: layout.composer,
-    paddingLeft: 14,
+    paddingLeft: 8,
     paddingRight: 6,
     paddingVertical: 6,
+    gap: 6,
+  },
+  composerLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  photoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingLeft: 6,
+  },
+  chipPhoto: {
+    width: 52,
+    height: 52,
+  },
+  chipImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 8,
+    backgroundColor: zinc.secondary,
+  },
+  chipRemove: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: zinc.chrome,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipRemoveText: {
+    color: zinc.text,
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  attach: {
+    width: layout.send,
+    height: layout.send,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachGlyph: {
+    color: zinc.muted,
+    fontSize: 22,
+    lineHeight: 24,
   },
   input: {
     flex: 1,

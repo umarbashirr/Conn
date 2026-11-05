@@ -7,6 +7,16 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "scheme": "conn",
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Conn uses photos you choose so you can send them in a chat.",
+          "cameraPermission": "Conn uses the camera so you can take a photo and send it in a chat.",
+          "microphonePermission": false
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dev.conn.app"

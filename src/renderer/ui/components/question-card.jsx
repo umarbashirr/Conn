@@ -14,19 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
-
-const OTHER = '__other__';
-
-// Multi-select answers go back as one comma-separated string, which is what the
-// tool's own output type promises the model.
-const answerFor = (pick, typed) => {
-  const chosen = Array.isArray(pick) ? pick : [pick];
-  return chosen
-    .filter(Boolean)
-    .map((label) => (label === OTHER ? typed.trim() : label))
-    .filter(Boolean)
-    .join(', ');
-};
+import { OTHER, questionsOf, replyOf } from '../../../shared/ask-answers.js';
 
 function Option({ multi, option, checked, onPick, id }) {
   const Control = multi ? Checkbox : RadioGroupItem;
@@ -56,7 +44,7 @@ function Option({ multi, option, checked, onPick, id }) {
 
 export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
   const uid = useId();
-  const questions = useMemo(() => (Array.isArray(input?.questions) ? input.questions : []), [input]);
+  const questions = useMemo(() => questionsOf(input), [input]);
   const [step, setStep] = useState(0);
   // question text -> chosen label, or an array of them when multiSelect is on
   const [picked, setPicked] = useState({});
@@ -71,14 +59,7 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
 
   const goTo = useCallback((i) => { cancelAdvance(); setStep(i); }, []);
 
-  const answers = useMemo(() => {
-    const out = {};
-    for (const q of questions) {
-      const a = answerFor(picked[q.question], typed[q.question] || '');
-      if (a) out[q.question] = a;
-    }
-    return out;
-  }, [questions, picked, typed]);
+  const reply = useMemo(() => replyOf(questions, picked, typed), [questions, picked, typed]);
 
   const choose = useCallback((question, value, multi, isLast) => {
     setPicked((cur) => {
@@ -93,18 +74,6 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
     }
   }, []);
 
-  // Previews are the one thing the tool wants handed back alongside the answer,
-  // so whatever the human settled on travels with it.
-  const annotations = useMemo(() => {
-    const out = {};
-    for (const q of questions) {
-      const chosen = [].concat(picked[q.question] || []);
-      const preview = q.options?.find((o) => chosen.includes(o.label) && o.preview)?.preview;
-      if (preview) out[q.question] = { preview };
-    }
-    return Object.keys(out).length ? out : undefined;
-  }, [questions, picked]);
-
   if (!questions.length) return null;
 
   const at = Math.min(step, questions.length - 1);
@@ -112,11 +81,10 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
   const last = at === questions.length - 1;
   const multi = !!q.multiSelect;
   const chosen = [].concat(picked[q.question] || []);
-  const answered = !!answers[q.question];
-  const allAnswered = questions.every((one) => answers[one.question]);
+  const answered = !!reply.answers[q.question];
 
   const options = [
-    ...(q.options || []).map((o) => ({ ...o, value: o.label })),
+    ...q.options.map((o) => ({ ...o, value: o.label })),
     { label: 'Other', description: 'Answer in your own words', value: OTHER },
   ];
 
@@ -143,7 +111,7 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
       {questions.length > 1 && (
         <div className="flex flex-wrap gap-1 pt-2">
           {questions.map((one, i) => {
-            const done = !!answers[one.question];
+            const done = !!reply.answers[one.question];
             return (
               <Button
                 key={one.question}
@@ -157,7 +125,7 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
                   !done && i !== at && 'border-dashed',
                 )}>
                 <span className="truncate">{one.header || `Question ${i + 1}`}</span>
-                {done && i !== at && <span className="truncate opacity-60">· {answers[one.question]}</span>}
+                {done && i !== at && <span className="truncate opacity-60">· {reply.answers[one.question]}</span>}
               </Button>
             );
           })}
@@ -190,9 +158,9 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
             value={typed[q.question] || ''}
             onChange={(e) => setTyped((cur) => ({ ...cur, [q.question]: e.target.value }))}
             onKeyDown={(e) => {
-              if (e.key !== 'Enter' || !answers[q.question]) return;
+              if (e.key !== 'Enter' || !reply.answers[q.question]) return;
               e.preventDefault();
-              if (last) { if (allAnswered) onAnswer(answers, annotations); } else goTo(at + 1);
+              if (last) { if (reply.complete) onAnswer(reply); } else goTo(at + 1);
             }} />
         )}
       </div>
@@ -206,7 +174,7 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
         )}
 
         {last ? (
-          <Button size="sm" className="h-7" disabled={!allAnswered} onClick={() => onAnswer(answers, annotations)}>
+          <Button size="sm" className="h-7" disabled={!reply.complete} onClick={() => onAnswer(reply)}>
             {questions.length > 1 ? 'Send answers' : 'Send answer'}
           </Button>
         ) : (

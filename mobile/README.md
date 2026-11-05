@@ -15,19 +15,20 @@ The first screen is the session list. Sessions are grouped under their project n
 
 The chat screen shows the transcript for the session you open. Type a message and press the send button. The app appends your line and clears the field. Pressing send with an empty field does nothing. Suggestion chips on an empty transcript copy their text into the field.
 
-The ground color is `#141414`. After the phone scans a ticket, the list is the chats for that folder. Opening a row loads its transcript. A new chat still sends on the folder that was scanned.
+The ground color is `#141414`. After the phone scans a ticket, the list is the chats for that folder. Opening a row loads its transcript and later sends continue on that chat's provider. A new chat sends as Claude on the scanned folder. You can attach up to four photos. A message can be photos alone.
 
 ## Point the phone at the desktop gate
 
-The phone sends a turn to unpackaged Conn and draws the reply in the chat you sent from.
+The phone sends a turn to Conn and draws the reply in the chat you sent from. An installed Conn opens the same link a checkout does.
 
-1. Start unpackaged Conn with a project folder already open.
-2. Open Customize, then Phone, and scan the code or paste it into the phone. The ticket names the folder that was focused.
-3. From this folder, run `npm start` and open the project in Expo Go. A phone on another machine needs the LAN URL.
-4. The session list fills from the folder on the ticket. Open a row to load its transcript, or press **New chat** and send from there. The reply is written into that same row. A new chat sends on the folder that was scanned.
-5. A permission card's **Allow**, **Always**, and **Deny** buttons mark the card and send the decision to the desktop.
+1. Start Conn with a project folder already open.
+2. Open Customize, then Phone. Scan the code, paste it, or open the `conn://` link from the phone's camera. The ticket names the folder that was focused.
+3. From this folder, run `npm start` and open the project in Expo Go. A phone on another machine needs the LAN URL. A `conn://` link from outside the app needs a build that registers the scheme. Expo Go does not.
+4. The session list fills from the folder on the ticket. Open a row to load its transcript, or press **New chat** and send from there. The reply is written into that same row.
+5. A tool card's **Allow**, **Always**, and **Deny** buttons send that decision. An **AskUserQuestion** card lists each question and its options. **Send answers** submits them. **Skip** declines.
+6. When the desktop focuses another folder, the connected phone's list follows. The token and port stay the same.
 
-`CONN_MOBILE_PORT` chooses the port. When it is unset, Conn tries `4777` and then an ephemeral port. `CONN_MOBILE_TOKEN` chooses the token. `CONN_MOBILE_HOST` chooses the bind address, which otherwise is `0.0.0.0`. A packaged app does not open the gate.
+`CONN_MOBILE_PORT` chooses the port. When it is unset, Conn tries `4777` and then an ephemeral port. `CONN_MOBILE_TOKEN` chooses the token. `CONN_MOBILE_HOST` chooses the bind address, which otherwise is `0.0.0.0`.
 
 The link is cleartext on the LAN. The token is the only check.
 

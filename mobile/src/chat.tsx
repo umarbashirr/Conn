@@ -1,6 +1,10 @@
 import { useState, useSyncExternalStore, type ReactElement } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { withAnswers, type Question, type Reply } from '../../src/shared/ask-answers.js';
+import { MAX_PHOTOS } from '../../src/shared/phone-wire.js';
 import { attachLive, decidePerm, refreshChats, requestTranscript, sendTurn } from './conn-live';
+import { takePhotos, type Photo, type PhotoSource } from './photos';
+import { QuestionCard } from './question-card';
 import { layout, zinc } from './theme/zinc';
 
 declare const sessionBrand: unique symbol;
@@ -23,9 +27,17 @@ type ItemBase = {
   readonly parent: ItemId | null;
 };
 
+type PhotoThumb = Pick<Photo, 'uri' | 'width' | 'height'>;
+
 type UserItem = ItemBase & {
   readonly kind: 'user';
   readonly text: string;
+  readonly photos?: readonly PhotoThumb[];
+};
+
+type Draft = {
+  readonly text: string;
+  readonly photos: readonly Photo[];
 };
 
 type AssistantItem = ItemBase & {
@@ -62,11 +74,16 @@ type ToolItem = ItemBase & {
 
 type PermVerdict = 'allow' | 'deny' | 'always';
 
+type PermAsk =
+  | { readonly kind: 'tool' }
+  | { readonly kind: 'questions'; readonly questions: readonly Question[] };
+
 type PermItem = ItemBase & {
   readonly kind: 'perm';
   readonly tool: string;
   readonly title: string;
   readonly input: Readonly<Record<string, unknown>>;
+  readonly ask: PermAsk;
   readonly forId: ItemId | null;
   readonly askedBy?: string;
   readonly reason?: string;
@@ -119,7 +136,7 @@ type ChatState = {
   readonly seq: number;
   readonly sessions: readonly Session[];
   readonly itemsBySession: Readonly<Record<string, readonly Item[]>>;
-  readonly draftBySession: Readonly<Record<string, string>>;
+  readonly draftBySession: Readonly<Record<string, Draft>>;
   readonly activeId: SessionId | null;
   readonly query: string;
 };
@@ -130,6 +147,8 @@ type ChatEvent =
   | { readonly type: 'new-chat' }
   | { readonly type: 'query'; readonly text: string }
   | { readonly type: 'draft'; readonly text: string }
+  | { readonly type: 'photos'; readonly session: SessionId; readonly photos: readonly Photo[] }
+  | { readonly type: 'drop-photo'; readonly index: number }
   | { readonly type: 'send' };
 
 export type CatalogChat = {
@@ -142,7 +161,13 @@ export type CatalogChat = {
 
 export type LiveEvent =
   | { readonly type: 'upsert'; readonly session: SessionId; readonly item: LiveItem }
-  | { readonly type: 'decide'; readonly session: SessionId; readonly itemId: ItemId; readonly verdict: PermVerdict }
+  | {
+      readonly type: 'decide';
+      readonly session: SessionId;
+      readonly itemId: ItemId;
+      readonly verdict: PermVerdict;
+      readonly answers?: Readonly<Record<string, string>>;
+    }
   | { readonly type: 'catalog'; readonly folder: string; readonly chats: readonly CatalogChat[] }
   | { readonly type: 'transcript'; readonly session: SessionId; readonly messages: readonly unknown[] };
 
@@ -179,6 +204,8 @@ export type ChatView = {
   readonly title: string;
   readonly rows: readonly TranscriptRow[];
   readonly draft: string;
+  readonly photos: readonly PhotoThumb[];
+  readonly canAttach: boolean;
   readonly canSend: boolean;
   readonly starters: readonly string[];
 };
@@ -199,8 +226,24 @@ const SEEDED_AT = Date.now();
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function userItem(id: string, text: string): UserItem {
-  return { id: itemId(id), kind: 'user', parent: null, text };
+const EMPTY_DRAFT: Draft = { text: '', photos: [] };
+
+function hasContent(draft: Draft): boolean {
+  return draft.text.trim() !== '' || draft.photos.length > 0;
+}
+
+function thumbsOf(photos: readonly Photo[]): readonly PhotoThumb[] {
+  return photos.map(({ uri, width, height }) => ({ uri, width, height }));
+}
+
+function userItem(id: string, text: string, photos?: readonly PhotoThumb[]): UserItem {
+  return {
+    id: itemId(id),
+    kind: 'user',
+    parent: null,
+    text,
+    ...(photos && photos.length > 0 ? { photos } : {}),
+  };
 }
 
 function assistantItem(id: string, text: string): AssistantItem {
@@ -319,6 +362,8 @@ type Projected =
       readonly title: string;
       readonly items: readonly Item[];
       readonly draft: string;
+      readonly photos: readonly PhotoThumb[];
+      readonly canAttach: boolean;
       readonly canSend: boolean;
       readonly starters: readonly string[];
     };
@@ -335,8 +380,10 @@ function project(state: ChatState): Projected {
     name: 'chat',
     title: session.title,
     items,
-    draft,
-    canSend: draft.trim().length > 0,
+    draft: draft.text,
+    photos: thumbsOf(draft.photos),
+    canAttach: draft.photos.length < MAX_PHOTOS,
+    canSend: hasContent(draft),
     starters: items.length === 0 ? STARTERS.slice() : [],
   };
 }
@@ -350,7 +397,7 @@ function present(projected: Projected): Screen {
   const marks = new Map<ItemId, PermMark>();
   const placed = new Set<ItemId>();
   for (const item of projected.items) {
-    if (item.kind !== 'perm' || !item.decided || item.answers || item.tool === 'AskUserQuestion') continue;
+    if (item.kind !== 'perm' || !item.decided || item.answers || item.ask.kind === 'questions') continue;
     if (!item.forId || !toolIds.has(item.forId) || marks.has(item.forId)) continue;
     marks.set(item.forId, { verdict: item.decided });
     placed.add(item.id);
@@ -366,6 +413,8 @@ function present(projected: Projected): Screen {
     title: projected.title,
     rows,
     draft: projected.draft,
+    photos: projected.photos,
+    canAttach: projected.canAttach,
     canSend: projected.canSend,
     starters: projected.starters,
   };
@@ -388,7 +437,8 @@ function startChat(state: ChatState, now: number): ChatState {
       session.project === DRAFT_PROJECT &&
       session.title === NEW_TITLE &&
       state.itemsBySession[session.id].length === 0 &&
-      state.draftBySession[session.id] === '',
+      state.draftBySession[session.id].text === '' &&
+      state.draftBySession[session.id].photos.length === 0,
   );
   if (existing) {
     if (state.activeId === existing.id) return state;
@@ -405,21 +455,50 @@ function startChat(state: ChatState, now: number): ChatState {
       { id, title: NEW_TITLE, at: now, provider: '', project: DRAFT_PROJECT, resume: null },
     ],
     itemsBySession: { ...clocked.itemsBySession, [id]: [] },
-    draftBySession: { ...clocked.draftBySession, [id]: '' },
+    draftBySession: { ...clocked.draftBySession, [id]: EMPTY_DRAFT },
   };
 }
 
 function writeDraft(state: ChatState, text: string): ChatState {
   const id = state.activeId;
-  if (id === null || state.draftBySession[id] === text) return state;
-  return { ...state, draftBySession: { ...state.draftBySession, [id]: text } };
+  if (id === null) return state;
+  const draft = state.draftBySession[id];
+  if (draft.text === text) return state;
+  return { ...state, draftBySession: { ...state.draftBySession, [id]: { ...draft, text } } };
+}
+
+function addPhotos(state: ChatState, session: SessionId, photos: readonly Photo[]): ChatState {
+  const draft = state.draftBySession[session];
+  if (!draft || photos.length === 0 || draft.photos.length >= MAX_PHOTOS) return state;
+  return {
+    ...state,
+    draftBySession: {
+      ...state.draftBySession,
+      [session]: { ...draft, photos: [...draft.photos, ...photos].slice(0, MAX_PHOTOS) },
+    },
+  };
+}
+
+function dropPhotoAt(state: ChatState, index: number): ChatState {
+  const id = state.activeId;
+  if (id === null) return state;
+  const draft = state.draftBySession[id];
+  if (index < 0 || index >= draft.photos.length) return state;
+  return {
+    ...state,
+    draftBySession: {
+      ...state.draftBySession,
+      [id]: { ...draft, photos: draft.photos.filter((_, at) => at !== index) },
+    },
+  };
 }
 
 function sendDraft(state: ChatState, now: number): ChatState {
   const id = state.activeId;
   if (id === null) return state;
-  const text = state.draftBySession[id].trim();
-  if (text === '') return state;
+  const draft = state.draftBySession[id];
+  if (!hasContent(draft)) return state;
+  const text = draft.text.trim();
   const clocked = withClock(state, now);
   return {
     ...clocked,
@@ -427,9 +506,9 @@ function sendDraft(state: ChatState, now: number): ChatState {
     sessions: clocked.sessions.map((session) => (session.id === id ? { ...session, at: now } : session)),
     itemsBySession: {
       ...clocked.itemsBySession,
-      [id]: [...clocked.itemsBySession[id], userItem(`u${clocked.seq}`, text)],
+      [id]: [...clocked.itemsBySession[id], userItem(`u${clocked.seq}`, text, thumbsOf(draft.photos))],
     },
-    draftBySession: { ...clocked.draftBySession, [id]: '' },
+    draftBySession: { ...clocked.draftBySession, [id]: EMPTY_DRAFT },
   };
 }
 
@@ -445,6 +524,10 @@ function reduce(state: ChatState, event: ChatEvent, now: number): ChatState {
       return event.text === state.query ? state : { ...state, query: event.text };
     case 'draft':
       return writeDraft(state, event.text);
+    case 'photos':
+      return addPhotos(state, event.session, event.photos);
+    case 'drop-photo':
+      return dropPhotoAt(state, event.index);
     case 'send':
       return sendDraft(state, now);
     default: {
@@ -467,7 +550,7 @@ function ensureSession(state: ChatState, session: SessionId, now: number): ChatS
       { id: session, title: NEW_TITLE, at: now, provider: 'Claude', project: DRAFT_PROJECT, resume: null },
     ],
     itemsBySession: { ...state.itemsBySession, [session]: [] },
-    draftBySession: { ...state.draftBySession, [session]: '' },
+    draftBySession: { ...state.draftBySession, [session]: EMPTY_DRAFT },
   };
 }
 
@@ -482,15 +565,22 @@ function upsertItem(state: ChatState, session: SessionId, item: LiveItem, now: n
   return { ...ready, itemsBySession: { ...ready.itemsBySession, [session]: next } };
 }
 
-function markPerm(state: ChatState, session: SessionId, target: ItemId, verdict: PermVerdict): ChatState {
+function markPerm(
+  state: ChatState,
+  session: SessionId,
+  target: ItemId,
+  verdict: PermVerdict,
+  answers?: Readonly<Record<string, string>>,
+): ChatState {
   if (!state.sessions.some((entry) => entry.id === session)) return state;
   const items = state.itemsBySession[session];
   const index = items.findIndex((entry) => entry.id === target);
   if (index === -1) return state;
   const current = items[index];
-  if (current.kind !== 'perm' || current.decided === verdict) return state;
+  if (current.kind !== 'perm') return state;
+  if (current.decided === verdict && answers === undefined) return state;
   const next = items.slice();
-  next[index] = { ...current, decided: verdict };
+  next[index] = answers ? { ...current, decided: verdict, answers } : { ...current, decided: verdict };
   return { ...state, itemsBySession: { ...state.itemsBySession, [session]: next } };
 }
 
@@ -583,10 +673,10 @@ function keptMaps(
   sessions: readonly Session[],
 ): Pick<ChatState, 'itemsBySession' | 'draftBySession'> {
   const itemsBySession: Record<string, readonly Item[]> = {};
-  const draftBySession: Record<string, string> = {};
+  const draftBySession: Record<string, Draft> = {};
   for (const session of sessions) {
     itemsBySession[session.id] = state.itemsBySession[session.id] ?? [];
-    draftBySession[session.id] = state.draftBySession[session.id] ?? '';
+    draftBySession[session.id] = state.draftBySession[session.id] ?? EMPTY_DRAFT;
   }
   return { itemsBySession, draftBySession };
 }
@@ -638,7 +728,7 @@ function reduceLive(state: ChatState, event: LiveEvent, now: number): ChatState 
     case 'upsert':
       return upsertItem(state, event.session, event.item, now);
     case 'decide':
-      return markPerm(state, event.session, event.itemId, event.verdict);
+      return markPerm(state, event.session, event.itemId, event.verdict, event.answers);
     case 'catalog':
       return applyCatalog(state, event, now);
     case 'transcript':
@@ -723,13 +813,67 @@ export const chat = {
   setDraft(text: string): void {
     dispatch({ type: 'draft', text });
   },
+  attach(source: PhotoSource): void {
+    const session = state.activeId;
+    if (session === null) return;
+    const draft = state.draftBySession[session];
+    const room = MAX_PHOTOS - draft.photos.length;
+    if (room <= 0) return;
+    void takePhotos(source, room).then((pick) => {
+      switch (pick.kind) {
+        case 'picked':
+          if (pick.photos.length > 0) dispatch({ type: 'photos', session, photos: pick.photos });
+          if (pick.dropped > 0) photoNote(session, droppedNote(pick.dropped));
+          return;
+        case 'cancelled':
+          return;
+        case 'denied':
+          photoNote(session, 'Conn needs photo or camera access in Settings.');
+          return;
+        default: {
+          const _never: never = pick;
+          return _never;
+        }
+      }
+    }, keepDraft);
+  },
+  dropPhoto(index: number): void {
+    dispatch({ type: 'drop-photo', index });
+  },
   send(): void {
     const id = state.activeId;
-    const text = id === null ? '' : state.draftBySession[id].trim();
+    if (id === null) return;
+    const draft = state.draftBySession[id];
+    if (!hasContent(draft)) return;
+    const text = draft.text.trim();
+    const photos = draft.photos;
     dispatch({ type: 'send' });
-    if (id !== null && text !== '') void sendTurn(id, text);
+    void sendTurn(id, { text, photos });
   },
 };
+
+let photoNotes = 0;
+
+function keepDraft(): void {}
+
+function droppedNote(count: number): string {
+  return count === 1 ? '1 photo did not fit.' : `${count} photos did not fit.`;
+}
+
+function photoNote(session: SessionId, text: string): void {
+  if (!state.sessions.some((entry) => entry.id === session)) return;
+  photoNotes += 1;
+  applyLive({
+    type: 'upsert',
+    session,
+    item: {
+      id: itemId(`photo-note-${photoNotes}`),
+      kind: 'note',
+      parent: null,
+      text,
+    },
+  });
+}
 
 function toolHue(toolState: ToolState): string {
   switch (toolState) {
@@ -805,12 +949,37 @@ function caret(streaming: true | undefined): string {
   return streaming ? ' |' : '';
 }
 
+function thumbBox(photo: PhotoThumb): { width: number; height: number; borderRadius: number } {
+  const long = Math.max(photo.width, photo.height, 1);
+  const scale = 72 / long;
+  return {
+    width: Math.max(1, Math.round(photo.width * scale)),
+    height: Math.max(1, Math.round(photo.height * scale)),
+    borderRadius: 6,
+  };
+}
+
 function renderUser(item: UserItem): ReactElement {
+  const photos = item.photos ?? [];
   return (
     <View style={styles.user}>
-      <Text style={styles.userText} selectable>
-        {item.text}
-      </Text>
+      {photos.length === 0 ? null : (
+        <View style={styles.thumbs}>
+          {photos.map((photo, index) => (
+            <Image
+              key={`${photo.uri}:${index}`}
+              source={{ uri: photo.uri }}
+              accessibilityLabel="Attached photo"
+              style={thumbBox(photo)}
+            />
+          ))}
+        </View>
+      )}
+      {item.text === '' ? null : (
+        <Text style={styles.userText} selectable>
+          {item.text}
+        </Text>
+      )}
     </View>
   );
 }
@@ -880,10 +1049,38 @@ function answerPerm(target: ItemId, verdict: PermVerdict): void {
   if (state.activeId === null) return;
   const session = state.activeId;
   decide(session, target, verdict);
-  void decidePerm(session, target, verdict);
+  void decidePerm(session, target, { kind: 'verdict', verdict });
 }
 
-function PermCard({ item }: { item: PermItem }) {
+function answerQuestions(item: PermItem, reply: Reply): void {
+  const session = state.activeId;
+  if (session === null) return;
+  applyLive({ type: 'decide', session, itemId: item.id, verdict: 'allow', answers: reply.answers });
+  void decidePerm(session, item.id, { kind: 'answers', input: withAnswers(item.input, reply) });
+}
+
+function ToolPermCard({ item }: { item: PermItem }): ReactElement {
+  return (
+    <View style={styles.permCard}>
+      <Text style={styles.assistant}>{item.title}</Text>
+      {item.reason ? <Text style={styles.permReason}>{item.reason}</Text> : null}
+      {item.askedBy ? <Text style={styles.reasoning}>{item.askedBy}</Text> : null}
+      <View style={styles.permActions}>
+        <Pressable onPress={() => answerPerm(item.id, 'allow')} accessibilityLabel="Allow">
+          <Text style={styles.permAction}>Allow</Text>
+        </Pressable>
+        <Pressable onPress={() => answerPerm(item.id, 'always')} accessibilityLabel="Always">
+          <Text style={styles.permAction}>Always</Text>
+        </Pressable>
+        <Pressable onPress={() => answerPerm(item.id, 'deny')} accessibilityLabel="Deny">
+          <Text style={styles.permAction}>Deny</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PermCard({ item }: { item: PermItem }): ReactElement {
   if (item.answers) {
     return (
       <View style={styles.plan}>
@@ -903,24 +1100,22 @@ function PermCard({ item }: { item: PermItem }) {
       </Text>
     );
   }
-  return (
-    <View style={styles.permCard}>
-      <Text style={styles.assistant}>{item.title}</Text>
-      {item.reason ? <Text style={styles.permReason}>{item.reason}</Text> : null}
-      {item.askedBy ? <Text style={styles.reasoning}>{item.askedBy}</Text> : null}
-      <View style={styles.permActions}>
-        <Pressable onPress={() => answerPerm(item.id, 'allow')} accessibilityLabel="Allow">
-          <Text style={styles.permAction}>Allow</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'always')} accessibilityLabel="Always">
-          <Text style={styles.permAction}>Always</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'deny')} accessibilityLabel="Deny">
-          <Text style={styles.permAction}>Deny</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
+  switch (item.ask.kind) {
+    case 'questions':
+      return (
+        <QuestionCard
+          questions={item.ask.questions}
+          onAnswer={(reply) => answerQuestions(item, reply)}
+          onSkip={() => answerPerm(item.id, 'deny')}
+        />
+      );
+    case 'tool':
+      return <ToolPermCard item={item} />;
+    default: {
+      const _never: never = item.ask;
+      return _never;
+    }
+  }
 }
 
 function AgentRow({ item }: { item: AgentItem }) {
@@ -998,11 +1193,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: layout.bubbleX,
     paddingVertical: layout.bubbleY,
     marginTop: 4,
+    gap: 6,
   },
   userText: {
     color: zinc.text,
     fontSize: 14,
     lineHeight: 20,
+  },
+  thumbs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   assistant: {
     color: zinc.text,
