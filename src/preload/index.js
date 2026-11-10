@@ -98,6 +98,11 @@ contextBridge.exposeInMainWorld('conn', {
     openExternal: (url) => ipcRenderer.invoke('links:openExternal', { url }),
   },
 
+  // Open, draft, merged or closed, for the PRs a chat opened.
+  prs: {
+    states: (prs) => ipcRenderer.invoke('prs:states', { prs }),
+  },
+
   chat: {
     export: (id, project, title, lastText) => ipcRenderer.invoke('chat:export', { id, project, title, lastText }),
   },

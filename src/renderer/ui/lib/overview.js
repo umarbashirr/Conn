@@ -126,7 +126,8 @@ function files(items, facts) {
   // the work this panel describes.
   const all = [...touched.values()].reverse()
     .map((f) => ({ ...f, rel: resolveFile(f.path, facts.project) }))
-    .filter((f) => f.rel);
+    .filter((f) => f.rel)
+    .map((f) => ({ ...f, name: f.rel.split('/').pop(), dir: f.rel.split('/').slice(0, -1).join('/') }));
   if (!all.length) return null;
   return { kind: 'files', files: all.slice(0, FILES_SHOWN), total: all.length };
 }
@@ -135,18 +136,23 @@ function files(items, facts) {
 
 const running = (it) => (it.kind === 'agent' || it.taskId) && it.background && statusOf(it) === 'running';
 
+// Agents ahead of shells: an agent is work that will finish and want reading,
+// a shell is usually a server that is meant to stay up. `at` is when it
+// started, so the row can count up.
 function background(items) {
   const tasks = [...walk(items)].filter(running).map((it) => (
     it.kind === 'agent'
-      ? { id: it.id, kind: 'agent', name: nameOf(it) }
-      : { id: it.id, kind: 'shell', name: it.description || it.input?.description || it.input?.command }
+      ? { id: it.id, kind: 'agent', name: nameOf(it), at: it.at || null }
+      : { id: it.id, kind: 'shell', name: it.description || it.input?.description || it.input?.command, at: it.at || null }
   ));
+  tasks.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'agent' ? -1 : 1));
   return tasks.length ? { kind: 'background', tasks } : null;
 }
 
 // ---------------------------------------------------------------------- all
 
-const SECTIONS = [header, places, prs, files, background];
+// Running work first: it is the part that changes while you read.
+const SECTIONS = [header, places, background, files, prs];
 
 export function chatOverview(items, facts) {
   if (!items.length) return [];

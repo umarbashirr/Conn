@@ -9,7 +9,8 @@ const nameOf = (a) => a.description || a.input?.description || 'command';
 export function FleetStrip({ shells, onShow }) {
   if (!shells.length) return null;
   return (
-    <div className="conn-rise mx-auto flex w-full max-w-3xl items-center gap-1.5 px-4 pb-1.5">
+    // Hidden while the chat overview panel beside the chat lists the same work.
+    <div className="conn-rise mx-auto flex w-full max-w-3xl items-center gap-1.5 px-4 pb-1.5 [[data-slot=overview-panel][data-background]~&]:hidden">
       <span className="mr-0.5 shrink-0 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/75">running</span>
       <Button
         variant="outline"

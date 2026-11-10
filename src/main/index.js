@@ -32,6 +32,7 @@ const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
 const completed = require('./completed');
 const { phoneChat, phoneFolders } = require('./phone-folders');
+const prState = require('./pr-state');
 const pinned = require('./pinned');
 const chatTitles = require('./chat-titles');
 const { isMode, normalizeMode, decide } = require('./modes');
@@ -1990,6 +1991,8 @@ function registerIpc() {
     return err ? { error: err } : { ok: true };
   });
   // Anything else the renderer names, file: above all, stays inside the app.
+  // The state of each PR the chat overview lists, read through gh.
+  ipcMain.handle('prs:states', (_e, { prs } = {}) => prState.states(prs));
   ipcMain.handle('links:openExternal', async (_e, { url } = {}) => {
     const protocol = URL.canParse(url) ? new URL(url).protocol : '';
     if (!['http:', 'https:', 'mailto:'].includes(protocol)) return { error: 'only web and mail links open outside Conn' };

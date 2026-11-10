@@ -108,6 +108,13 @@ assert.deepEqual(chatOverview([], facts({ changes: 4 })), [], 'an empty chat has
   assert.deepEqual([index.added, index.removed], [3, 3], 'one file edited in two turns sums its counts');
   assert.equal(index.rel, 'index.html', 'a file in the folder carries the path the Files view opens');
   assert.equal(s.total, 2, 'the section says how many project files there are in all');
+  assert.deepEqual([index.name, index.dir], ['index.html', ''], 'a file at the root has a name and no folder');
+}
+
+{
+  const items = [user('u1'), write('w1', `${PROJECT}/src/tabs/EngagementTab.tsx`, 'x')];
+  const [file] = section(chatOverview(items, facts()), 'files').files;
+  assert.deepEqual([file.name, file.dir], ['EngagementTab.tsx', 'src/tabs'], 'a nested file carries its folder, so two index.ts read apart');
 }
 
 {
@@ -133,11 +140,11 @@ assert.deepEqual(chatOverview([], facts({ changes: 4 })), [], 'an empty chat has
     { id: 'gone', kind: 'agent', status: 'done', background: true, description: 'Finished', children: [] },
   ];
   const s = section(chatOverview(items, facts()), 'background');
-  assert.deepEqual(s.tasks.map((t) => [t.id, t.kind]), [['dev', 'shell'], ['stop', 'shell'], ['bga', 'agent'], ['nested', 'agent']],
-    'background shells and subagents still running, at any depth; finished and foreground work left out');
-  assert.equal(s.tasks[0].name, 'npm run dev', 'a shell with no description is named by its command');
-  assert.equal(s.tasks[1].name, 'Stopping server', 'a shell is named by its description when it has one');
-  assert.equal(s.tasks[2].name, 'Audit the cart', 'a subagent is named by its description');
+  assert.deepEqual(s.tasks.map((t) => [t.id, t.kind]), [['bga', 'agent'], ['nested', 'agent'], ['dev', 'shell'], ['stop', 'shell']],
+    'background subagents then shells still running, at any depth; finished and foreground work left out');
+  assert.equal(s.tasks[2].name, 'npm run dev', 'a shell with no description is named by its command');
+  assert.equal(s.tasks[3].name, 'Stopping server', 'a shell is named by its description when it has one');
+  assert.equal(s.tasks[0].name, 'Audit the cart', 'a subagent is named by its description');
 }
 
 {
