@@ -3,7 +3,7 @@
    it, so the preview and the terminals beside it stay where they are, and a
    server that needs signing in to can do it in a shell you can see. */
 import { useEffect, useRef } from 'react';
-import { StoreIcon, XIcon } from 'lucide-react';
+import { ArrowLeft, StoreIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -43,17 +43,18 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground" onKeyDown={onKeyDown}>
-      <div className="flex h-[38px] flex-none items-center border-b border-border/60 pr-2 pl-4 text-sm text-foreground/90">
-        <span className="truncate">Customize</span>
-        <Button variant="ghost" size="icon" className="ml-auto size-7" title="Back to the chat (Esc)" onClick={onClose}>
-          <XIcon />
+    <div className="flex h-full min-h-0 bg-background text-foreground" onKeyDown={onKeyDown}>
+      <nav className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onClose}
+          title="Back to the chat"
+          className="mb-2 w-full justify-start gap-2.5 font-normal">
+          <ArrowLeft />
+          Back
         </Button>
-      </div>
-
-      <div className="flex min-h-0 flex-1">
-        <nav className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
-          <NavItem
+        <NavItem
             on={catalogSection}
             icon={StoreIcon}
             label="Marketplace"
@@ -80,18 +81,17 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
               note={updates[id.slice(6)]?.behind && <span className="ml-auto size-2 rounded-full bg-primary" />}
               onClick={() => onSection(id)} />
           ))}
-        </nav>
+      </nav>
 
-        {/* The marketplace lists scroll inside themselves, under their tabs
-            and search box, so they get the height; the settings scroll as one
-            page. */}
-        <div
-          ref={panel}
-          className={cn('min-w-0 flex-1 px-8 py-6', catalogSection ? 'flex min-h-0 flex-col' : 'overflow-y-auto')}>
-          {catalogSection
-            ? <CatalogPanel catalog={catalog} section={section} onSection={onSection} />
-            : <SettingsPanel section={section} settings={settings} set={set} reset={reset} agent={agent} updates={updates} />}
-        </div>
+      {/* The marketplace lists scroll inside themselves, under their tabs
+          and search box, so they get the height; the settings scroll as one
+          page. */}
+      <div
+        ref={panel}
+        className={cn('min-w-0 flex-1 px-8 py-6', catalogSection ? 'flex min-h-0 flex-col' : 'overflow-y-auto')}>
+        {catalogSection
+          ? <CatalogPanel catalog={catalog} section={section} onSection={onSection} />
+          : <SettingsPanel section={section} settings={settings} set={set} reset={reset} agent={agent} updates={updates} />}
       </div>
     </div>
   );

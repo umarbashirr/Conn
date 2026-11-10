@@ -306,6 +306,8 @@ export default function App() {
   }, [customizeAt]);
   const customize = useCallback((at) => setCustomizeAt(at), []);
   const closeCustomize = useCallback(() => setCustomizeAt(null), []);
+  const customizeAtRef = useRef(customizeAt);
+  customizeAtRef.current = customizeAt;
   const [usageOpen, setUsageOpen] = useState(false);
   const openUsage = useCallback(() => setUsageOpen(true), []);
   const closeUsage = useCallback(() => setUsageOpen(false), []);
@@ -426,7 +428,11 @@ export default function App() {
           .then((res) => { if (!res?.error) window.connRail?.refresh(); return res; })
           .catch((e) => ({ error: e.message }));
       },
-      settings: (at) => customize(typeof at === 'string' ? at : 'appearance'),
+      settings: (at) => {
+        if (typeof at === 'string') return customize(at);
+        if (customizeAtRef.current !== null) return closeCustomize();
+        return customize('appearance');
+      },
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
       exportChat,
@@ -446,7 +452,7 @@ export default function App() {
       deselectFrames: () => select([]),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
+  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, closeCustomize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
 
   // Escape also stops the turn when focus is nowhere or in the transcript.
   // Customize hides the chat, and its own Escape only runs with focus inside

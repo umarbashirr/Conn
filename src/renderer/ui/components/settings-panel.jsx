@@ -904,7 +904,7 @@ function PhoneQr({ text }) {
 
   // Scanners need a white quiet zone around the finder patterns even in a dark theme.
   return (
-    <div className="py-4">
+    <div>
       <svg
         viewBox={`-4 -4 ${size + 8} ${size + 8}`}
         shapeRendering="crispEdges"
@@ -931,11 +931,16 @@ function Phone() {
   if (card.status === 'off') return <Section title="Phone" note={card.note} />;
   return (
     <Section title="Phone" note="Scan this with Conn on your phone. A new scan replaces the link.">
-      <PhoneQr text={card.ticket} />
-      <Row label="Code">
-        <Mono>{card.ticket}</Mono>
-        <Button variant="outline" onClick={() => copy(card.ticket)}>Copy</Button>
-      </Row>
+      <div className="py-4">
+        <PhoneQr text={card.ticket} />
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <FieldLabel>Code</FieldLabel>
+          <Button variant="outline" onClick={() => copy(card.ticket)}>Copy</Button>
+        </div>
+        <p className="mt-2 break-all rounded-md bg-muted px-3 py-2 font-mono text-[13px] leading-relaxed text-muted-foreground">
+          {card.ticket}
+        </p>
+      </div>
       {card.lines.map((line) => (
         <Row key={line.label} label={line.label}>
           <Mono>{line.value}</Mono>
