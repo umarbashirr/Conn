@@ -1417,7 +1417,10 @@ function registerIpc() {
       : settleModel() || anySession()?.model || '') || '';
     // A name pinned against a proxy is not always one this app can see. Keep it
     // on the list rather than move someone to a different model without saying so.
-    const models = current && !d.models.some((m) => m.value === current)
+    // A session reports the id its alias resolved to (claude-opus-5-5 for
+    // opus), and that row is already listed under the alias.
+    const bare = current.replace(/\[1m\]$/, '');
+    const models = current && !d.models.some((m) => m.value === current || m.resolved === bare)
       ? [...d.models, { value: current, displayName: current, custom: true }]
       : d.models;
     // Codex reports the levels each model takes, and they are not the same set

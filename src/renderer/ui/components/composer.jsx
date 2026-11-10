@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, FileIcon,
-  FolderIcon, GitBranchIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
-  PlugZapIcon, PlusIcon, SearchIcon, SquareIcon, XIcon,
+  ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, EyeIcon, FileIcon,
+  FolderIcon, GitBranchIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
+  PlugZapIcon, PlusIcon, SearchIcon, ShieldOffIcon, SquareIcon, XIcon, ZapIcon,
 } from 'lucide-react';
 
 import {
@@ -148,17 +148,33 @@ const effortLabel = (level) => EFFORT_LABEL[level] || level.charAt(0).toUpperCas
 // as opus[1m] shown as Opus 5.5. Matched back by family and version, and by
 // the 1M suffix, so the trigger and the tick still name a row of the list.
 function listedValue(models, id) {
-  if (!id || models.some((m) => m.value === id)) return id;
+  if (!id) return id;
+  // A custom row is only the name echoed back so the menu can tick it. A real
+  // row that resolves to the same model is the better answer for the label.
+  if (models.some((m) => m.value === id && !m.custom)) return id;
+  const long = id.endsWith(LONG);
+  const resolves = models.filter((m) => !m.custom && m.resolved === shortOf(id));
+  const resolved = resolves.find((m) => m.value.endsWith(LONG) === long) || resolves[0];
+  if (resolved) return resolved.value;
   const parts = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/.exec(id);
   if (!parts) return id;
-  const [, family, major, minor, long] = parts;
+  const [, family, major, minor] = parts;
   const version = minor ? `${major}.${minor}` : major;
   const named = models.filter((m) => {
     const name = (m.displayName || '').toLowerCase();
-    return name.startsWith(family) && name.split(/\s+/).includes(version);
+    return !m.custom && name.startsWith(family) && name.split(/\s+/).includes(version);
   });
-  const row = named.find((m) => m.value.endsWith(LONG) === !!long) || named[0];
+  const row = named.find((m) => m.value.endsWith(LONG) === long) || named[0];
   return row ? row.value : id;
+}
+
+// The last resort for a Claude id no row claims: claude-opus-5-5[1m] reads as
+// Opus 5.5, never as the raw slug.
+function prettyModelId(id) {
+  const parts = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(?:\[1m\])?$/.exec(id || '');
+  if (!parts) return id;
+  const [, family, major, minor] = parts;
+  return `${family.charAt(0).toUpperCase()}${family.slice(1)} ${minor ? `${major}.${minor}` : major}`;
 }
 
 function ModelPicker({ agent, settings }) {
@@ -203,7 +219,7 @@ function ModelPicker({ agent, settings }) {
   // otherwise leave the button blank.
   const row = agent.models.find((m) => m.value === current);
   const label = [
-    row ? cleanModelName(row) : current || 'Pick a model',
+    row && !row.custom ? cleanModelName(row) : prettyModelId(current) || 'Pick a model',
     agent.effort && effortLabel(agent.effort),
     capable && (long ? '1M' : '200K'),
   ].filter(Boolean).join(' · ');
@@ -322,20 +338,34 @@ function ModelPicker({ agent, settings }) {
   );
 }
 
+// Colour says how much the agent may do unasked, so Plan and Full bypass no
+// longer look alike, and neither borrows the send button's solid black.
+const MODE_TONE = {
+  plan: 'border-sky-500/30 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:text-sky-300',
+  ask: 'text-foreground/80',
+  auto: 'border-amber-500/35 bg-amber-500/10 text-amber-800 hover:bg-amber-500/15 dark:text-amber-300',
+  bypass: 'border-red-500/40 bg-red-500/10 text-red-700 hover:bg-red-500/15 dark:text-red-300',
+};
+const MODE_ICON = { plan: EyeIcon, ask: HandIcon, auto: ZapIcon, bypass: ShieldOffIcon };
+
+function ModeIcon({ mode, className }) {
+  const Icon = MODE_ICON[mode];
+  return Icon ? <Icon className={className} /> : null;
+}
+
 function ModeMenu({ agent }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant={agent.mode !== 'ask' ? 'default' : 'outline'}
+          variant="outline"
           size="xs"
-          className="h-7 min-w-0 shrink gap-1.5 rounded-full px-3 font-normal"
+          className={cn('h-7 min-w-0 shrink gap-1.5 rounded-full px-2.5 font-normal shadow-none', MODE_TONE[agent.mode])}
           title={MODES.find(([v]) => v === agent.mode)?.[2]}>
+          <ModeIcon mode={agent.mode} className="size-3.5 shrink-0" />
           <span className="min-w-0 truncate">{MODE_LABEL[agent.mode] || agent.mode}</span>
-          <span className={cn('font-mono text-[10px]', agent.mode !== 'ask' ? 'opacity-70' : 'text-muted-foreground/70')}>
-            ⇧Tab
-          </span>
+          <span className="font-mono text-[10px] opacity-60">⇧Tab</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
@@ -344,6 +374,7 @@ function ModeMenu({ agent }) {
             key={value}
             onSelect={() => { if (value !== agent.mode) agent.changeMode(value); }}
             className="items-start">
+            <ModeIcon mode={value} className="mt-0.5 size-3.5 text-muted-foreground" />
             <span className="flex min-w-0 flex-col">
               <span>{label}</span>
               <span className="text-muted-foreground text-xs">{note}</span>
@@ -882,6 +913,7 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
 
 export function Composer({
   agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit, inputRef: input, dictation,
+  roomy = false,
 }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
@@ -1103,7 +1135,15 @@ export function Composer({
         )}
         <PromptInput
           onSubmit={onSubmit}
-          className="[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:shadow-sm">
+          // The box has focus nearly all the time, so its focus state is a
+          // firmer border and a lift, not the 3px ring a form field gets.
+          className={cn(
+            '[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:shadow-sm',
+            '[&_[data-slot=input-group]]:transition-[border-color,box-shadow]',
+            '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:ring-0!',
+            '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:border-foreground/25!',
+            '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:shadow-md',
+          )}>
           <PromptInputBody>
             {/* Inside the box, above what you are typing: an attachment belongs
                 to this message, so it sits in the same container as the text. */}
@@ -1130,7 +1170,13 @@ export function Composer({
               aria-controls={menu ? 'composer-mentions' : undefined}
               aria-activedescendant={menu ? `mention-${cursor}` : undefined}
               placeholder={placeholderFor(agent, queueState)}
-              className={cn('min-h-[76px] px-4 pb-2 text-[13.5px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5')} />
+              // Mid-chat most replies are a line, so the empty box stays short.
+              // A new chat leads with it and keeps the room.
+              className={cn(
+                'px-4 pb-2 text-[13.5px]',
+                roomy ? 'min-h-[76px]' : 'min-h-[52px]',
+                attachments.length > 0 ? 'pt-2' : 'pt-3.5',
+              )} />
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">
@@ -1207,7 +1253,7 @@ export function Composer({
         </PromptInput>
       </div>
 
-      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-1 text-muted-foreground/60 text-[11px]">
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 px-1 text-[11px] text-muted-foreground">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Pill className="h-6 max-w-full px-1.5 text-[11px]">
@@ -1266,10 +1312,14 @@ export function Composer({
         <Pill
           className="h-6 px-1.5 text-[11px]"
           onClick={() => window.connChat?.customize('skills')}
-          title="Skills and MCP servers this folder offers the agent">
+          // The counts are reference, not something to read every message, so
+          // they live in the tooltip and the icon is the way in.
+          title={`${catalog.skills.length} skills${catalog.mcp.length ? ` · ${catalog.mcp.length} MCP servers` : ''}. Click to manage them.`}
+          aria-label="Skills and MCP servers">
           <PlugZapIcon className="size-3 shrink-0" />
-          <span>{catalog.skills.length} skills</span>
-          {catalog.mcp.length > 0 && <span>· {catalog.mcp.length} MCP</span>}
+          {catalog.skills.length + catalog.mcp.length > 0 && (
+            <span className="tabular-nums">{catalog.skills.length + catalog.mcp.length}</span>
+          )}
         </Pill>
 
         <span className="ml-auto">

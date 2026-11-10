@@ -720,7 +720,8 @@ export default function App() {
         onNote={setNote}
         onSubmit={submit}
         inputRef={input}
-        dictation={dictation} />
+        dictation={dictation}
+        roomy={empty} />
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}

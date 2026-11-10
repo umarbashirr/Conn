@@ -130,10 +130,12 @@ export function UsageMeter({ usage, chat }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="outline"
+          variant="ghost"
           size="xs"
           title="What this chat has used"
-          className={cn('h-7 gap-1.5 rounded-full px-3 font-normal', toneOf(pct))}>
+          // Same weight as the folder and branch beside it: no border, so it
+          // only stands out once its colour says the window is filling.
+          className={cn('h-6 gap-1.5 px-1.5 font-normal text-[11px]', toneOf(pct))}>
           <Ring pct={pct} />
           <span className="font-mono tabular-nums">{pct}%</span>
           {!usage.unpriced && (
