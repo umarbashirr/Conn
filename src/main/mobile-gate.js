@@ -25,6 +25,7 @@ const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 const DECIDE_KEYS = new Set(['op', 'chat', 'id', 'decision', 'input']);
 const AUTH_KEYS = new Set(['op', 'token']);
 const CHATS_KEYS = new Set(['op', 'project', 'nonce']);
+const PROJECTS_KEYS = new Set(['op', 'nonce']);
 const TRANSCRIPT_KEYS = new Set(['op', 'project', 'id', 'provider', 'nonce']);
 
 function idle(note) {
@@ -171,6 +172,15 @@ function nonceOf(value) {
   return nonEmpty(value) ? value : undefined;
 }
 
+function parseProjects(value) {
+  const nonce = value && nonEmpty(value.nonce) ? value.nonce : undefined;
+  const keys = keysOf(value);
+  if (!keys || value.op !== 'projects' || hasExtra(keys, PROJECTS_KEYS) || !nonce) {
+    return { error: 'bad projects', nonce };
+  }
+  return { nonce };
+}
+
 function parseChats(value) {
   const nonce = value && nonEmpty(value.nonce) ? value.nonce : undefined;
   const keys = keysOf(value);
@@ -216,6 +226,7 @@ async function startMobileGate({
   deliverTurn,
   deliverDecision,
   listChats,
+  listProjects,
   readTranscript,
 }) {
   const plan = portPlan();
@@ -323,6 +334,40 @@ async function startMobileGate({
       id: parsed.id,
       ok: true,
       ...(accepted ? {} : { already: true }),
+    });
+  }
+
+  async function onProjects(parsed) {
+    const nonce = nonceOf(parsed.nonce);
+    if (parsed.error) {
+      writeClient({ op: 'ack', of: 'projects', nonce, error: parsed.error });
+      return;
+    }
+    if (typeof listProjects !== 'function') {
+      writeClient({ op: 'ack', of: 'projects', nonce, error: 'unavailable' });
+      return;
+    }
+    let result;
+    try {
+      result = await listProjects();
+    } catch (err) {
+      result = { error: failure(err) };
+    }
+    if (!result || result.error) {
+      writeClient({
+        op: 'ack',
+        of: 'projects',
+        nonce,
+        error: result && result.error ? result.error : 'unavailable',
+      });
+      return;
+    }
+    writeClient({
+      op: 'ack',
+      of: 'projects',
+      nonce,
+      ok: true,
+      folders: Array.isArray(result.folders) ? result.folders : [],
     });
   }
 
@@ -445,6 +490,12 @@ async function startMobileGate({
       }
       if (frame.op === 'decide') {
         onDecide(parseDecide(frame));
+        return;
+      }
+      if (frame.op === 'projects') {
+        onProjects(parseProjects(frame)).catch((err) => {
+          writeClient({ op: 'ack', of: 'projects', nonce: nonceOf(frame.nonce), error: failure(err) });
+        });
         return;
       }
       if (frame.op === 'chats') {

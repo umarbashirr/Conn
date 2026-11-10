@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { CatalogChat, LiveEvent, SessionId } from './chat';
+import type { CatalogChat, CatalogFolder, LiveEvent, SessionId } from './chat';
 import type { Photo } from './photos';
 import { decodeTicket } from '../../src/shared/phone-ticket.js';
 import { MAX_FRAME_BYTES } from '../../src/shared/phone-wire.js';
@@ -121,7 +121,7 @@ const phoneListeners = new Set<(status: PhoneStatus) => void>();
 let storageTail: Promise<void> = Promise.resolve();
 
 const routes = new Map<SessionId, Route>();
-let chatsWait: { readonly nonce: string; readonly project: string } | null = null;
+let chatsWait: { readonly nonce: string } | null = null;
 const transcriptWait = new Map<string, SessionId>();
 const folds = new Map<string, SessionFold>();
 const inflight = new Map<string, SendJob>();
@@ -638,8 +638,8 @@ function onAck(frame: Record<string, unknown>): void {
     if (down && lastChat) note(lastChat, 'reconnected to Conn');
     return;
   }
-  if (frame.of === 'chats') {
-    onChats(frame);
+  if (frame.of === 'projects') {
+    onProjects(frame);
     return;
   }
   if (frame.of === 'transcript') {
@@ -672,15 +672,10 @@ function onAck(frame: Record<string, unknown>): void {
   if (typeof frame.error === 'string') note(asSession(chat), frame.error, { error: true });
 }
 
-function onChats(frame: Record<string, unknown>): void {
-  const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
-  if (!chatsWait || nonce === '' || nonce !== chatsWait.nonce) return;
-  if (typeof frame.error === 'string' || !Array.isArray(frame.chats)) return;
-  const project = chatsWait.project;
-  const folder = typeof frame.folder === 'string' && frame.folder !== '' ? frame.folder : folderName(project);
-  const seen = new Set<string>();
+function listedChats(rows: unknown, dir: string, seen: Set<string>): CatalogChat[] {
+  if (!Array.isArray(rows)) return [];
   const chats: CatalogChat[] = [];
-  for (const row of frame.chats) {
+  for (const row of rows) {
     if (!isRecord(row) || typeof row.id !== 'string' || row.id === '' || typeof row.provider !== 'string' || row.provider === '') {
       continue;
     }
@@ -689,8 +684,31 @@ function onChats(frame: Record<string, unknown>): void {
     seen.add(id);
     const title = typeof row.title === 'string' && row.title.trim() !== '' ? row.title : 'Chat';
     const at = typeof row.at === 'number' ? row.at : Date.now();
-    routes.set(id, { from: 'catalog', project, provider: row.provider, resume: row.id });
-    chats.push({ id, title, at, provider: row.provider, resume: row.id });
+    const state = row.state === 'working' || row.state === 'waiting' ? row.state : 'idle';
+    const pinAt = typeof row.pinAt === 'number' && row.pinAt > 0 ? row.pinAt : 0;
+    routes.set(id, { from: 'catalog', project: dir, provider: row.provider, resume: row.id });
+    chats.push({ id, title, at, provider: row.provider, resume: row.id, state, pinAt });
+  }
+  return chats;
+}
+
+function onProjects(frame: Record<string, unknown>): void {
+  const nonce = typeof frame.nonce === 'string' ? frame.nonce : '';
+  if (!chatsWait || nonce === '' || nonce !== chatsWait.nonce) return;
+  if (typeof frame.error === 'string' || !Array.isArray(frame.folders)) return;
+  const seen = new Set<string>();
+  const folders: CatalogFolder[] = [];
+  for (const folder of frame.folders) {
+    if (!isRecord(folder) || typeof folder.dir !== 'string' || folder.dir.trim() === '') continue;
+    const dir = folder.dir.trim();
+    if (folders.some((known) => known.dir === dir)) continue;
+    const name = typeof folder.name === 'string' && folder.name.trim() !== '' ? folder.name.trim() : folderName(dir);
+    folders.push({
+      dir,
+      name,
+      chats: listedChats(folder.chats, dir, seen),
+      done: listedChats(folder.done, dir, seen),
+    });
   }
   for (const [key, route] of routes) {
     if (route.from !== 'catalog' || seen.has(key)) continue;
@@ -699,7 +717,7 @@ function onChats(frame: Record<string, unknown>): void {
       if (session === key) transcriptWait.delete(waitNonce);
     }
   }
-  emit({ type: 'catalog', folder, chats });
+  emit({ type: 'catalog', folders });
 }
 
 function onTranscript(frame: Record<string, unknown>): void {
@@ -888,7 +906,7 @@ function adopt(raw: string, source: TicketSource): Promise<boolean> {
         if (gen !== hydrateGen) return false;
         binding = step.binding;
         forgetCatalog();
-        emit({ type: 'catalog', folder: folderName(step.binding.project), chats: [] });
+        emit({ type: 'catalog', folders: [] });
         refreshChats();
         return true;
       case 'link':
@@ -897,7 +915,7 @@ function adopt(raw: string, source: TicketSource): Promise<boolean> {
         binding = step.binding;
         emitPhone('bound');
         forgetCatalog();
-        emit({ type: 'catalog', folder: folderName(step.binding.project), chats: [] });
+        emit({ type: 'catalog', folders: [] });
         replaceSocket();
         return true;
       default: {
@@ -933,8 +951,8 @@ export function resumeLive(): void {
 export function refreshChats(): void {
   if (!canSend() || !binding || !socket) return;
   const nonce = nextId('c');
-  chatsWait = { nonce, project: binding.project };
-  const frame = encodeFrame({ op: 'chats', project: binding.project, nonce });
+  chatsWait = { nonce };
+  const frame = encodeFrame({ op: 'projects', nonce });
   if (frame) writeFrame(socket, frame);
 }
 

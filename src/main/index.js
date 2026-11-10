@@ -31,6 +31,7 @@ const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
 const completed = require('./completed');
+const { phoneChat, phoneFolders } = require('./phone-folders');
 const pinned = require('./pinned');
 const chatTitles = require('./chat-titles');
 const { isMode, normalizeMode, decide } = require('./modes');
@@ -196,12 +197,38 @@ async function listChatsForPhone(dir) {
   const sessions = await sessionsIn(dir);
   return {
     folder: path.basename(dir) || dir,
-    chats: sessions.map((session) => ({
-      id: session.id,
-      title: typeof session.title === 'string' && session.title.trim() !== '' ? session.title : 'Chat',
-      at: typeof session.at === 'number' ? session.at : 0,
-      provider: session.provider,
-    })),
+    chats: sessions.map(phoneChat),
+  };
+}
+
+function phoneLive() {
+  const live = {};
+  for (const agent of sessions.values()) {
+    if (!agent || agent.closed || typeof agent.sessionId !== 'string' || agent.sessionId === '') continue;
+    const waiting = agent.pending && typeof agent.pending.size === 'number' && agent.pending.size > 0;
+    const working = !!(agent.working ?? agent.busy);
+    if (waiting) live[agent.sessionId] = 'waiting';
+    else if (working) live[agent.sessionId] = 'working';
+  }
+  return live;
+}
+
+async function listProjectsForPhone() {
+  const entries = [];
+  for (const dir of openDirs()) {
+    if (dir === CHATS_DIR) continue;
+    entries.push({
+      dir,
+      name: path.basename(dir) || dir,
+      sessions: await sessionsIn(dir),
+    });
+  }
+  return {
+    folders: phoneFolders(entries, {
+      completed: completed.all(),
+      pinned: pinned.all(),
+      live: phoneLive(),
+    }),
   };
 }
 
@@ -2211,6 +2238,7 @@ app.whenReady().then(async () => {
     deliverTurn,
     deliverDecision,
     listChats: listChatsForPhone,
+    listProjects: listProjectsForPhone,
     readTranscript: transcriptForPhone,
   });
   registerIpc();

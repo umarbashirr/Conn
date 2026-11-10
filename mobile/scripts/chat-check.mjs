@@ -54,6 +54,13 @@ writeFileSync(
 `,
 );
 
+const markdownStub = join(outDir, 'markdown-text.js');
+writeFileSync(
+  markdownStub,
+  `export function MarkdownText({ text }) { return text; }
+`,
+);
+
 await build({
   entryPoints: [join(root, 'src/chat.tsx')],
   outfile: join(outDir, 'chat.js'),
@@ -71,6 +78,7 @@ await build({
       name: 'photos-stub',
       setup(build) {
         build.onResolve({ filter: /^\.\/photos$/ }, () => ({ path: photosStub }));
+        build.onResolve({ filter: /^\.\/markdown-text$/ }, () => ({ path: markdownStub }));
       },
     },
   ],
@@ -96,14 +104,52 @@ assert.equal(sessions.sections.length, 0);
 const now = Date.now();
 acceptLive({
   type: 'catalog',
-  folder: 'conn',
-  chats: [
-    { id: 'h:claude:abc', title: 'Zinc tokens', at: now - 3_600_000, provider: 'claude', resume: 'abc' },
-    { id: 'h:codex:def', title: 'Empty draft', at: now - 86_400_000, provider: 'codex', resume: 'def' },
-    { id: 'h:claude:ghi', title: 'Field notes', at: now - 600_000, provider: 'claude', resume: 'ghi' },
+  folders: [
+    {
+      dir: '/work/conn',
+      name: 'conn',
+      chats: [
+        { id: 'h:claude:abc', title: 'Zinc tokens', at: now - 3_600_000, provider: 'claude', resume: 'abc' },
+        { id: 'h:codex:def', title: 'Empty draft', at: now - 86_400_000, provider: 'codex', resume: 'def', pinAt: 9 },
+        { id: 'h:claude:ghi', title: 'Field notes', at: now - 600_000, provider: 'claude', resume: 'ghi', state: 'working' },
+      ],
+      done: [
+        { id: 'h:claude:old', title: 'Put away', at: now - 9_000_000, provider: 'claude', resume: 'old' },
+      ],
+    },
+    {
+      dir: '/work/shop',
+      name: 'shop',
+      chats: [
+        { id: 'h:claude:ship', title: 'Shipping', at: now - 8_000_000, provider: 'claude', resume: 'ship' },
+      ],
+      done: [],
+    },
   ],
 });
-assert.ok(snap().sections.flatMap((s) => s.rows.map((r) => r.title)).includes('Zinc tokens'));
+const listed = snap();
+assert.deepEqual(listed.sections.map((section) => section.project), ['conn', 'shop']);
+assert.ok(listed.sections[0].rows.map((row) => row.title).includes('Zinc tokens'));
+assert.deepEqual(listed.sections[0].rows.map((row) => row.title), ['Empty draft', 'Field notes', 'Zinc tokens']);
+assert.equal(listed.sections[0].rows[0].mark, 'pinned');
+assert.equal(listed.sections[0].rows[1].mark, 'working');
+assert.equal(listed.sections[0].rows[1].line, 'Working');
+chat.open(listed.sections[0].rows[1].id);
+const workingChat = snap();
+assert.equal(workingChat.name, 'chat');
+assert.equal(workingChat.mark, 'working');
+assert.equal(workingChat.line, 'Working');
+assert.equal(workingChat.folder, 'conn');
+chat.back();
+assert.equal(listed.sections[0].done[0].mark, 'done');
+assert.deepEqual(listed.openDone, []);
+chat.toggleDone('/work/conn');
+assert.deepEqual(snap().openDone, ['/work/conn']);
+chat.toggleDone('/work/conn');
+assert.deepEqual(snap().openDone, []);
+assert.deepEqual(listed.sections[0].done.map((row) => row.title), ['Put away']);
+assert.ok(!listed.sections[0].rows.some((row) => row.title === 'Put away'));
+assert.deepEqual(listed.sections[1].rows.map((row) => row.title), ['Shipping']);
 
 chat.setQuery('zinc');
 const filtered = snap();
@@ -185,9 +231,15 @@ assert.equal(snap().rows.length, 0);
 chat.back();
 acceptLive({
   type: 'catalog',
-  folder: 'conn',
-  chats: [
-    { id: 'h:claude:abc', title: 'Zinc tokens', at: now - 3_600_000, provider: 'claude', resume: 'abc' },
+  folders: [
+    {
+      dir: '/work/conn',
+      name: 'conn',
+      chats: [
+        { id: 'h:claude:abc', title: 'Zinc tokens', at: now - 3_600_000, provider: 'claude', resume: 'abc' },
+      ],
+      done: [],
+    },
   ],
 });
 const titles = snap().sections.flatMap((section) => section.rows.map((row) => row.title));

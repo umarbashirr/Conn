@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -30,8 +31,17 @@ function PhotoChip({
   );
 }
 
+function subtitle(screen: ChatView): { text: string; tone: 'work' | 'wait' | 'plain' } {
+  if (screen.line !== '') return { text: screen.line, tone: screen.mark === 'waiting' ? 'wait' : 'work' };
+  const parts = [screen.provider, screen.folder === 'Drafts' ? '' : screen.folder].filter((part) => part !== '');
+  return { text: parts.join(' · '), tone: 'plain' };
+}
+
 export function ChatScreen({ screen }: { screen: ChatView }) {
   const insets = useSafeAreaInsets();
+  const list = useRef<{ scrollToEnd: (options?: { animated?: boolean }) => void } | null>(null);
+  const stick = useRef(true);
+  const under = subtitle(screen);
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -40,34 +50,59 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
     >
       <View style={[styles.header, { paddingTop: 8 + insets.top }]}>
         <Pressable onPress={chat.back} accessibilityLabel="Back" hitSlop={8} style={styles.back}>
-          <Text style={styles.backText}>‹ Chats</Text>
+          <Text style={styles.backText}>‹</Text>
         </Pressable>
-        <Text style={styles.title} numberOfLines={1}>
-          {screen.title}
-        </Text>
+        <View style={styles.headerText}>
+          <Text style={styles.title} numberOfLines={1}>
+            {screen.title}
+          </Text>
+          {under.text === '' ? null : (
+            <Text
+              style={[styles.subtitle, under.tone === 'work' && styles.work, under.tone === 'wait' && styles.wait]}
+              numberOfLines={1}
+            >
+              {under.text}
+            </Text>
+          )}
+        </View>
       </View>
       <ScrollView
+        ref={(node) => {
+          list.current = node;
+        }}
         style={styles.transcript}
-        contentContainerStyle={styles.transcriptContent}
+        contentContainerStyle={[styles.transcriptContent, screen.rows.length === 0 && styles.transcriptEmpty]}
         keyboardShouldPersistTaps="handled"
+        onScroll={(event) => {
+          const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+          stick.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
+        }}
+        scrollEventThrottle={64}
+        onContentSizeChange={() => {
+          if (stick.current) list.current?.scrollToEnd({ animated: false });
+        }}
       >
-        {screen.rows.map((row) => (
-          <ChatItemView key={row.id} row={row} />
-        ))}
+        {screen.rows.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyNote}>Nothing in this chat yet.</Text>
+            {screen.starters.length === 0 ? null : (
+              <View style={styles.starters}>
+                {screen.starters.map((text) => (
+                  <Pressable
+                    key={text}
+                    onPress={() => chat.setDraft(text)}
+                    style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+                  >
+                    <Text style={styles.chipText}>{text}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        ) : (
+          screen.rows.map((row) => <ChatItemView key={row.id} row={row} />)
+        )}
       </ScrollView>
-      {screen.starters.length === 0 ? null : (
-        <View style={styles.starters}>
-          {screen.starters.map((text) => (
-            <Pressable
-              key={text}
-              onPress={() => chat.setDraft(text)}
-              style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
-            >
-              <Text style={styles.chipText}>{text}</Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
       <View
         style={[
           styles.composer,
@@ -139,33 +174,61 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   back: {
-    paddingVertical: 4,
-    paddingRight: 4,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: zinc.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   backText: {
-    color: zinc.muted,
-    fontSize: 13.5,
+    color: zinc.text,
+    fontSize: 22,
+    lineHeight: 24,
+  },
+  headerText: {
+    flex: 1,
+    gap: 1,
   },
   title: {
-    flex: 1,
     color: zinc.text,
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
+  },
+  subtitle: {
+    color: zinc.muted,
+    fontSize: 12,
+  },
+  work: {
+    color: zinc.working,
+  },
+  wait: {
+    color: zinc.waiting,
   },
   transcript: {
     flex: 1,
   },
   transcriptContent: {
     paddingHorizontal: layout.screen,
-    paddingVertical: 14,
+    paddingTop: 14,
+    paddingBottom: 20,
     gap: layout.gap,
+  },
+  transcriptEmpty: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  empty: {
+    gap: 14,
+  },
+  emptyNote: {
+    color: zinc.muted,
+    fontSize: 14,
   },
   starters: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    paddingHorizontal: layout.screen,
-    paddingBottom: 10,
   },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,

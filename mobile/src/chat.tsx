@@ -4,6 +4,7 @@ import { withAnswers, type Question, type Reply } from '../../src/shared/ask-ans
 import { MAX_PHOTOS } from '../../src/shared/phone-wire.js';
 import { attachLive, decidePerm, refreshChats, requestTranscript, sendTurn } from './conn-live';
 import { takePhotos, type Photo, type PhotoSource } from './photos';
+import { MarkdownText } from './markdown-text';
 import { QuestionCard } from './question-card';
 import { layout, zinc } from './theme/zinc';
 
@@ -128,6 +129,10 @@ type Session = {
   readonly at: number;
   readonly provider: string;
   readonly project: string;
+  readonly home: string;
+  readonly done: boolean;
+  readonly state: RailState;
+  readonly pinAt: number;
   readonly resume: string | null;
 };
 
@@ -135,6 +140,8 @@ type ChatState = {
   readonly labeledAt: number;
   readonly seq: number;
   readonly sessions: readonly Session[];
+  readonly folders: readonly { readonly dir: string; readonly name: string }[];
+  readonly openDone: readonly string[];
   readonly itemsBySession: Readonly<Record<string, readonly Item[]>>;
   readonly draftBySession: Readonly<Record<string, Draft>>;
   readonly activeId: SessionId | null;
@@ -146,10 +153,13 @@ type ChatEvent =
   | { readonly type: 'back' }
   | { readonly type: 'new-chat' }
   | { readonly type: 'query'; readonly text: string }
+  | { readonly type: 'toggle-done'; readonly dir: string }
   | { readonly type: 'draft'; readonly text: string }
   | { readonly type: 'photos'; readonly session: SessionId; readonly photos: readonly Photo[] }
   | { readonly type: 'drop-photo'; readonly index: number }
   | { readonly type: 'send' };
+
+export type RailState = 'idle' | 'working' | 'waiting';
 
 export type CatalogChat = {
   readonly id: SessionId;
@@ -157,6 +167,15 @@ export type CatalogChat = {
   readonly at: number;
   readonly provider: string;
   readonly resume: string;
+  readonly state?: RailState;
+  readonly pinAt?: number;
+};
+
+export type CatalogFolder = {
+  readonly dir: string;
+  readonly name: string;
+  readonly chats: readonly CatalogChat[];
+  readonly done: readonly CatalogChat[];
 };
 
 export type LiveEvent =
@@ -168,24 +187,31 @@ export type LiveEvent =
       readonly verdict: PermVerdict;
       readonly answers?: Readonly<Record<string, string>>;
     }
-  | { readonly type: 'catalog'; readonly folder: string; readonly chats: readonly CatalogChat[] }
+  | { readonly type: 'catalog'; readonly folders: readonly CatalogFolder[] }
   | { readonly type: 'transcript'; readonly session: SessionId; readonly messages: readonly unknown[] };
+
+export type RowMark = 'working' | 'waiting' | 'pinned' | 'done' | 'idle';
 
 export type SessionRow = {
   readonly id: SessionId;
   readonly title: string;
   readonly provider: string;
   readonly atLabel: string;
+  readonly mark: RowMark;
+  readonly line: string;
 };
 
 export type SessionSection = {
+  readonly dir: string;
   readonly project: string;
   readonly rows: readonly SessionRow[];
+  readonly done: readonly SessionRow[];
 };
 
 export type SessionsView = {
   readonly name: 'sessions';
   readonly query: string;
+  readonly openDone: readonly string[];
   readonly sections: readonly SessionSection[];
 };
 
@@ -202,6 +228,10 @@ export type TranscriptRow = {
 export type ChatView = {
   readonly name: 'chat';
   readonly title: string;
+  readonly mark: RowMark;
+  readonly line: string;
+  readonly provider: string;
+  readonly folder: string;
   readonly rows: readonly TranscriptRow[];
   readonly draft: string;
   readonly photos: readonly PhotoThumb[];
@@ -266,6 +296,8 @@ const INITIAL: ChatState = {
   activeId: null,
   query: '',
   sessions: [],
+  folders: [],
+  openDone: [],
   itemsBySession: {},
   draftBySession: {},
 };
@@ -286,7 +318,9 @@ function validate(state: ChatState): void {
     if (!known.has(key)) throw new Error('extra draft key');
   }
   for (const session of state.sessions) {
-    if (session.title.trim() === '' || session.project.trim() === '') throw new Error('empty session label');
+    if (session.title.trim() === '' || session.project.trim() === '' || session.home.trim() === '') {
+      throw new Error('empty session label');
+    }
     if (!Object.hasOwn(state.itemsBySession, session.id) || !Object.hasOwn(state.draftBySession, session.id)) {
       throw new Error('missing session map');
     }
@@ -324,42 +358,82 @@ function formatAt(at: number, labeledAt: number): string {
   return `${dateName(MONTHS, when.getMonth())} ${when.getDate()}`;
 }
 
+function rowMark(session: Session): RowMark {
+  if (session.state === 'working') return 'working';
+  if (session.state === 'waiting') return 'waiting';
+  if (session.pinAt > 0) return 'pinned';
+  if (session.done) return 'done';
+  return 'idle';
+}
+
+function rowLine(mark: RowMark): string {
+  if (mark === 'working') return 'Working';
+  if (mark === 'waiting') return 'Review';
+  return '';
+}
+
+function sessionRow(session: Session, labeledAt: number): SessionRow {
+  const mark = rowMark(session);
+  return {
+    id: session.id,
+    title: session.title,
+    provider: session.provider,
+    atLabel: formatAt(session.at, labeledAt),
+    mark,
+    line: rowLine(mark),
+  };
+}
+
 function sessionSections(state: ChatState): readonly SessionSection[] {
   const needle = state.query.trim().toLocaleLowerCase();
-  const groups = new Map<string, Session[]>();
+  const groups = new Map<string, { dir: string; project: string; open: Session[]; done: Session[] }>();
+  if (needle === '') {
+    for (const folder of state.folders) {
+      groups.set(folder.dir, { dir: folder.dir, project: folder.name, open: [], done: [] });
+    }
+  }
   for (const session of state.sessions) {
     if (needle !== '') {
       const title = session.title.toLocaleLowerCase();
       const folder = session.project.toLocaleLowerCase();
       if (!title.includes(needle) && !folder.includes(needle)) continue;
     }
-    const bucket = groups.get(session.project);
-    if (bucket) bucket.push(session);
-    else groups.set(session.project, [session]);
+    const bucket = groups.get(session.home);
+    if (bucket) (session.done ? bucket.done : bucket.open).push(session);
+    else {
+      groups.set(session.home, {
+        dir: session.home,
+        project: session.project,
+        open: session.done ? [] : [session],
+        done: session.done ? [session] : [],
+      });
+    }
   }
-  return [...groups.entries()]
-    .map(([project, sessions]) => ({
-      project,
-      latest: Math.max(...sessions.map((session) => session.at)),
-      rows: sessions
-        .slice()
-        .sort((left, right) => right.at - left.at)
-        .map((session) => ({
-          id: session.id,
-          title: session.title,
-          provider: session.provider,
-          atLabel: formatAt(session.at, state.labeledAt),
-        })),
-    }))
-    .sort((left, right) => right.latest - left.latest)
-    .map(({ project, rows }) => ({ project, rows }));
+  const sections = [...groups.values()].filter((bucket) => (
+    needle === '' || bucket.open.length + bucket.done.length > 0
+  ));
+  const latestOf = (bucket: { open: Session[]; done: Session[] }) => {
+    const times = [...bucket.open, ...bucket.done].map((session) => session.at);
+    return times.length === 0 ? 0 : Math.max(...times);
+  };
+  sections.sort((left, right) => latestOf(right) - latestOf(left));
+  return sections.map((bucket) => ({
+    dir: bucket.dir,
+    project: bucket.project,
+    rows: bucket.open.slice().sort((left, right) => right.pinAt - left.pinAt || right.at - left.at).map((session) => sessionRow(session, state.labeledAt)),
+    done: bucket.done.slice().sort((left, right) => right.at - left.at).map((session) => sessionRow(session, state.labeledAt)),
+  }));
 }
 
 type Projected =
-  | { readonly name: 'sessions'; readonly query: string; readonly sections: readonly SessionSection[] }
+  | SessionsView
   | {
       readonly name: 'chat';
       readonly title: string;
+      readonly mark: RowMark;
+      readonly line: string;
+      readonly provider: string;
+      readonly folder: string;
       readonly items: readonly Item[];
       readonly draft: string;
       readonly photos: readonly PhotoThumb[];
@@ -370,15 +444,20 @@ type Projected =
 
 function project(state: ChatState): Projected {
   if (state.activeId === null) {
-    return { name: 'sessions', query: state.query, sections: sessionSections(state) };
+    return { name: 'sessions', query: state.query, openDone: state.openDone, sections: sessionSections(state) };
   }
   const session = state.sessions.find((entry) => entry.id === state.activeId);
   if (!session) throw new Error('active session missing');
   const items = state.itemsBySession[session.id];
   const draft = state.draftBySession[session.id];
+  const mark = rowMark(session);
   return {
     name: 'chat',
     title: session.title,
+    mark,
+    line: rowLine(mark),
+    provider: session.provider,
+    folder: session.project,
     items,
     draft: draft.text,
     photos: thumbsOf(draft.photos),
@@ -411,6 +490,10 @@ function present(projected: Projected): Screen {
   return {
     name: 'chat',
     title: projected.title,
+    mark: projected.mark,
+    line: projected.line,
+    provider: projected.provider,
+    folder: projected.folder,
     rows,
     draft: projected.draft,
     photos: projected.photos,
@@ -452,7 +535,7 @@ function startChat(state: ChatState, now: number): ChatState {
     activeId: id,
     sessions: [
       ...clocked.sessions,
-      { id, title: NEW_TITLE, at: now, provider: '', project: DRAFT_PROJECT, resume: null },
+      { id, title: NEW_TITLE, at: now, provider: '', project: DRAFT_PROJECT, home: DRAFT_PROJECT, done: false, state: 'idle', pinAt: 0, resume: null },
     ],
     itemsBySession: { ...clocked.itemsBySession, [id]: [] },
     draftBySession: { ...clocked.draftBySession, [id]: EMPTY_DRAFT },
@@ -522,6 +605,10 @@ function reduce(state: ChatState, event: ChatEvent, now: number): ChatState {
       return startChat(state, now);
     case 'query':
       return event.text === state.query ? state : { ...state, query: event.text };
+    case 'toggle-done':
+      return state.openDone.includes(event.dir)
+        ? { ...state, openDone: state.openDone.filter((dir) => dir !== event.dir) }
+        : { ...state, openDone: [...state.openDone, event.dir] };
     case 'draft':
       return writeDraft(state, event.text);
     case 'photos':
@@ -547,7 +634,7 @@ function ensureSession(state: ChatState, session: SessionId, now: number): ChatS
     ...state,
     sessions: [
       ...state.sessions,
-      { id: session, title: NEW_TITLE, at: now, provider: 'Claude', project: DRAFT_PROJECT, resume: null },
+      { id: session, title: NEW_TITLE, at: now, provider: 'Claude', project: DRAFT_PROJECT, home: DRAFT_PROJECT, done: false, state: 'idle', pinAt: 0, resume: null },
     ],
     itemsBySession: { ...state.itemsBySession, [session]: [] },
     draftBySession: { ...state.draftBySession, [session]: EMPTY_DRAFT },
@@ -682,22 +769,38 @@ function keptMaps(
 }
 
 function applyCatalog(state: ChatState, event: Extract<LiveEvent, { type: 'catalog' }>, now: number): ChatState {
-  const folder = event.folder.trim() === '' ? 'Conn' : event.folder;
   const remote: Session[] = [];
   const seen = new Set<string>();
-  for (const chat of event.chats) {
-    if (seen.has(chat.id) || chat.resume.trim() === '' || chat.title.trim() === '') continue;
-    seen.add(chat.id);
-    remote.push({
-      id: chat.id,
-      title: chat.title,
-      at: chat.at,
-      provider: chat.provider,
-      project: folder,
-      resume: chat.resume,
-    });
+  const folders: { dir: string; name: string }[] = [];
+  for (const folder of event.folders) {
+    const dir = folder.dir.trim();
+    if (dir === '' || folders.some((known) => known.dir === dir)) continue;
+    const name = folder.name.trim() === '' ? dir : folder.name.trim();
+    folders.push({ dir, name });
+    const take = (chats: readonly CatalogChat[], done: boolean) => {
+      for (const chat of chats) {
+        if (seen.has(chat.id) || chat.resume.trim() === '' || chat.title.trim() === '') continue;
+        seen.add(chat.id);
+        remote.push({
+          id: chat.id,
+          title: chat.title,
+          at: chat.at,
+          provider: chat.provider,
+          project: name,
+          home: dir,
+          done,
+          state: chat.state === 'working' || chat.state === 'waiting' ? chat.state : 'idle',
+          pinAt: typeof chat.pinAt === 'number' && chat.pinAt > 0 ? chat.pinAt : 0,
+          resume: chat.resume,
+        });
+      }
+    };
+    take(folder.chats, false);
+    take(folder.done, true);
   }
-  const local = state.sessions.filter((session) => session.project === DRAFT_PROJECT && !seen.has(session.id));
+  const local = state.sessions.filter((session) => (
+    session.home === DRAFT_PROJECT && session.resume === null && !seen.has(session.id)
+  ));
   const sessions = [...remote, ...local];
   const kept = new Set(sessions.map((session) => session.id));
   const activeId = state.activeId !== null && kept.has(state.activeId) ? state.activeId : null;
@@ -705,6 +808,7 @@ function applyCatalog(state: ChatState, event: Extract<LiveEvent, { type: 'catal
     ...state,
     labeledAt: now,
     activeId,
+    folders,
     sessions,
     ...keptMaps(state, sessions),
   };
@@ -809,6 +913,9 @@ export const chat = {
   },
   setQuery(text: string): void {
     dispatch({ type: 'query', text });
+  },
+  toggleDone(dir: string): void {
+    dispatch({ type: 'toggle-done', dir });
   },
   setDraft(text: string): void {
     dispatch({ type: 'draft', text });
@@ -985,27 +1092,37 @@ function renderUser(item: UserItem): ReactElement {
 }
 
 function renderAssistant(item: AssistantItem): ReactElement {
+  return <MarkdownText text={`${item.text}${caret(item.streaming)}`} />;
+}
+
+function ReasoningRow({ item }: { item: ReasoningItem }): ReactElement {
+  const [open, setOpen] = useState(false);
+  const show = open || item.streaming === true;
   return (
-    <Text style={styles.assistant} selectable>
-      {item.text}
-      {caret(item.streaming)}
-    </Text>
+    <Pressable onPress={() => setOpen((value) => !value)} accessibilityRole="button" style={styles.think}>
+      <Text style={styles.thinkLabel}>{show ? '▾' : '▸'} Thinking</Text>
+      {show ? (
+        open ? (
+          <MarkdownText text={`${item.text}${caret(item.streaming)}`} tone="faint" />
+        ) : (
+          <Text style={styles.reasoning} numberOfLines={3}>
+            {item.text}
+            {caret(item.streaming)}
+          </Text>
+        )
+      ) : null}
+    </Pressable>
   );
 }
 
 function renderReasoning(item: ReasoningItem): ReactElement {
-  return (
-    <Text style={styles.reasoning} numberOfLines={1}>
-      {item.text}
-      {caret(item.streaming)}
-    </Text>
-  );
+  return <ReasoningRow item={item} />;
 }
 
 function renderPlan(item: PlanItem): ReactElement {
   return (
     <View style={styles.plan}>
-      {item.explanation ? <Text style={styles.reasoning}>{item.explanation}</Text> : null}
+      {item.explanation ? <MarkdownText text={item.explanation} tone="faint" /> : null}
       {item.entries.map((entry, index) => (
         <Text key={`${index}:${entry.content}`} style={[styles.planEntry, { color: planHue(entry.status) }]}>
           {entry.content}
@@ -1024,7 +1141,7 @@ function ToolRow({ item, permMark }: { item: ToolItem; permMark?: PermMark }) {
     <Pressable
       onPress={() => setOpen((value) => !value)}
       accessibilityRole="button"
-      style={[styles.toolRow, failed && styles.toolRowError]}
+      style={[styles.toolRow, { borderLeftColor: failed ? zinc.danger : hue }, failed && styles.toolRowError]}
     >
       <View style={styles.toolLine}>
         <Text style={styles.toolChevron}>{open ? '▾' : '▸'}</Text>
@@ -1189,7 +1306,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-end',
     maxWidth: '85%',
     backgroundColor: zinc.secondary,
-    borderRadius: layout.bubble,
+    borderRadius: 16,
     paddingHorizontal: layout.bubbleX,
     paddingVertical: layout.bubbleY,
     marginTop: 4,
@@ -1210,6 +1327,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
   },
+  think: {
+    gap: 4,
+    paddingVertical: 2,
+  },
+  thinkLabel: {
+    color: zinc.faint,
+    fontSize: 12,
+  },
   reasoning: {
     color: zinc.faint,
     fontSize: 12,
@@ -1226,9 +1351,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   toolRow: {
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-    borderRadius: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderLeftWidth: 2,
   },
   toolRowError: {
     backgroundColor: zinc.dangerFill,

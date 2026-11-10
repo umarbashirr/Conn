@@ -151,6 +151,22 @@ const gateDeps = {
     decisions.push(decision);
     return true;
   },
+  listProjects: async () => ({
+    folders: [
+      {
+        dir: '/tmp/conn phone/folder',
+        name: 'folder',
+        chats: [{ id: 'abc', title: 'Zinc tokens', at: 30, provider: 'claude' }],
+        done: [],
+      },
+      {
+        dir: '/tmp/conn phone/other',
+        name: 'other',
+        chats: [{ id: 'def', title: 'Shipping', at: 20, provider: 'claude' }],
+        done: [{ id: 'ghi', title: 'Old notes', at: 5, provider: 'claude' }],
+      },
+    ],
+  }),
   listChats: async (dir) => {
     asked.chats.push(dir);
     return {
@@ -324,6 +340,24 @@ try {
     'bad chats',
   );
   assert.equal(frames.find((frame) => frame.of === 'chats' && frame.nonce === 'c3').error, 'bad chats');
+
+  phone.send(JSON.stringify({ op: 'projects', nonce: 'p1' }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'projects' && frame.nonce === 'p1' && frame.ok === true),
+    'projects',
+  );
+  const projects = frames.find((frame) => frame.of === 'projects' && frame.nonce === 'p1');
+  assert.deepEqual(projects.folders.map((folder) => folder.name), ['folder', 'other']);
+  assert.deepEqual(projects.folders[0].chats.map((chat) => chat.title), ['Zinc tokens']);
+  assert.deepEqual(projects.folders[1].done.map((chat) => chat.title), ['Old notes']);
+  assert.ok(!projects.folders[1].chats.some((chat) => chat.title === 'Old notes'));
+
+  phone.send(JSON.stringify({ op: 'projects', nonce: 'p2', extra: true }));
+  await waitFor(
+    () => frames.some((frame) => frame.of === 'projects' && frame.nonce === 'p2'),
+    'bad projects',
+  );
+  assert.equal(frames.find((frame) => frame.of === 'projects' && frame.nonce === 'p2').error, 'bad projects');
 
   const jpeg = '/9j/4AAQSkZJRg==';
   phone.send(JSON.stringify({
@@ -603,7 +637,7 @@ assert.match(preloadSrc, /onCard: on\('phone:card'\)/);
 
 const skip = new Set([
   'node_modules', '.git', 'dist', 'out',
-  '.chat-check-out', '.fold-check-out', '.ticket-check-out',
+  '.chat-check-out', '.fold-check-out', '.ticket-check-out', '.markdown-check-out',
 ]);
 const allowed = new Map([
   ['src/main/mobile-gate.js', 'encodeTicket'],

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -8,10 +9,57 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { chat, type SessionsView } from '../chat';
+import { chat, type SessionRow, type SessionsView } from '../chat';
 import { adoptTicket, onPhone, type PhoneStatus } from '../conn-live';
 import { layout, zinc } from '../theme/zinc';
 import { Scan } from './Scan';
+
+function RowMark({ mark }: { mark: SessionRow['mark'] }) {
+  switch (mark) {
+    case 'working':
+      return <ActivityIndicator size="small" color={zinc.working} style={styles.spinner} />;
+    case 'waiting':
+      return <View style={[styles.dot, styles.waitDot]} />;
+    case 'pinned':
+      return <View style={styles.pin} />;
+    case 'done':
+      return <Text style={styles.check}>✓</Text>;
+    case 'idle':
+      return <View style={styles.dot} />;
+    default: {
+      const _never: never = mark;
+      return _never;
+    }
+  }
+}
+
+function SessionButton({ row, onOpen }: { row: SessionRow; onOpen: (id: SessionRow['id']) => void }) {
+  const lineStyle = row.mark === 'waiting' ? styles.waitingLine : styles.workingLine;
+  return (
+    <Pressable
+      onPress={() => onOpen(row.id)}
+      accessibilityLabel={row.line === '' ? row.title : `${row.title}, ${row.line}`}
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+    >
+      <View style={styles.mark}>
+        <RowMark mark={row.mark} />
+      </View>
+      <View style={styles.rowBody}>
+        <View style={styles.rowTop}>
+          <Text style={styles.title} numberOfLines={1}>
+            {row.title}
+          </Text>
+          <Text style={styles.time}>{row.atLabel}</Text>
+        </View>
+        {row.line !== '' ? (
+          <Text style={lineStyle}>{row.line}</Text>
+        ) : row.provider === '' ? null : (
+          <Text style={styles.provider}>{row.provider}</Text>
+        )}
+      </View>
+    </Pressable>
+  );
+}
 
 function statusLabel(status: PhoneStatus): string {
   switch (status) {
@@ -128,29 +176,32 @@ export function SessionsScreen({ screen }: { screen: SessionsView }) {
           <Text style={styles.empty}>No chats</Text>
         ) : (
           screen.sections.map((section) => (
-            <View key={section.project} style={styles.section}>
+            <View key={section.dir} style={styles.section}>
               <Text style={styles.project}>{section.project}</Text>
+              {section.done.length === 0 ? null : (
+                <View style={styles.completed}>
+                  <Pressable
+                    onPress={() => chat.toggleDone(section.dir)}
+                    accessibilityLabel={`Completed, ${section.done.length}`}
+                    style={styles.completedHead}
+                  >
+                    <Text style={styles.completedLabel}>
+                      {screen.query.trim() !== '' || screen.openDone.includes(section.dir) ? '▾' : '▸'} Completed
+                    </Text>
+                    <Text style={styles.completedCount}>{section.done.length}</Text>
+                  </Pressable>
+                  {screen.query.trim() !== '' || screen.openDone.includes(section.dir) ? (
+                    <View style={styles.sectionRows}>
+                      {section.done.map((row) => (
+                        <SessionButton key={row.id} row={row} onOpen={chat.open} />
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              )}
               <View style={styles.sectionRows}>
                 {section.rows.map((row) => (
-                  <Pressable
-                    key={row.id}
-                    onPress={() => chat.open(row.id)}
-                    accessibilityLabel={row.title}
-                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                  >
-                    <View style={styles.dot} />
-                    <View style={styles.rowBody}>
-                      <View style={styles.rowTop}>
-                        <Text style={styles.title} numberOfLines={1}>
-                          {row.title}
-                        </Text>
-                        <Text style={styles.time}>{row.atLabel}</Text>
-                      </View>
-                      {row.provider === '' ? null : (
-                        <Text style={styles.provider}>{row.provider}</Text>
-                      )}
-                    </View>
-                  </Pressable>
+                  <SessionButton key={row.id} row={row} onOpen={chat.open} />
                 ))}
               </View>
             </View>
@@ -242,6 +293,62 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     paddingHorizontal: 6,
     marginBottom: 2,
+  },
+  completed: {
+    marginBottom: 4,
+  },
+  completedHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  completedLabel: {
+    color: zinc.faint,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  completedCount: {
+    marginLeft: 'auto',
+    color: zinc.faint,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+  },
+  mark: {
+    width: 14,
+    height: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spinner: {
+    width: 14,
+    height: 14,
+  },
+  waitDot: {
+    backgroundColor: zinc.waiting,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  pin: {
+    width: 8,
+    height: 8,
+    borderRadius: 1,
+    backgroundColor: zinc.muted,
+  },
+  check: {
+    width: 14,
+    color: zinc.muted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  workingLine: {
+    color: zinc.working,
+    fontSize: 11,
+  },
+  waitingLine: {
+    color: zinc.waiting,
+    fontSize: 11,
   },
   sectionRows: {
     gap: 1,

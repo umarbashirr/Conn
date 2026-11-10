@@ -278,15 +278,19 @@ assert.equal(freshTurn.session, null);
 assert.equal(freshTurn.project, movedProject);
 assert.equal(Object.hasOwn(freshTurn, 'images'), false);
 
-const listedNonce = parsed(linkedSock).filter((frame) => frame.op === 'chats').at(-1).nonce;
+const listedNonce = parsed(linkedSock).filter((frame) => frame.op === 'projects').at(-1).nonce;
 linkedSock.onmessage({
   data: JSON.stringify({
     op: 'ack',
-    of: 'chats',
+    of: 'projects',
     nonce: listedNonce,
     ok: true,
-    folder: 'next',
-    chats: [{ id: '019a6c', title: 'Zinc', at: 10, provider: 'codex' }],
+    folders: [{
+      dir: movedProject,
+      name: 'next',
+      chats: [{ id: '019a6c', title: 'Zinc', at: 10, provider: 'codex' }],
+      done: [],
+    }],
   }),
 });
 await phone.sendTurn('h:codex:019a6c', { text: 'continue', photos: [] });
@@ -370,15 +374,19 @@ assert.equal(await replayPhone.adoptTicket(replayTicket), true);
 await until('replay socket', () => openSockets().some((sock) => sock.sent.length > 0));
 const replaySock = openSockets()[0];
 replaySock.onmessage({ data: JSON.stringify({ op: 'ack', of: 'auth' }) });
-const replayChats = parsed(replaySock).filter((frame) => frame.op === 'chats').at(-1);
+const replayChats = parsed(replaySock).filter((frame) => frame.op === 'projects').at(-1);
 replaySock.onmessage({
   data: JSON.stringify({
     op: 'ack',
-    of: 'chats',
+    of: 'projects',
     nonce: replayChats.nonce,
     ok: true,
-    folder: 'replay',
-    chats: [{ id: '019a6c', title: 'Zinc', at: 10, provider: 'codex' }],
+    folders: [{
+      dir: replayProject,
+      name: 'replay',
+      chats: [{ id: '019a6c', title: 'Zinc', at: 10, provider: 'codex' }],
+      done: [],
+    }],
   }),
 });
 await replayPhone.sendTurn('h:codex:019a6c', {
