@@ -82,7 +82,7 @@ export function usePaneCover(open) {
 }
 
 const RAIL_FLOOR = 160;
-const RAIL_DEFAULT = 240;
+const RAIL_DEFAULT = 262;
 const RAIL_MAX = 420;
 const PANE_FLOOR = 300;
 const HANDLE = 1;

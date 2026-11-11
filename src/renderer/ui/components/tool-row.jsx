@@ -335,7 +335,7 @@ export function InputFields({ input }) {
   const fields = inputFields(input);
   if (!fields.length) return null;
   return (
-    <dl data-slot="tool-fields" className="flex flex-col gap-1 rounded-md bg-muted/50 p-2 font-mono text-[11px] leading-relaxed">
+    <dl data-slot="tool-fields" className="flex flex-col gap-1 rounded-lg bg-muted/50 p-2.5 font-mono text-[11px] leading-relaxed">
       {fields.map((f) => (
         <div key={f.key} className={cn('flex min-w-0 gap-2', f.kind === 'block' && 'flex-col gap-0.5')}>
           <dt className="shrink-0 text-muted-foreground/70">{f.key}</dt>

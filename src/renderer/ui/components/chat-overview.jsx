@@ -15,7 +15,7 @@ import { useProject } from '../useProject';
 import { runCommand } from '../../app.js';
 import { openSheet } from '../shell/agents-store.js';
 import { useFocusedDir, useLayout, VIEW_KINDS } from '../shell/Shell';
-import { activeKind, getTabsVersion, subscribeTabs } from '../shell/tabs-store';
+import { activeKind, getTabsVersion, revealTab, subscribeTabs, tabsOf } from '../shell/tabs-store';
 
 // The panel sits at right-4 and wants as much again between it and the column.
 // It grows into a wide gutter up to MAX_REM, so titles stop truncating while
@@ -47,6 +47,9 @@ function useFacts(agent) {
     branch: project?.branch || null,
     changes: layout.changesCount,
     pane: layout.rightOpen ? activeKind(dir) : null,
+    tabs: tabsOf(dir)
+      .filter((t) => t.kind === 'browser' || t.kind === 'terminal')
+      .map(({ id, kind, title }) => ({ id, kind, title })),
     folderless: !!agent.folderless,
   };
 }
@@ -113,29 +116,41 @@ function Header({ name, branch, action }) {
   );
 }
 
-// Two by two, labelled: half the height of four rows, and still readable on a
-// chat that has nothing else to show yet.
+// One per row, labelled, with the browser pages and shells this chat has open
+// listed under their row so they can be brought back with the column shut.
+const PLACE_ROW = 'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50';
+
 function Places({ places, onAct }) {
   return (
-    <div className="grid grid-cols-2 gap-0.5">
-      {places.map(({ kind, open, count }) => {
+    <div className="flex flex-col gap-0.5">
+      {places.map(({ kind, open, count, tabs = [] }) => {
         const { icon: Icon, label, command } = VIEW_KINDS[kind];
+        const shown = count > 0 ? count : tabs.length;
         return (
-          <button
-            key={kind}
-            type="button"
-            data-overview-place={kind}
-            aria-current={open ? 'true' : undefined}
-            title={count > 0 ? `${label} · ${count}` : label}
-            className={cn(
-              'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              open && 'bg-accent text-foreground',
-            )}
-            onClick={() => { runCommand(command, true); onAct(); }}>
-            <Icon className="size-3.5 shrink-0 opacity-70" />
-            <span className="truncate">{label}</span>
-            {count > 0 && <span className="ml-auto font-mono text-[10px] tabular-nums">{count}</span>}
-          </button>
+          <div key={kind} className="flex flex-col gap-0.5">
+            <button
+              type="button"
+              data-overview-place={kind}
+              aria-current={open ? 'true' : undefined}
+              title={shown > 0 ? `${label} · ${shown}` : label}
+              className={cn(PLACE_ROW, open && 'bg-accent text-foreground')}
+              onClick={() => { runCommand(command, true); onAct(); }}>
+              <Icon className="size-3.5 shrink-0 opacity-70" />
+              <span className="truncate">{label}</span>
+              {shown > 0 && <span className="ml-auto font-mono text-[10px] tabular-nums">{shown}</span>}
+            </button>
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                data-overview-tab={tab.id}
+                className={cn(PLACE_ROW, 'ml-5 h-6 text-[11.5px]')}
+                onClick={() => { revealTab(tab.id); onAct(); }}>
+                <span className="size-1 shrink-0 rounded-full bg-current opacity-50" />
+                <span className="truncate">{tab.title || (kind === 'browser' ? 'New tab' : 'Terminal')}</span>
+              </button>
+            ))}
+          </div>
         );
       })}
     </div>
@@ -316,16 +331,15 @@ export function ChatOverview({ agent }) {
   const [open, setOpen] = useState(false);
 
   const items = useDeferredValue(agent.items);
-  const { project, name, branch, changes, pane, folderless } = facts;
+  const { project, name, branch, changes, pane, tabs, folderless } = facts;
+  // A fresh list each render; its contents are what decide a recompute.
+  const tabsKey = JSON.stringify(tabs);
   const sections = useMemo(
-    () => chatOverview(items, { project, name, branch, changes, pane, folderless }),
-    [items, project, name, branch, changes, pane, folderless],
+    () => chatOverview(items, { project, name, branch, changes, pane, tabs, folderless }),
+    [items, project, name, branch, changes, pane, tabsKey, folderless],
   );
 
   const mode = modeOf({ fits, rightOpen, collapsed });
-  // The card is for content. A chat with only its folder and the panes has
-  // none yet, and an empty card just frames the emptiness.
-  const carded = mode === 'panel' && sections.some((x) => x.kind !== 'header' && x.kind !== 'places');
   const asPanel = (
     <Button variant="ghost" size="icon-xs" aria-label="Show as panel" title="Show as panel" className="text-muted-foreground"
       onClick={() => { collapse(false); setOpen(false); }}>
@@ -341,7 +355,7 @@ export function ChatOverview({ agent }) {
       // while this panel is listing the work (see FleetStrip).
       data-background={mode === 'panel' && sections.some((x) => x.kind === 'background') ? '' : undefined}
       style={mode === 'panel' ? { ...UNSCALED, width } : UNSCALED}
-      className={cn(CORNER, mode === 'panel' && 'conn-rise overflow-y-auto rounded-xl p-1', carded && 'bg-muted/40 dark:bg-muted/25')}>
+      className={cn(CORNER, mode === 'panel' && 'conn-rise overflow-y-auto rounded-xl border bg-card p-1.5 shadow-xs')}>
       {mode === 'panel' ? (
         <OverviewContent
           sections={sections}

@@ -234,7 +234,7 @@
    selector this app does not use. Point them at the triples in styles.css so
    the rail follows the same theme as everything else. */
 :root {
-  --sidebar: var(--ground);
+  --sidebar: hsl(var(--background));
   --sidebar-foreground: hsl(var(--foreground));
   --sidebar-primary: hsl(var(--primary));
   --sidebar-primary-foreground: hsl(var(--primary-foreground));

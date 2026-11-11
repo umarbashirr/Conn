@@ -941,7 +941,7 @@ function UserRow({ item, agent }) {
                   key={i}
                   alt={img.name || 'attachment'}
                   title={img.name}
-                  className="max-h-40 rounded-md border"
+                  className="max-h-40 rounded-lg border"
                   src={`data:${img.media};base64,${img.data}`} />
               ))}
             </div>
@@ -1145,14 +1145,14 @@ function Item({ item, agent, mark, calls }) {
             <video
               controls
               preload="metadata"
-              className="mt-2 max-w-full rounded-md border"
+              className="mt-2 max-w-full rounded-lg border"
               src={`file://${encodeURI(recording.path)}`} />
           )}
           {!recording && images.map((b, i) => (
             <img
               key={i}
               alt="screenshot"
-              className="mt-2 max-w-full rounded-md border"
+              className="mt-2 max-w-full rounded-lg border"
               loading="lazy"
               src={imageSrc(b)} />
           ))}
@@ -1218,7 +1218,7 @@ function Item({ item, agent, mark, calls }) {
           e.preventDefault();
           onDecide(item.id, verdict);
         }}
-        className="rounded-md border border-amber-500/30 bg-amber-500/[0.07] px-3 py-2">
+        className="rounded-xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 shadow-xs">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Which agent is stuck on this. Without it a subagent's request
               reads as though the main thread asked. */}

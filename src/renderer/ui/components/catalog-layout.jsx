@@ -41,7 +41,7 @@ export function SearchBox({ value, onChange, placeholder }) {
 }
 
 export function RowList({ className, children }) {
-  return <div className={cn('divide-y overflow-hidden rounded-lg border', className)}>{children}</div>;
+  return <div className={cn('divide-y overflow-hidden rounded-xl border bg-card shadow-xs', className)}>{children}</div>;
 }
 
 export function Empty({ children }) {

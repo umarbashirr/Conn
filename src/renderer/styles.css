@@ -612,7 +612,7 @@
 
 /* The seams the shell draws itself, which are declared one side at a time, so
    setting all four widths only lands on the side that has a style. */
-[data-scheme="brutal"] section:is(#agent, #right) { border-width: 2px; }
+[data-scheme="brutal"] :is(section#agent, section#right, #rail [data-slot="sidebar"]) { border-width: 2px; }
 
 /* The one piece of motion the style gets: a press pushes the control into its
    own shadow and lands flush, which is where the offset came from. */
@@ -735,7 +735,7 @@ button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
    number that decides whether the ground is visible at all. A third is about
    the limit: past that the gradient is gone, under it the transcript starts
    sitting on colour rather than on glass. */
-[data-scheme="glass"] section:is(#agent, #right) {
+[data-scheme="glass"] :is(section#agent, section#right, #rail [data-slot="sidebar"]) {
   background: hsl(var(--card) / .30);
   backdrop-filter: blur(22px) saturate(150%);
 }
@@ -845,7 +845,7 @@ kbd {
 
 #titlebar {
   display: flex; align-items: center; gap: 2px;
-  height: 32px; padding: 0 0 0 4px;
+  height: 40px; padding: 0 0 0 6px;
   background: var(--ground);
   -webkit-app-region: drag;
 }
@@ -906,6 +906,47 @@ section:is(#agent, #right) {
   border: 1px solid var(--line);
   border-radius: var(--card-r);
   box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+/* The rail is the third card. Its own surface is the page colour now, which
+   is also what the sticky folder headers paint behind themselves. */
+#rail [data-slot="sidebar"] {
+  height: calc(100% - var(--card-gap));
+  margin: 0 0 var(--card-gap) var(--card-gap);
+  width: calc(100% - var(--card-gap));
+  border: 1px solid var(--line);
+  border-radius: var(--card-r);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+/* Everything that floats over the window wears the same corners as the cards
+   it floats over, and a deeper shadow, since it sits higher. */
+:is(
+  [data-slot="popover-content"],
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="context-menu-content"],
+  [data-slot="context-menu-sub-content"],
+  [data-slot="menubar-content"],
+  [data-slot="select-content"],
+  [data-slot="hover-card-content"]
+) {
+  border-radius: min(calc(var(--radius) * 1.25), 12px);
+  box-shadow: var(--shadow);
+}
+[data-slot="dialog-content"] {
+  border-radius: min(calc(var(--radius) * 2), 16px);
+  box-shadow: var(--shadow);
+}
+/* The command palette sits in a dialog; its list is the dialog's card. */
+[data-slot="dialog-content"] [data-slot="command"] { border-radius: inherit; }
+
+/* Code blocks in replies are cards in the transcript like every other block. */
+[data-streamdown="code-block"] {
+  border-radius: min(calc(var(--radius) * 1.5), 12px) !important;
+  box-shadow: 0 1px 2px hsl(0 0% 0% / .05);
   overflow: hidden;
 }
 

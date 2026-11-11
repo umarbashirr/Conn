@@ -26,7 +26,7 @@ export function ShellBlock({ code, language, isIncomplete }) {
   };
 
   return (
-    <div data-slot="shell-block" data-language={language} className="relative my-3 rounded-md border bg-muted/40">
+    <div data-slot="shell-block" data-language={language} className="relative my-3 overflow-hidden rounded-xl border bg-muted/40 shadow-xs">
       <pre className={cn('wrap-anywhere whitespace-pre-wrap p-2.5 font-mono text-[12px] leading-relaxed', runnable ? 'pr-24' : 'pr-10')}>
         {text}
       </pre>

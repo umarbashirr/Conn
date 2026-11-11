@@ -69,7 +69,7 @@ function Body({ item }) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2.5 rounded-md border border-border px-3 py-2.5">
+      <div className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-3 py-2.5 shadow-xs">
         <FileIcon className="size-5 text-muted-foreground" />
         <div className="min-w-0">
           <div className="truncate text-sm">{item.name}</div>

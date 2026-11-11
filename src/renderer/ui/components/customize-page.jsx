@@ -44,7 +44,7 @@ export function CustomizePage({ section, onSection, onClose, catalog, settings, 
 
   return (
     <div className="flex h-full min-h-0 bg-background text-foreground" onKeyDown={onKeyDown}>
-      <nav className="flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
+      <nav className="m-2 mr-0 flex w-52 shrink-0 flex-col gap-0.5 overflow-y-auto rounded-xl bg-muted/50 p-2 dark:bg-muted/30">
         <Button
           variant="secondary"
           size="sm"

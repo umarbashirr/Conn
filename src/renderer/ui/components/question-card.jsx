@@ -22,7 +22,7 @@ function Option({ multi, option, checked, onPick, id }) {
     <label
       htmlFor={id}
       className={cn(
-        'flex cursor-pointer items-start gap-2.5 rounded-md border px-2.5 py-2 transition-colors',
+        'flex cursor-pointer items-start gap-2.5 rounded-lg border px-2.5 py-2 transition-colors',
         checked ? 'border-primary/50 bg-accent/40' : 'border-transparent hover:bg-accent/40',
       )}>
       <Control
@@ -99,7 +99,7 @@ export function QuestionCard({ input, titleId, onAnswer, onSkip }) {
   ));
 
   return (
-    <div className="rounded-md border bg-card px-3 py-3">
+    <div className="rounded-xl border bg-card px-4 py-3 shadow-xs">
       <div className="flex items-center gap-2 text-muted-foreground text-xs">
         <MessageCircleQuestionIcon className="size-3.5" />
         <span id={titleId}>The agent is asking</span>

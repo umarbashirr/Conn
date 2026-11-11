@@ -35,6 +35,9 @@ function places(_items, facts) {
       kind,
       open: facts.pane === kind,
       count: kind === 'changes' ? facts.changes : null,
+      // Browser pages and shells can be several at once, and with the column
+      // shut they are otherwise out of sight, so each is listed under its row.
+      tabs: (facts.tabs || []).filter((t) => t.kind === kind),
     })),
   };
 }

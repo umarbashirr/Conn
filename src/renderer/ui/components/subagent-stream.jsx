@@ -40,7 +40,7 @@ function SentByParent({ prompt }) {
       aria-expanded={open}
       onClick={() => setOpen((v) => !v)}
       title={open ? 'Show less' : 'Show all of it'}
-      className="w-full rounded-lg border bg-muted/40 px-3 py-2 text-left">
+      className="w-full rounded-xl border bg-muted/40 px-3 py-2 shadow-xs text-left">
       <span className="mb-1 flex items-center gap-1.5 text-muted-foreground text-xs">
         <ArrowLeftRightIcon className="size-3" />
         Sent by parent

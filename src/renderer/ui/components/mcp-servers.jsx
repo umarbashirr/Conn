@@ -70,7 +70,7 @@ function AddServer({ catalog, onDone }) {
   const ready = form.name.trim() && (stdio ? form.command.trim() : form.url.trim());
 
   return (
-    <form onSubmit={submit} className="mb-3 rounded-lg border p-3">
+    <form onSubmit={submit} className="mb-3 rounded-xl border bg-card p-3 shadow-xs">
       <div className="flex gap-2">
         <Input value={form.name} onChange={set('name')} placeholder="name" className="h-8 flex-1" autoFocus />
         <Select value={form.type} onValueChange={pick('type')}>
@@ -374,7 +374,7 @@ export function Servers({ catalog, query, setQuery }) {
             connects them itself. They are handy and they are also the reason a
             local server offering the same thing can end up unused, so the switch
             lives where the servers are. */}
-        <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5">
+        <label className="mt-3 flex cursor-pointer items-center gap-2.5 rounded-xl border bg-card px-3 py-2.5 shadow-xs">
           <Checkbox
             checked={catalog.connectors}
             onCheckedChange={(on) => catalog.setConnectors(on === true)} />

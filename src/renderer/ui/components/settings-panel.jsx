@@ -78,7 +78,7 @@ function Section({ title, icon, note, children }) {
     <div className="mb-9">
       <h3 className="flex items-center gap-2 font-medium text-base">{icon}{title}</h3>
       {note && <p className="mt-1.5 text-[13px] text-muted-foreground leading-relaxed">{note}</p>}
-      <FieldGroup className="mt-2 gap-0 divide-y divide-border/60">{children}</FieldGroup>
+      <FieldGroup className="mt-3 gap-0 divide-y divide-border/60 rounded-xl border bg-card px-4 shadow-xs">{children}</FieldGroup>
     </div>
   );
 }
@@ -116,7 +116,7 @@ function SchemeTile({ id, label, note, mode, active, onPick }) {
       aria-pressed={active}
       onClick={() => onPick(id)}
       className={cn(
-        'flex flex-col overflow-hidden rounded-lg border bg-card text-left transition',
+        'flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-xs transition',
         active
           ? 'border-primary ring-2 ring-primary/30'
           : 'border-border hover:border-foreground/25',

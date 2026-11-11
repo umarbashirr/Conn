@@ -98,7 +98,7 @@ export function KeyboardPage({ settings, set }) {
       {groups.map((group) => (
         <div key={group.name} className="mt-6">
           <h4 className="mb-1 font-medium text-[13px] text-muted-foreground">{group.name}</h4>
-          <div className="divide-y divide-border/60">
+          <div className="divide-y divide-border/60 rounded-xl border bg-card px-4 shadow-xs">
             {group.rows.map((row) => {
               const keys = keyOf(overrides, row.id);
               const custom = keys !== row.keys;

@@ -309,7 +309,7 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
             ::before lays the tint back over it: opaque, and the same colour as
             the rail around it. */}
         <div
-          className="group/head sticky top-0 z-10 flex h-9 items-center gap-1 rounded-md bg-background pr-1 pl-2
+          className="group/head sticky -top-2 z-10 flex h-9 items-center gap-1 rounded-md bg-background pr-1 pl-2
             before:absolute before:inset-0 before:-z-10 before:rounded-md before:bg-sidebar before:transition-colors hover:before:bg-sidebar-accent">
           <CollapsibleTrigger
             title={folder.dir}

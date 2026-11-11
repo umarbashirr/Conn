@@ -29,7 +29,7 @@ export function DiffView({ hunks, max = 400 }) {
         const rows = trimContext(lineDiff(h.before ?? '', h.after ?? ''));
         const shown = rows.slice(0, max);
         return (
-          <div key={hi} className="overflow-x-auto rounded-md bg-muted/40 py-1 font-mono text-[11px] leading-relaxed">
+          <div key={hi} className="overflow-x-auto rounded-lg border bg-muted/40 py-1 font-mono text-[11px] leading-relaxed">
             {shown.map(([kind, text], i) => (
               <div key={i} className={`flex ${ROW[kind]}`}>
                 <span className="w-6 shrink-0 select-none pl-2 opacity-60">

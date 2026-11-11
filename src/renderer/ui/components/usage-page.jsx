@@ -46,7 +46,7 @@ const spanOf = (byDay, n) => merge(...lastDays(n).map((d) => byDay?.[d]));
 function Stat({ label, models }) {
   const t = price(models);
   return (
-    <div className="flex min-w-0 flex-col gap-1 rounded-lg border p-3">
+    <div className="flex min-w-0 flex-col gap-1 rounded-xl border bg-card shadow-xs p-3">
       <span className="text-muted-foreground text-xs">{label}</span>
       <span className="font-mono text-lg tabular-nums">
         {t.cost ? money(t.cost) : compact(tokensOf(t))}
@@ -153,7 +153,7 @@ function Plan({ id, plan }) {
   const label = PROVIDERS[id]?.label || id;
   if (!plan?.windows?.length) {
     return (
-      <p className="rounded-lg border p-3 text-muted-foreground text-xs">
+      <p className="rounded-xl border bg-card shadow-xs p-3 text-muted-foreground text-xs">
         {id === 'claude' || id === 'codex'
           ? `${label} did not report plan limits. It may be signed in with an API key, which is billed per token instead.`
           : `${label} does not report plan limits to Conn.`}
@@ -162,7 +162,7 @@ function Plan({ id, plan }) {
   }
   const asOf = Math.min(...plan.windows.map((w) => w.asOf || Date.now()));
   return (
-    <section className="flex flex-col gap-2.5 rounded-lg border p-3 text-xs">
+    <section className="flex flex-col gap-2.5 rounded-xl border bg-card p-3 text-xs shadow-xs">
       <div className="flex items-baseline gap-2">
         <Heading>Plan{plan.name ? ` · ${plan.name}` : ''}</Heading>
         {Date.now() - asOf > 5 * 60000 && (
@@ -232,7 +232,7 @@ function OverallTab({ ids, data }) {
     <div className="flex flex-col gap-5">
       <Stats byDay={all} />
       {windows.length > 0 && (
-        <section className="flex flex-col gap-2.5 rounded-lg border p-3 text-xs">
+        <section className="flex flex-col gap-2.5 rounded-xl border bg-card p-3 text-xs shadow-xs">
           <Heading>Plan windows</Heading>
           {windows.map((w) => (
             <PlanRow key={w.id} label={w.label} limit={{ utilization: w.usedPercent, resets_at: w.resetsAt }} />
