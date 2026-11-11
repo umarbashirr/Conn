@@ -43,7 +43,9 @@ export function useTurnPin(id) {
     const el = scrollRef.current;
     const content = contentRef.current;
     const anchor = anchorId.current && content?.querySelector(`[data-turn="${CSS.escape(anchorId.current)}"]`);
-    if (!anchor) return null;
+    // The scroller is gone while a page (Settings, say) stands in for the
+    // transcript, and an observer can still fire on the way out.
+    if (!anchor || !el) return null;
     // offsetTop, not the bounding box: a row that just landed is still sliding
     // in on a transform, and the pin must not chase the slide.
     return {
@@ -59,7 +61,9 @@ export function useTurnPin(id) {
   const fit = useCallback((geo) => {
     mode.current = settle(mode.current, geo);
     const extra = mode.current.kind === "pinned" ? room(geo) : 0;
-    scrollRef.current.style.paddingBottom = extra > 0 ? `${extra + 1}px` : "";
+    const el = scrollRef.current;
+    if (!el) return;
+    el.style.paddingBottom = extra > 0 ? `${extra + 1}px` : "";
   }, [scrollRef]);
 
   useLayoutEffect(() => {
@@ -84,7 +88,7 @@ export function useTurnPin(id) {
       fit(geo);
       // A row shrinking (the thinking line leaving, say) clamps the scroll
       // before the room grows back, and the library only scrolls on growth.
-      if (mode.current.kind === "pinned" && state.isAtBottom) state.scrollTop = pinTop(geo.anchorTop);
+      if (geo && mode.current.kind === "pinned" && state.isAtBottom) state.scrollTop = pinTop(geo.anchorTop);
     });
     observer.observe(contentRef.current);
     observer.observe(scrollRef.current, { box: "border-box" });
