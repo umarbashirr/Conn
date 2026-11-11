@@ -1,6 +1,7 @@
 // The turn outline in the gutter left of the chat column, and its ticks on the
 // scrollbar. Both are drawn from lib/outline.js. The outline is the quiet one
-// of the two side panels: no card, muted rows, the turn you are reading marked.
+// of the two side panels: a stack of thin bars, the turn you are reading the
+// longest, and the message shown beside a bar while it is hovered.
 // It shows only when a chat has turns worth finding and the gutter has room;
 // the ticks show at any width.
 import { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -18,12 +19,6 @@ const READ_LINE = 0.3;
 // The chat pane is zoomed to the chat text size; this is chrome, like the rail.
 const UNSCALED = { zoom: 'calc(1 / var(--chat-scale, 1))' };
 
-const DOT = {
-  waiting: 'bg-amber-500',
-  error: 'bg-rose-500',
-  edit: 'bg-emerald-500',
-  pr: 'bg-violet-500',
-};
 const TICK = {
   waiting: 'bg-amber-500',
   error: 'bg-rose-500',
@@ -123,23 +118,32 @@ function useJump() {
   }, [scrollRef, contentRef, stopScroll]);
 }
 
-function Marks({ turn }) {
-  const dots = [
-    turn.waiting && 'waiting',
-    turn.errors > 0 && 'error',
-    turn.files > 0 && 'edit',
-    turn.prs > 0 && 'pr',
-  ].filter(Boolean);
-  if (!dots.length) return null;
-  return (
-    <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
-      {dots.map((d) => <span key={d} className={cn('size-1.5 rounded-full', DOT[d], d === 'waiting' && 'animate-pulse')} />)}
-    </span>
-  );
+// Each turn is a bar. The bar is coloured by what the turn did, and the one
+// you are reading is longer and solid.
+const BAR = {
+  waiting: 'bg-amber-500',
+  error: 'bg-rose-500',
+  edit: 'bg-emerald-500',
+  pr: 'bg-violet-500',
+};
+const toneBar = (turn) => (turn.waiting ? 'waiting' : turn.errors > 0 ? 'error' : turn.prs > 0 ? 'pr' : turn.files > 0 ? 'edit' : null);
+
+// Widths in px, by distance from the hovered bar: the hovered one stretches
+// and its neighbours lean after it, so moving down the stack ripples.
+const REST = 14;
+const HERE = 22;
+const GROW = [34, 26, 20];
+
+function widthOf(i, hover, here) {
+  const base = here ? HERE : REST;
+  if (hover == null) return base;
+  const d = Math.abs(i - hover);
+  return d < GROW.length ? Math.max(base, GROW[d]) : base;
 }
 
 function Outline({ turns, current, onJump, width }) {
   const list = useRef(null);
+  const [hover, setHover] = useState(null);
   // Keep the turn being read in view inside the outline's own scroll, without
   // scrollIntoView, which would move the chat as well.
   useEffect(() => {
@@ -157,30 +161,46 @@ function Outline({ turns, current, onJump, width }) {
       aria-label="Turns in this chat"
       data-slot="chat-outline"
       style={{ ...UNSCALED, width }}
-      className="conn-rise absolute top-3 bottom-3 left-4 z-10 flex flex-col">
-      <div className="flex h-6 shrink-0 items-center gap-1.5 px-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground/70">
-        Turns <span className="tabular-nums">{turns.length}</span>
-      </div>
-      <div ref={list} className="relative min-h-0 overflow-y-auto">
+      className="conn-rise pointer-events-none absolute top-3 bottom-3 left-4 z-10 flex flex-col justify-center">
+      <div
+        ref={list}
+        className="pointer-events-auto relative flex max-h-full min-h-0 flex-col overflow-y-auto overflow-x-hidden py-6 [scrollbar-width:none]"
+        onMouseLeave={() => setHover(null)}>
         {turns.map((turn, i) => {
           const here = turn.id === current;
           const summary = summaryOf(turn);
+          const tone = toneBar(turn);
+          const open = hover === i;
           return (
             <button
               key={turn.id}
               type="button"
               data-outline-turn={turn.id}
               aria-current={here ? 'location' : undefined}
-              title={summary ? `${turn.text}\n${summary}` : turn.text}
+              aria-label={summary ? `${turn.text}. ${summary}` : turn.text}
               onClick={() => onJump(turn.id)}
-              className={cn(
-                'flex h-7 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[12px] text-muted-foreground/80 outline-none transition-colors',
-                'hover:bg-accent/70 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                here && 'bg-accent/60 text-foreground',
-              )}>
-              <span className="w-4 shrink-0 text-right font-mono text-[10px] tabular-nums text-muted-foreground/50">{i + 1}</span>
-              <span className="min-w-0 flex-1 truncate">{turn.text}</span>
-              <Marks turn={turn} />
+              onMouseEnter={() => setHover(i)}
+              onFocus={() => setHover(i)}
+              onBlur={() => setHover(null)}
+              className="group/turn relative flex h-3 w-full shrink-0 items-center rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+              <span
+                aria-hidden="true"
+                style={{ width: widthOf(i, hover, here) }}
+                className={cn(
+                  'h-[3px] shrink-0 rounded-full transition-[width,background-color,opacity] duration-200 ease-[cubic-bezier(.2,.8,.2,1)]',
+                  tone ? BAR[tone] : 'bg-foreground',
+                  here || open ? 'opacity-100' : tone ? 'opacity-70' : 'opacity-25',
+                  tone === 'waiting' && 'animate-pulse',
+                )} />
+              {/* The message itself, drawn the way the chat draws it. */}
+              <span
+                className={cn(
+                  'pointer-events-none absolute top-1/2 left-10 z-10 max-w-[calc(100%-2.5rem)] -translate-y-1/2 origin-left rounded-xl bg-secondary px-3 py-1.5 text-left text-[12px] text-foreground shadow-sm transition-[opacity,transform] duration-200 ease-[cubic-bezier(.2,.8,.2,1)]',
+                  open ? 'translate-x-0 scale-100 opacity-100' : '-translate-x-1 scale-95 opacity-0',
+                )}>
+                <span className="block truncate">{turn.text}</span>
+                {summary && <span className="block truncate text-[10.5px] text-muted-foreground">{summary}</span>}
+              </span>
             </button>
           );
         })}
