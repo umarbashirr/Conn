@@ -14,6 +14,7 @@ import { FleetStrip } from '@/components/fleet-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
 import { ChatFloor } from '@/components/working-panel';
 import { ChatOverview } from '@/components/chat-overview';
+import { ChatOutline, SHOW_TURN } from '@/components/chat-outline';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
@@ -691,6 +692,7 @@ export default function App() {
           )}
           {thinkingSince > 0 && <ThinkingLine since={thinkingSince} />}
         </ConversationContent>
+        {!empty && <ChatOutline items={agent.items} />}
         {!empty && (
           <ChatFloor
             agents={working}
@@ -754,6 +756,21 @@ function Transcript({ items, agent }) {
 
   const { scrollRef } = useStickToBottomContext();
   useTurnPin(items.findLast((it) => it.kind === 'user' && !it.parent)?.id);
+
+  // The outline asks for a turn above the drawn rows; draw back to it. Its
+  // run index is where the transcript has to start for the row to exist.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => {
+    const show = (e) => {
+      const all = runs(attachPerms(itemsRef.current).rest);
+      const at = all.findIndex((g) => g.item?.id === e.detail?.id);
+      // Only ever earlier: rows already drawn stay drawn.
+      if (at >= 0) setPinnedStart((s) => Math.min(s ?? Math.max(0, all.length - TAIL), at));
+    };
+    window.addEventListener(SHOW_TURN, show);
+    return () => window.removeEventListener(SHOW_TURN, show);
+  }, []);
 
   // Rows drawn above keep the reader's place: the first message not yet
   // scrolled past stays where it is in the view. A replayed row is keyed by the

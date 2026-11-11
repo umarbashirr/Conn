@@ -113,12 +113,11 @@ function Header({ name, branch, action }) {
   );
 }
 
-// The toolbar already has a button for each of these, so here they are one
-// row of icons rather than four rows of the panel. The label stays in the
-// accessible name and the tooltip.
+// Two by two, labelled: half the height of four rows, and still readable on a
+// chat that has nothing else to show yet.
 function Places({ places, onAct }) {
   return (
-    <div className="flex gap-0.5">
+    <div className="grid grid-cols-2 gap-0.5">
       {places.map(({ kind, open, count }) => {
         const { icon: Icon, label, command } = VIEW_KINDS[kind];
         return (
@@ -129,13 +128,13 @@ function Places({ places, onAct }) {
             aria-current={open ? 'true' : undefined}
             title={count > 0 ? `${label} · ${count}` : label}
             className={cn(
-              'flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
-              open && 'bg-background text-foreground shadow-xs dark:bg-accent',
+              'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50',
+              open && 'bg-accent text-foreground',
             )}
             onClick={() => { runCommand(command, true); onAct(); }}>
-            <Icon className="size-3.5 shrink-0" />
-            <span className="sr-only">{label}</span>
-            {count > 0 && <span className="font-mono text-[10px] tabular-nums">{count}</span>}
+            <Icon className="size-3.5 shrink-0 opacity-70" />
+            <span className="truncate">{label}</span>
+            {count > 0 && <span className="ml-auto font-mono text-[10px] tabular-nums">{count}</span>}
           </button>
         );
       })}
@@ -324,6 +323,9 @@ export function ChatOverview({ agent }) {
   );
 
   const mode = modeOf({ fits, rightOpen, collapsed });
+  // The card is for content. A chat with only its folder and the panes has
+  // none yet, and an empty card just frames the emptiness.
+  const carded = mode === 'panel' && sections.some((x) => x.kind !== 'header' && x.kind !== 'places');
   const asPanel = (
     <Button variant="ghost" size="icon-xs" aria-label="Show as panel" title="Show as panel" className="text-muted-foreground"
       onClick={() => { collapse(false); setOpen(false); }}>
@@ -339,7 +341,7 @@ export function ChatOverview({ agent }) {
       // while this panel is listing the work (see FleetStrip).
       data-background={mode === 'panel' && sections.some((x) => x.kind === 'background') ? '' : undefined}
       style={mode === 'panel' ? { ...UNSCALED, width } : UNSCALED}
-      className={cn(CORNER, mode === 'panel' && 'conn-rise overflow-y-auto rounded-xl bg-muted/40 p-1 dark:bg-muted/25')}>
+      className={cn(CORNER, mode === 'panel' && 'conn-rise overflow-y-auto rounded-xl p-1', carded && 'bg-muted/40 dark:bg-muted/25')}>
       {mode === 'panel' ? (
         <OverviewContent
           sections={sections}
