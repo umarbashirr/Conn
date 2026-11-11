@@ -32,7 +32,6 @@ const { codexFiles } = require('../shared/unified-diff');
 const { todoInput } = require('../shared/plan');
 const shellEnv = require('./shell-env');
 
-const ROOT = path.join(__dirname, '..', '..');
 
 /* Approval requests, old names and new. codex kept the flat ones working while
    the item/* shapes took over, and which pair a build sends depends on its
@@ -51,6 +50,10 @@ const APPROVALS = {
   execCommandApproval: { tool: 'Bash', family: 'flat' },
   applyPatchApproval: { tool: 'Edit', family: 'flat' },
   'item/permissions/requestApproval': { tool: 'Permissions', family: 'grant' },
+  /* codex asks before every MCP tool call, as an MCP elicitation rather than
+     an approval. Unanswered, or answered with an empty object, it reads as
+     declined and the call fails "user rejected MCP tool call". */
+  'mcpServer/elicitation/request': { tool: 'MCP', family: 'elicit' },
 };
 
 const ANSWER = {
@@ -71,6 +74,13 @@ const ANSWER = {
     allow: (params) => ({ permissions: params.permissions || {}, scope: 'turn' }),
     always: (params) => ({ permissions: params.permissions || {}, scope: 'session' }),
     deny: () => ({ permissions: {} }),
+  },
+  // The MCP elicitation answer. A tool-call approval asks for no fields, so an
+  // accept carries an empty form.
+  elicit: {
+    allow: () => ({ action: 'accept', content: {} }),
+    always: () => ({ action: 'accept', content: {} }),
+    deny: () => ({ action: 'decline' }),
   },
 };
 
@@ -217,10 +227,15 @@ class CodexSession extends EventEmitter {
       'features.default_mode_request_user_input=true',
     ];
     if (this.previews) {
-      const server = path.join(ROOT, 'mcp', 'server.js');
-      const env = { ...this.bridgeEnv, CONN_CWD: this.cwd };
-      out.push(`mcp_servers.conn.command=${JSON.stringify(process.env.CONN_NODE || 'node')}`);
-      out.push(`mcp_servers.conn.args=${JSON.stringify([server])}`);
+      /* The launch spec main builds for every agent: Electron run as node
+         through the shim, and the server's unpacked path. A bare `node` on a
+         path inside app.asar worked from a checkout and nowhere else. An
+         installed Conn launched from the desktop has no node on its PATH, and
+         a real node cannot read the archive, so the server never started and
+         codex saw no browser tools. */
+      const { command, args, env } = this.previews;
+      out.push(`mcp_servers.conn.command=${JSON.stringify(command)}`);
+      out.push(`mcp_servers.conn.args=${JSON.stringify(args)}`);
       for (const [k, v] of Object.entries(env)) {
         if (v != null) out.push(`mcp_servers.conn.env.${k}=${JSON.stringify(String(v))}`);
       }
@@ -699,6 +714,9 @@ class CodexSession extends EventEmitter {
     }
 
     const answer = ANSWER[spec.family];
+    // Conn's own server is the preview pane, which claude drives without a
+    // card. codex gets the same: the pane is the point of the chat.
+    if (spec.family === 'elicit' && params.serverName === 'conn') return respond(answer.allow(params));
     const input = this.#askInput(spec, params);
     const verdict = decideCodex(this.mode, spec.tool, input);
     if (verdict.action === 'allow') return respond(answer.allow(params));
@@ -768,6 +786,7 @@ class CodexSession extends EventEmitter {
       return { files: this.edits.get(params.itemId) || [] };
     }
     if (spec.tool === 'Permissions') return { permissions: params.permissions, cwd: params.cwd };
+    if (spec.tool === 'MCP') return { server: params.serverName, message: params.message, url: params.url };
     return {
       command: Array.isArray(params.command) ? params.command.join(' ') : params.command,
       cwd: params.cwd,

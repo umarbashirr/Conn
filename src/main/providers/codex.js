@@ -28,7 +28,7 @@ function create({ cacheDir, settings }) {
       mode: opts.mode,
       effort: opts.effort,
       bridgeEnv: opts.bridgeEnv,
-      previews: !!opts.mcp,
+      previews: opts.mcp || null,
       shared: opts.shared,
     }),
     has: () => !!driver.current({ refresh: false }).installed,
