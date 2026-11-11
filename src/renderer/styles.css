@@ -76,6 +76,15 @@
   --term-cyan: #5fd0d0;
   --term-white: #d7dce6;
   --r: var(--radius);
+  /* The window is a frame with cards set into it. The frame (title bar, rail,
+     status bar and the gutters between panes) is one flat ground a step off
+     the page, and the chat and the right column are cards sitting on it. The
+     radius follows the scheme's own, so Brutalist stays square, and is capped
+     so Glass's large radius does not turn the panes into pills. */
+  --ground: color-mix(in srgb, hsl(var(--muted)) 70%, hsl(var(--background)));
+  --card-r: min(calc(var(--radius) * 1.5), 14px);
+  --card-gap: 6px;
+  --card-shadow: 0 1px 2px hsl(240 10% 3.9% / .05), 0 2px 10px hsl(240 10% 3.9% / .04);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Code", monospace;
 }
 
@@ -101,6 +110,10 @@
   --input: 0 0% 12%;
   --ring: 240 4.9% 83.9%;
   --shadow: 0 8px 24px hsl(0 0% 0% / .55);
+  --card-shadow: 0 1px 2px hsl(0 0% 0% / .35), 0 4px 14px hsl(0 0% 0% / .25);
+  /* In the dark the frame drops below the page rather than sitting above it,
+     so the cards read as lifted off it and not sunk into it. */
+  --ground: color-mix(in srgb, hsl(var(--background)) 72%, black);
 
   /* Lighter and less saturated against the dark ground, and the fill drops to
      a tint so a badge is outlined rather than a bright block of colour. */
@@ -114,10 +127,10 @@
   --token-conn-fg: 164 76% 70%;
 }
 
-/* The rail is a solid step from the chat, the same relationship as the
-   reference: chrome at #181818, the page at #141414. */
+/* The frame, rail included, is a solid step under the page: #0e0e0e around
+   cards at #141414. */
 [data-scheme="zinc"][data-theme="dark"] {
-  --sidebar: #181818;
+  --ground: #0e0e0e;
 }
 
 /* ---------------------------------------------------------------- themes */
@@ -599,7 +612,7 @@
 
 /* The seams the shell draws itself, which are declared one side at a time, so
    setting all four widths only lands on the side that has a style. */
-[data-scheme="brutal"] :is(#titlebar, #right) { border-width: 2px; }
+[data-scheme="brutal"] section:is(#agent, #right) { border-width: 2px; }
 
 /* The one piece of motion the style gets: a press pushes the control into its
    own shadow and lands flush, which is where the offset came from. */
@@ -707,6 +720,10 @@ button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
    of the gradient on <html> above it. */
 [data-scheme="glass"] body { background: transparent; }
 
+/* The frame stays a tint here, so the lights on <html> still show between and
+   behind the cards. */
+[data-scheme="glass"] { --ground: hsl(var(--muted) / .55); }
+
 /* The title bar is already painted in --rail, which is a tint, so it only
    wants the blur. The panes are solid in every other theme and are cut back to
    a sheet here. */
@@ -718,7 +735,7 @@ button[data-scheme="brutal"] { border-width: 2px; box-shadow: var(--shadow); }
    number that decides whether the ground is visible at all. A third is about
    the limit: past that the gradient is gone, under it the transcript starts
    sitting on colour rather than on glass. */
-[data-scheme="glass"] :is(#agent, #right) {
+[data-scheme="glass"] section:is(#agent, #right) {
   background: hsl(var(--card) / .30);
   backdrop-filter: blur(22px) saturate(150%);
 }
@@ -779,7 +796,7 @@ html[data-theme="light"] {
 
 html, body {
   margin: 0; height: 100%;
-  background: var(--bg); color: var(--fg);
+  background: var(--ground); color: var(--fg);
   font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -829,8 +846,7 @@ kbd {
 #titlebar {
   display: flex; align-items: center; gap: 2px;
   height: 32px; padding: 0 0 0 4px;
-  background: color-mix(in srgb, hsl(var(--muted)) 28%, hsl(var(--background)));
-  border-bottom: 1px solid var(--line);
+  background: var(--ground);
   -webkit-app-region: drag;
 }
 #titlebar button, #titlebar input { -webkit-app-region: no-drag; }
@@ -869,11 +885,33 @@ kbd {
 
 /* ------------------------------------------------------------------ shell */
 
-[data-slot="resizable-handle"]:hover { background: var(--accent); }
+/* The gutter between cards is the seam, so the handle draws nothing until it
+   is reached for, and then a short rounded bar rather than a full-height rule. */
+[data-slot="resizable-handle"] { background: transparent; }
+[data-slot="resizable-handle"]::before {
+  content: ""; position: absolute; inset: 30% 0; border-radius: 99px;
+  background: var(--accent); opacity: 0; transition: opacity .15s;
+}
+[data-slot="resizable-handle"]:hover::before,
+[data-slot="resizable-handle"][data-separator="active"]::before { opacity: .5; }
+
+/* The two cards. Each sits in its panel with the gutter as margin, so the
+   panel sizes the resizer works in are untouched and the card simply draws
+   inside them. Clipped, so a tab strip, a header or the terminal runs to the
+   rounded edge instead of over it. The panels around them carry the same ids,
+   so these name the sections. */
+section:is(#agent, #right) {
+  height: calc(100% - var(--card-gap));
+  margin: 0 var(--card-gap) var(--card-gap);
+  border: 1px solid var(--line);
+  border-radius: var(--card-r);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
 
 /* The chat pane. React fills it, and the welcome state sits over it until a
    folder has been chosen, which is what the positioning is for. */
-#agent { position: relative; height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+section#agent { position: relative; display: flex; flex-direction: column; background: var(--bg); }
 /* The chat pane has its own type size, set apart from the shell's zoom and the
    terminal's font. Scaling rather than sizing: the transcript is a mix of
    inherited prose and Tailwind's own sizes, so a font-size here would grow the
@@ -889,13 +927,7 @@ kbd {
 
 /* --------------------------------------------------------- preview pane */
 
-#right { height: 100%; display: flex; flex-direction: column; background: var(--bg-2); border-left: 1px solid var(--line); }
-
-/* Full width: the chat panel and its splitter are not rendered at all, and the
-   right column is the only panel left in the group. The rail is untouched, so
-   it stays open if it was open, and closing it hands the page the last of the
-   window. */
-#right[data-full] { border-left: none; }
+section#right { display: flex; flex-direction: column; background: var(--bg-2); }
 
 /* The page is a separate web contents the window paints on top of this
    document, so this div is the hole it is flown into and stays empty. */

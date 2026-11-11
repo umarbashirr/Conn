@@ -27,7 +27,7 @@ export default function StatusBar() {
   return (
     <footer
       id="status"
-      className="flex h-6 shrink-0 items-center gap-2.5 border-t bg-[var(--rail)] px-3 text-[11px] text-muted-foreground">
+      className="flex h-6 shrink-0 items-center gap-2.5 bg-[var(--ground)] px-3 text-[11px] text-muted-foreground">
       <span className="min-w-0 flex-1" />
 
       <span className="max-w-[50ch] truncate font-mono text-muted-foreground">{browserState.status}</span>
