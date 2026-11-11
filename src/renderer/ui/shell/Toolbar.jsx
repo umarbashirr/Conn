@@ -45,7 +45,7 @@ import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
 import { formatChord, keyOf } from '@/lib/keys';
 import { useSettings } from '../useSettings';
 
-const ICON_BUTTON = 'size-6 rounded-sm text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
+const ICON_BUTTON = 'size-7 rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-3.5';
 
 // -------------------------------------------------------------------- theme
 
@@ -296,18 +296,16 @@ export function ToolbarActions() {
   useEffect(() => onProject(() => bump((n) => n + 1)), []);
 
   return (
-    <div className="flex shrink-0 items-center gap-0.5 pr-1">
+    <div className="flex shrink-0 items-center gap-1.5 pr-2">
       <Activity />
       <Driver />
-      <ViewStrip />
-
-      <Separator orientation="vertical" className="mx-0.5 !h-[18px]" />
-
-      <OpenIn folder={project} />
-
-      <ThemeButton />
-
-      <Separator orientation="vertical" className="mx-0.5 !h-[18px]" />
+      {/* The app's own controls, gathered on one pill like the cards below. */}
+      <div className="flex items-center gap-0.5 rounded-full border bg-card p-0.5 shadow-xs">
+        <ViewStrip />
+        <Separator orientation="vertical" className="mx-0.5 !h-4" />
+        <OpenIn folder={project} />
+        <ThemeButton />
+      </div>
     </div>
   );
 }

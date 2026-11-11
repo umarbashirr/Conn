@@ -65,7 +65,7 @@ const Note = ({ children }) => (
   </span>
 );
 
-const MENU_TRIGGER = 'h-6 rounded-sm px-2 py-0 text-[12px] font-normal text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground';
+const MENU_TRIGGER = 'h-7 rounded-lg px-2.5 py-0 text-[12px] font-normal text-muted-foreground hover:bg-foreground/10 hover:text-foreground data-[state=open]:bg-foreground/10 data-[state=open]:text-foreground';
 
 function FileMenu({ folder, settings }) {
   // The toolbar's own button is the short way in; this lists them all, because
@@ -236,7 +236,7 @@ function Chord({ id, settings }) {
   return <MenubarShortcut>{text}</MenubarShortcut>;
 }
 
-const WINDOW_BUTTON = 'h-full w-10 rounded-none text-muted-foreground hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
+const WINDOW_BUTTON = 'size-7 rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
 
 export default function TitleBar() {
   const folder = useProject();
@@ -271,7 +271,7 @@ export default function TitleBar() {
 
       <ToolbarActions />
 
-      <div className="flex self-stretch">
+      <div className="flex items-center gap-1 pr-2">
         <Button variant="ghost" size="icon-xs" className={WINDOW_BUTTON} title="Minimize" onClick={edit('minimize')}>
           <MinusIcon />
         </Button>
