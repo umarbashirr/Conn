@@ -244,8 +244,81 @@
   --sidebar-ring: hsl(var(--ring));
 }
 
+/* Keep code blocks within the chat width and wrap long content. */
+[data-streamdown="code-block"] {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+/* Actions float over the block without a separate language toolbar. */
+[data-streamdown="code-block"] {
+  position: relative;
+  padding: 0;
+  gap: 0;
+  background: transparent;
+}
+
+[data-streamdown="code-block-header"],
+[data-streamdown="code-block-download-button"] {
+  display: none;
+}
+
+[data-streamdown="code-block-actions"] {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+}
+
+[data-streamdown="code-block-copy-button"] {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--muted-foreground));
+}
+
+[data-streamdown="code-block-copy-button"]:hover {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+[data-streamdown="code-block-copy-button"] svg {
+  width: 14px;
+  height: 14px;
+}
+
+[data-streamdown="code-block-body"] {
+  padding: 36px 14px 12px;
+  overflow-x: hidden;
+  border: 0;
+  border-radius: 0;
+}
+
+[data-streamdown="code-block"] pre,
+[data-streamdown="code-block"] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
 :is([data-language=""], [data-language="text"], [data-language="txt"], [data-language="plaintext"],
   [data-language="markdown"], [data-language="md"])[data-streamdown="code-block"] {
-  & pre, & code { white-space: pre-wrap; overflow-wrap: anywhere; }
   & code > span::before { display: none; }
+}
+
+[data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+  position: static;
+  height: 0;
+  margin: 0;
 }
