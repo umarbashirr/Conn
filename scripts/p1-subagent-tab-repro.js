@@ -139,7 +139,25 @@ async function main() {
     check('main-thread-page-untouched', mainState?.url === at('app'), `main thread reads ${mainState?.url}`);
     check('subagent-reads-its-own-page', subState?.url === at('research'), `subagent reads ${subState?.url}`);
 
-    await invoke('click', { target: 'h1' }, SUB);
+    // A tab parked behind the app draws no frames, so input sent to it has
+    // nothing to hit-test against unless the pane wakes it first.
+    await invoke('evaluate', { code: `
+      window.__seen = [];
+      document.addEventListener('click', (e) => __seen.push('click ' + e.target.tagName));
+      document.addEventListener('mouseover', (e) => e.target.id && __seen.push('over ' + e.target.id));
+      document.body.insertAdjacentHTML('beforeend', '<form id="f"><input id="q"></form>');
+      f.addEventListener('submit', (e) => { e.preventDefault(); __seen.push('submit ' + q.value); });
+    ` }, SUB);
+    const clicked = await invoke('click', { target: 'h1' }, SUB).catch((e) => ({ error: e.message }));
+    await invoke('hover', { target: '#q' }, SUB);
+    await invoke('type', { text: 'pricing', target: '#q' }, SUB);
+    await invoke('press', { key: 'Enter' }, SUB);
+    const seen = await invoke('evaluate', { code: '__seen' }, SUB);
+    check('subagent-clicks-its-background-tab', clicked?.ok && seen?.includes('click H1'), JSON.stringify({ clicked, seen }).slice(0, 300));
+    check('subagent-hovers-its-background-tab', seen?.includes('over q'), JSON.stringify(seen));
+    check('subagent-types-and-presses-in-its-background-tab', seen?.includes('submit pricing'), JSON.stringify(seen));
+    const still = await strip();
+    check('input-leaves-the-app-in-front', still.front === 'app', `front tab is ${still.front}`);
     const listed = await invoke('tabs', {}, MAIN);
     const research = listed?.tabs?.find((t) => t.url === at('research'));
     check('listing-names-the-subagent', research?.driver === SUB.label && listed?.tabs?.find((t) => t.url === at('app'))?.driver === 'you', JSON.stringify(listed));
@@ -158,7 +176,11 @@ async function main() {
     site.close();
     const exited = new Promise((r) => app.once('exit', r));
     app.kill();
+    // A check that throws leaves the inspector connected, and Node will not
+    // exit with a debugger attached.
+    const stuck = setTimeout(() => app.kill('SIGKILL'), 3000);
     await exited;
+    clearTimeout(stuck);
     fs.rmSync(base, { recursive: true, force: true, maxRetries: 5 });
   }
 

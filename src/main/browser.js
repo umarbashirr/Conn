@@ -336,13 +336,28 @@ class BrowserPane extends EventEmitter {
 
   // Until the page has drawn a frame, Chromium has nothing to hit-test a press
   // against and drops it, though the move before it gets through. A page that
-  // has just loaded often has not drawn yet.
-  async click(target, { button = 'left', clickCount = 1, modifiers = [] } = {}) {
-    const drawn = await this.#js(`Promise.race([
+  // has just loaded often has not drawn yet. One the window is about to put in
+  // the box draws once it is there, so that wait comes first: waking a tab
+  // while the window moves it into the box shifts it under the press. A tab
+  // that is still parked after it, such as a subagent's behind the person's,
+  // only draws while #awake shows it.
+  async click(target, opts = {}) {
+    if (await this.#drawn()) return this.#press(target, opts);
+    if (this.visible) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
+    return this.#awake(async () => {
+      if (!await this.#drawn()) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
+      return this.#press(target, opts);
+    });
+  }
+
+  #drawn() {
+    return this.#js(`Promise.race([
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))),
       new Promise((r) => setTimeout(() => r(false), 2000)),
     ])`);
-    if (!drawn) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
+  }
+
+  async #press(target, { button = 'left', clickCount = 1, modifiers = [] }) {
     const p = await this.#js(`window.__conn.point(${JSON.stringify(target)}, "click")`);
     const base = { x: Math.round(p.x), y: Math.round(p.y), button, modifiers };
     this.wc.sendInputEvent({ type: 'mouseMove', ...base });
@@ -353,22 +368,26 @@ class BrowserPane extends EventEmitter {
   }
 
   async hover(target) {
-    const p = await this.#js(`window.__conn.point(${JSON.stringify(target)}, "move")`);
-    this.wc.sendInputEvent({ type: 'mouseMove', x: Math.round(p.x), y: Math.round(p.y) });
-    await sleep(80);
-    return { ok: true };
+    return this.#awake(async () => {
+      const p = await this.#js(`window.__conn.point(${JSON.stringify(target)}, "move")`);
+      this.wc.sendInputEvent({ type: 'mouseMove', x: Math.round(p.x), y: Math.round(p.y) });
+      await sleep(80);
+      return { ok: true };
+    });
   }
 
   async fill(target, value) { return this.#js(`window.__conn.fill(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
   async select(target, value) { return this.#js(`window.__conn.select(${JSON.stringify(target)}, ${JSON.stringify(value)})`); }
 
   async type(text, { target, delay = 12 } = {}) {
-    if (target) await this.#js(`window.__conn.focus(${JSON.stringify(target)})`);
-    for (const ch of String(text)) {
-      this.#sendKey(ch);
-      if (delay) await sleep(delay);
-    }
-    return { ok: true, typed: text.length };
+    return this.#awake(async () => {
+      if (target) await this.#js(`window.__conn.focus(${JSON.stringify(target)})`);
+      for (const ch of String(text)) {
+        this.#sendKey(ch);
+        if (delay) await sleep(delay);
+      }
+      return { ok: true, typed: text.length };
+    });
   }
 
   async press(key, { modifiers = [] } = {}) {
@@ -376,9 +395,11 @@ class BrowserPane extends EventEmitter {
     const raw = parts.pop();
     const mods = [...modifiers, ...parts.map((m) => m.toLowerCase().replace('cmd', 'meta').replace('ctrl', 'control'))];
     const keyCode = KEY_ALIASES[raw.toLowerCase()] || raw;
-    this.#sendKey(keyCode, mods);
-    await sleep(80);
-    return { ok: true, key: `${mods.join('+')}${mods.length ? '+' : ''}${keyCode}` };
+    return this.#awake(async () => {
+      this.#sendKey(keyCode, mods);
+      await sleep(80);
+      return { ok: true, key: `${mods.join('+')}${mods.length ? '+' : ''}${keyCode}` };
+    });
   }
 
   #sendKey(keyCode, modifiers = []) {
@@ -427,10 +448,11 @@ class BrowserPane extends EventEmitter {
   }
 
   /* A parked view draws no frames, so there is nothing to copy a screenshot
-     from, and a tab parked behind another is exactly what an agent working off
-     screen asks about. For the length of one capture the view is shown one
-     pixel large in the window's corner, laid out at its own size, so the
-     renderer draws it and nobody sees it. Shown under the pane in the box
+     from and nothing to hit-test a mouse or key event against, and a tab
+     parked behind another is exactly what an agent working off screen drives.
+     For the length of one capture or input the view is shown one pixel large
+     in the window's corner, laid out at its own size, so the renderer draws it
+     and nobody sees it. Shown under the pane in the box
      instead, it drew one frame and then stopped as occluded; off the window it
      never drew at all. */
   async #awake(fn) {
