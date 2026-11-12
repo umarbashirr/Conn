@@ -24,14 +24,19 @@ const BLOCK = new Set(['DIV', 'P', 'LI', 'BLOCKQUOTE', 'PRE']);
 // The DOM back to a string. Chromium likes to swap the spaces either side of
 // an inline node for non-breaking ones; they go back to ordinary spaces or the
 // agent receives characters nobody typed. A <br> in last place is Chromium's
-// placeholder for an empty final line, never content.
+// placeholder for an empty final line, never content. A block starts a line of
+// its own, so loose text in front of one ends with a break.
 function valueOf(root) {
   let out = '';
   for (const child of root.childNodes) {
     if (child.nodeType === 3) out += child.nodeValue.replace(/\u00a0/g, ' ');
     else if (isToken(child)) out += child.dataset.raw;
     else if (child.nodeName === 'BR') out += (child === root.lastChild ? '' : '\n');
-    else out += valueOf(child) + (child !== root.lastChild && BLOCK.has(child.nodeName) ? '\n' : '');
+    else {
+      const block = BLOCK.has(child.nodeName);
+      if (block && out && !out.endsWith('\n')) out += '\n';
+      out += valueOf(child) + (child !== root.lastChild && block ? '\n' : '');
+    }
   }
   return out;
 }
@@ -324,11 +329,14 @@ export const TokenInput = forwardRef(function TokenInput({
     reportQuery();
   }, [emit, record, recordSoon, reportQuery]);
 
+  // The native event, not React's onBeforeInput: React builds that one from
+  // Chromium's textInput, which carries typed text and no inputType, so
+  // Backspace, Delete and line breaks never reached it.
   const handleBeforeInput = useCallback((e) => {
     if (composing.current) return;
     const box = boxRef.current;
-    const back = e.nativeEvent.inputType === 'deleteContentBackward';
-    const forward = e.nativeEvent.inputType === 'deleteContentForward';
+    const back = e.inputType === 'deleteContentBackward';
+    const forward = e.inputType === 'deleteContentForward';
 
     if (back || forward) {
       // Left alone, Chromium deletes the badge and then patches the line it
@@ -347,7 +355,7 @@ export const TokenInput = forwardRef(function TokenInput({
 
     // Enter is handled in keydown; this catches the other ways a line break
     // can arrive, which would otherwise come in as markup.
-    if (e.nativeEvent.inputType === 'insertParagraph' || e.nativeEvent.inputType === 'insertLineBreak') {
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
       e.preventDefault();
       const text = valueOf(box);
       const offset = caretOffset(box) ?? text.length;
@@ -357,8 +365,7 @@ export const TokenInput = forwardRef(function TokenInput({
 
     // Text with a newline in it is one more: Chromium splits it into a <div>
     // per line after the first, and the loose line in front of that <div>
-    // reads back with no break after it. React delivers it as Chromium's
-    // textInput event, which has the text but no inputType.
+    // reads back with no break after it.
     if (e.data?.includes('\n')) {
       e.preventDefault();
       const text = valueOf(box);
@@ -366,6 +373,12 @@ export const TokenInput = forwardRef(function TokenInput({
       apply(text.slice(0, start) + e.data + text.slice(end), start + e.data.length);
     }
   }, [apply]);
+
+  useEffect(() => {
+    const box = boxRef.current;
+    box.addEventListener('beforeinput', handleBeforeInput);
+    return () => box.removeEventListener('beforeinput', handleBeforeInput);
+  }, [handleBeforeInput]);
 
   const handleKeyDown = useCallback((e) => {
     onKeyDown?.(e);
@@ -433,7 +446,6 @@ export const TokenInput = forwardRef(function TokenInput({
         className,
       )}
       onInput={handleInput}
-      onBeforeInput={handleBeforeInput}
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       onKeyUp={(e) => { if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') reportQuery(); }}
