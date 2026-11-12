@@ -23,6 +23,7 @@ const BINDINGS = [
   { id: 'newChatNoFolder', command: 'newChatNoFolder', label: 'New chat without a folder', category: 'General', keys: '', owner: 'renderer', scope: 'app', steal: true },
   { id: 'openFolder', command: 'openFolder', label: 'Open folder', category: 'General', keys: 'CmdOrCtrl+O', owner: 'menu', scope: 'menu', steal: false },
   { id: 'openFolderWindow', command: 'openFolderWindow', label: 'Open folder in a new window', category: 'General', keys: 'CmdOrCtrl+Shift+O', owner: 'menu', scope: 'menu', steal: false },
+  { id: 'restart', command: 'restart', label: 'Restart Conn', category: 'General', keys: 'CmdOrCtrl+Shift+R', owner: 'menu', scope: 'menu', steal: false },
 
   { id: 'send', command: 'send', label: 'Send the message', category: 'Chat', keys: 'Enter', owner: 'composer', scope: 'composer', steal: false },
   { id: 'newline', command: 'newline', label: 'New line', category: 'Chat', keys: 'Shift+Enter', owner: 'composer', scope: 'composer', steal: false },

@@ -19,7 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ClipboardIcon, CopyIcon, DownloadIcon, FileDownIcon, FileIcon, FolderIcon, FolderPlusIcon, FolderTreeIcon,
   GitCompareIcon, GlobeIcon, InfoIcon, MaximizeIcon, MessageSquareIcon, PaletteIcon,
-  PlusIcon, SettingsIcon, SquarePenIcon, SquareTerminalIcon, SunMoonIcon, TerminalIcon,
+  PlusIcon, RotateCwIcon, SettingsIcon, SquarePenIcon, SquareTerminalIcon, SunMoonIcon, TerminalIcon,
 } from 'lucide-react';
 import {
   Command, CommandGroup, CommandInput, CommandItem, CommandList,
@@ -56,6 +56,7 @@ const COMMANDS = [
   { name: 'updates', bind: 'updates', label: 'Check for updates', icon: DownloadIcon },
   { name: 'exportChat', bind: 'exportChat', label: 'Export chat', icon: FileDownIcon },
   { name: 'copyLastReply', bind: 'copyLastReply', label: 'Copy last reply', icon: CopyIcon },
+  { name: 'restart', bind: 'restart', label: 'Restart Conn', icon: RotateCwIcon },
   { name: 'about', bind: 'about', label: 'About Conn', icon: InfoIcon },
 ];
 

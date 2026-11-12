@@ -676,6 +676,32 @@ const projectInfo = () => ({
   ...oneProject(focused),
 });
 
+/* Starts the next Conn once this one has exited. It re-execs process.execPath
+   with this process's argv, which for a tree or .deb install is the same path
+   an update just replaced, so the next process is the new build with no path
+   of its own to work out. An AppImage's execPath is inside a mount that goes
+   away with this process, so that one re-runs the AppImage itself.
+
+   Not app.relaunch() on Linux: its helper starts the new process with
+   no_new_privs set, so the setuid chrome-sandbox cannot take root and the new
+   build aborts at "zygote_host_impl_linux.cc Check failed". The shell waits for
+   this process to exit, as Electron's helper does, then execs the command. */
+function relaunchWhenGone() {
+  if (process.platform !== 'linux') return app.relaunch();
+  const appImage = process.env.APPIMAGE && fs.existsSync(process.env.APPIMAGE) ? process.env.APPIMAGE : null;
+  spawn('/bin/sh', [
+    '-c', 'while kill -0 "$0" 2>/dev/null; do sleep 0.1; done; exec "$@"',
+    String(process.pid), appImage || process.execPath, ...process.argv.slice(1),
+  ], { detached: true, stdio: 'ignore' }).unref();
+}
+
+// Ctrl+Shift+R. A quit rather than an exit, so chats, servers and recordings
+// shut down the way they do when the window is closed.
+function restartApp() {
+  relaunchWhenGone();
+  app.quit();
+}
+
 function refreshMenu() {
   applyMenu({
     recents: projectInfo().recents,
@@ -685,6 +711,7 @@ function refreshMenu() {
       openFolder: (opts) => openFolder(opts),
       openRecent: (dir) => addProject(dir),
       clearRecents: () => { projects.clearRecents(); announce(); },
+      restart: restartApp,
     },
   });
 }
@@ -1378,6 +1405,7 @@ function registerIpc() {
   // --- window frame ---
   ipcMain.handle('win:state', () => windowState());
   ipcMain.on('win:action', (_e, { action }) => {
+    if (action === 'restart') return restartApp();
     if (!win || win.isDestroyed()) return;
     if (action === 'minimize') return win.minimize();
     if (action === 'close') return win.close();
@@ -1807,25 +1835,9 @@ function registerIpc() {
     return { ok: !!page };
   });
   // Same shape as a normal quit: chats are resumable transcripts on disk
-  // already, not state this process is the only holder of. relaunch() re-execs
-  // process.execPath with this process's argv, which for a tree or .deb install
-  // is the same path the update just replaced, so the next process is the new
-  // build with no path of its own to work out.
-  //
-  // Not app.relaunch() on Linux: its helper starts the new process with
-  // no_new_privs set, so the setuid chrome-sandbox cannot take root and the new
-  // build aborts at "zygote_host_impl_linux.cc Check failed". The shell waits
-  // for this process to exit, as Electron's helper does, then execs the same
-  // command line.
+  // already, not state this process is the only holder of.
   ipcMain.handle('updates:relaunch', () => {
-    if (process.platform === 'linux') {
-      spawn('/bin/sh', [
-        '-c', 'while kill -0 "$0" 2>/dev/null; do sleep 0.1; done; exec "$@"',
-        String(process.pid), process.execPath, ...process.argv.slice(1),
-      ], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      app.relaunch();
-    }
+    relaunchWhenGone();
     app.exit(0);
   });
 

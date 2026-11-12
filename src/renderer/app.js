@@ -824,6 +824,7 @@ export function runCommand(name, arg) {
       if (!arg) return undefined;
       showRight('files');
       return typeof arg === 'object' ? window.connFiles?.open(String(arg.path), arg.line) : window.connFiles?.open(String(arg));
+    case 'restart': return window.conn.win.action('restart');
     case 'zoomIn': return stepZoom(1);
     case 'zoomOut': return stepZoom(-1);
     case 'zoomReset': return applyZoom(1);

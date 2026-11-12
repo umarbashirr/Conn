@@ -346,6 +346,7 @@ to your shell. `Ctrl+B` and `Ctrl+D` are the app's: the sidebar and dictation.
 | `Ctrl+Shift+L` | focus the address bar |
 | `Ctrl+Shift+J` | console and network drawer |
 | `Ctrl+1…9` | switch terminal tab |
+| `Ctrl+Shift+R` | restart Conn, from anywhere in the window |
 
 ## How it fits together
 

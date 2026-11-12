@@ -64,6 +64,10 @@ function buildMenu({ recents = [], actions, keys = {} }) {
         { type: 'separator' },
         hotkey('Settings…', 'settings', 'settings'),
         { type: 'separator' },
+        // Registered for real and answered by main, so it works with the focus
+        // in the preview or a terminal, and when the window has stopped
+        // responding, which is when it is most wanted.
+        labeled('Restart Conn', chord('restart'), () => actions.restart()),
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
     },

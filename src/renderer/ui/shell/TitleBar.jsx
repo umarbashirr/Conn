@@ -140,6 +140,10 @@ function FileMenu({ folder, settings }) {
             Settings…
             <Chord id="settings" settings={settings} />
           </MenubarItem>
+          <MenubarItem onSelect={() => runCommand('restart')}>
+            Restart Conn
+            <Chord id="restart" settings={settings} />
+          </MenubarItem>
         </MenubarGroup>
       </MenubarContent>
     </MenubarMenu>
