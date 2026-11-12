@@ -13,6 +13,7 @@ import {
   CopyIcon,
   FolderOpenIcon,
   MoonIcon,
+  MousePointer2Icon,
   PanelLeftIcon,
   RotateCwIcon,
   SunIcon,
@@ -102,7 +103,10 @@ function Activity() {
    speaks for the tab in the box and for nothing else. Two agents driving two
    previews in the same folder is an ordinary thing now, and the one you cannot
    see is not your problem. With the tree or the diff in front there is no page
-   to take back, so there is nothing to say. */
+   to take back, so there is nothing to say.
+
+   Once you have taken the page, from here or from the overlay over it, it is
+   yours until you hand it back, and the chip is how you do that. */
 function Driver() {
   const [holder, setHolder] = useState(null);
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
@@ -116,8 +120,8 @@ function Driver() {
     const apply = (msg) => {
       if (msg?.tab && msg.tab !== tab) return;
       const h = msg?.holder;
-      const mine = !h || h.id === 'human' || String(h.id).startsWith('main:');
-      setHolder(mine ? null : h);
+      const quiet = !h || String(h.id).startsWith('main:');
+      setHolder(quiet ? null : h);
     };
     const off = window.conn.browser.onDriver?.(apply);
     window.conn.browser.driver?.(tab).then(apply).catch(() => {});
@@ -125,6 +129,20 @@ function Driver() {
   }, [tab]);
 
   if (!holder) return null;
+
+  if (holder.id === 'human') {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        title="Agents are refused this page until you hand it back."
+        className="h-auto rounded-full px-[9px] py-[3px] text-[11px] font-normal"
+        onClick={() => { window.conn.browser.handBack?.(tab); setHolder(null); }}>
+        <MousePointer2Icon className="size-3" />
+        You have control · Hand back
+      </Button>
+    );
+  }
 
   return (
     <Button

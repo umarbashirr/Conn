@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('conn', {
     // Which agent is driving that preview, and taking it back off them.
     driver: (tab) => ipcRenderer.invoke('preview:driver', { tab }),
     seize: (tab) => ipcRenderer.invoke('preview:seize', { tab }),
+    handBack: (tab) => ipcRenderer.invoke('preview:handBack', { tab }),
     onDriver: on('preview:driver'),
   },
 

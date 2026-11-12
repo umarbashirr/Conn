@@ -49,6 +49,7 @@ const planLimits = require('./plan-limits');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease, READS } = require('./pane-lease');
+const { ControlOverlay } = require('./control-overlay');
 const { mcpServerPath, binDir } = require('../../cli/packaged-path');
 const bridgeState = require('../../cli/state');
 
@@ -134,11 +135,45 @@ function leaseFor(tab) {
   let l = leases.get(key);
   if (!l) {
     l = new PaneLease({
-      onChange: (holder) => send('preview:driver', { holder, tab: key, project: panes.get(key)?.project || focused }),
+      onChange: (holder) => {
+        send('preview:driver', { holder, tab: key, project: panes.get(key)?.project || focused });
+        syncOverlays();
+      },
     });
     leases.set(key, l);
   }
   return l;
+}
+
+// One per window that can show a page: the box in the main window, and the
+// browser's own window when the page has been moved out.
+const overlays = { box: new ControlOverlay(), popout: new ControlOverlay() };
+
+// The agent with this page for the rest of its turn, or null. The lease's own
+// idle timeout is about who may go next, not about whether the agent is done,
+// so it is not consulted: an agent thinking between two clicks still has the
+// page, and the person scrolling it meanwhile would still undo its work.
+function agentOn(tab) {
+  const h = tab ? leases.get(tab)?.holder : null;
+  return h && h.id !== 'human' ? h : null;
+}
+
+const captionOf = (h) => (String(h.id).startsWith('main:') ? 'The agent is using this page' : `${h.label} is using this page`);
+
+function syncOverlays() {
+  const boxTab = shownTab && shownTab !== poppedTab && panes.has(shownTab) ? shownTab : null;
+  const boxAgent = !paneCovered && lastBounds && agentOn(boxTab);
+  if (boxAgent && win && !win.isDestroyed()) overlays.box.show(win, lastBounds, { tab: boxTab, caption: captionOf(boxAgent) });
+  else overlays.box.hide();
+
+  const outAgent = popout && !popout.isDestroyed() && agentOn(poppedTab);
+  if (outAgent) overlays.popout.show(popout, popoutBox(), { tab: poppedTab, caption: captionOf(outAgent) });
+  else overlays.popout.hide();
+
+  // Keys the person types should not reach a page they cannot click either.
+  for (const o of Object.values(overlays)) {
+    if (o.tab && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
+  }
 }
 
 // Whichever driver answers for the provider in use. Both keep the same shape:
@@ -427,11 +462,15 @@ function detachBrowser(tab) {
       webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     });
     popout.setMenuBarVisibility(false);
-    const fit = () => { if (popout) panes.get(poppedTab)?.pane.setBounds(popoutBox()); };
+    const fit = () => {
+      if (popout) panes.get(poppedTab)?.pane.setBounds(popoutBox());
+      syncOverlays();
+    };
     for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) popout.on(ev, fit);
     // The page goes home before the window is torn down, so closing the window
     // is the same as bringing the browser back.
     popout.on('close', () => returnPopped());
+    popout.on('closed', () => overlays.popout.dispose());
   }
   popTo(tab);
   return { ok: true, detached: true };
@@ -521,6 +560,7 @@ function applyShown() {
       rec.pane.setVisible(false);
     }
   }
+  syncOverlays();
 }
 
 function owner(project, tab) {
@@ -549,6 +589,7 @@ function dropPane(tab) {
   leases.delete(tab);
   if (shownTab === tab) shownTab = null;
   router.forgetTab(tab);
+  syncOverlays();
   // A tab with no page behind it was never more than a row the strip already
   // took down.
   if (rec) send('preview:closed', { tab });
@@ -1341,6 +1382,7 @@ async function createWindow() {
   win.on('focus', () => win.flashFrame(false));
 
   win.on('closed', () => {
+    overlays.box.dispose();
     for (const t of terms.values()) t.kill();
     terms.clear();
     fileWatcher?.clear();
@@ -1545,9 +1587,21 @@ function registerIpc() {
   // Hand a blocking agent to the background so the turn carries on without it.
   ipcMain.handle('agent:background', async (_e, { chat, toolUseId } = {}) =>
     sessions.get(chat)?.background(toolUseId) ?? { error: 'that chat is not running' });
-  // The human taking the preview back off whichever agent is driving it.
+  // The human taking the preview back off whichever agent is driving it, from
+  // the toolbar chip or the overlay's Take control, and handing it back.
   ipcMain.handle('preview:seize', (_e, { tab } = {}) => {
     leaseFor(tab || shownTab).seize();
+    return { ok: true };
+  });
+  ipcMain.on('overlay:take', (e) => {
+    const tab = Object.values(overlays).find((o) => o.owns(e.sender))?.tab;
+    if (!tab) return;
+    leaseFor(tab).seize();
+    // Straight onto the page, so the scroll that follows the click lands.
+    panes.get(tab)?.pane.wc.focus();
+  });
+  ipcMain.handle('preview:handBack', (_e, { tab } = {}) => {
+    leaseFor(tab || shownTab).handBack();
     return { ok: true };
   });
   ipcMain.handle('preview:driver', (_e, { tab } = {}) => {
@@ -2218,10 +2272,11 @@ function registerIpc() {
   // A tab in the popout is sized by the popout, and no menu in the main window
   // is over it.
   const inBox = () => (shownTab === poppedTab ? null : paneOf(shownTab, { create: false }));
-  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; inBox()?.setBounds(b); });
+  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; inBox()?.setBounds(b); syncOverlays(); });
   ipcMain.on('browser:visible', (_e, v) => {
     paneCovered = !v;
     inBox()?.setVisible(!paneCovered);
+    syncOverlays();
   });
   ipcMain.on('browser:show', (_e, { tab, project, chat } = {}) => {
     shownTab = tab || null;

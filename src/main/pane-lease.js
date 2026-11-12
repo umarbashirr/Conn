@@ -25,6 +25,11 @@ const IDLE_MS = 8000;
 // agent can react rather than look hung.
 const WAIT_MS = 20000;
 
+const HUMAN = Object.freeze({ id: 'human', label: 'you' });
+const TAKEN = 'The person took control of this preview tab. Do not use the browser on it until they '
+  + 'hand it back: stop here, say in your reply what you were about to do there, and let them '
+  + 'decide. Reading the page (snapshot, screenshot, text) still works.';
+
 class PaneLease {
   constructor({ onChange } = {}) {
     this.holder = null;                // { id, label }
@@ -34,7 +39,12 @@ class PaneLease {
   }
 
   get free() {
+    if (this.holder?.id === HUMAN.id) return false;
     return !this.holder || Date.now() - this.touched > IDLE_MS;
+  }
+
+  get human() {
+    return this.holder?.id === HUMAN.id;
   }
 
   // The name to show the human, or null when nothing has the pane.
@@ -50,6 +60,9 @@ class PaneLease {
   async acquire(tool, actor) {
     const who = actor && actor.id ? actor : { id: 'main', label: 'the main thread' };
     if (READS.has(tool)) return null;
+    // Waiting would only make the agent look hung: the person hands the page
+    // back when they are done, which may be never in this turn.
+    if (this.human) return TAKEN;
 
     if (this.free || this.holder.id === who.id) return this.#take(who);
 
@@ -109,12 +122,20 @@ class PaneLease {
     else this.#drain();
   }
 
-  // The human pressing "take over" outranks everyone.
+  // The human pressing "Take control" outranks everyone, and keeps the page
+  // until they hand it back rather than until they go quiet.
   seize() {
-    this.holder = { id: 'human', label: 'you' };
+    this.holder = HUMAN;
     this.touched = Date.now();
     this.onChange(this.current());
     for (const e of this.queue.splice(0)) { clearTimeout(e.timer); e.resolve(false); }
+  }
+
+  handBack() {
+    if (!this.human) return;
+    this.holder = null;
+    this.onChange(null);
+    this.#drain();
   }
 
   // Wake up when the current hold lapses, so a queue behind a driver that went
@@ -142,4 +163,4 @@ class PaneLease {
   }
 }
 
-module.exports = { PaneLease, READS };
+module.exports = { PaneLease, READS, TAKEN };
