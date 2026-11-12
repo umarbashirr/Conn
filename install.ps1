@@ -86,6 +86,60 @@ function Remove-Conn {
   Say 'Gone. Your settings and open-project state are still in %USERPROFILE%\.conn; delete that too if you want none of it back.'
 }
 
+# Windows 10 1803 and later ship curl.exe, which streams to disk, retries and
+# draws a progress bar. It is called by its full name because in Windows
+# PowerShell 5.1 a bare `curl` is Invoke-WebRequest, which shows nothing with
+# its progress bar off and crawls with it on: a 400 MB installer looked stuck.
+function Save-Download {
+  param([string] $Url, [string] $OutFile, [long] $Size)
+  $curl = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($curl) {
+    try {
+      & $curl.Source -fL --retry 3 --retry-delay 2 --connect-timeout 30 --progress-bar -o $OutFile $Url
+      if ($LASTEXITCODE -eq 0) { return }
+      Say "curl.exe stopped with exit code $LASTEXITCODE, downloading without it"
+    } catch {
+      Say "curl.exe failed ($($_.Exception.Message)), downloading without it"
+    }
+  }
+  Save-Stream $Url $OutFile $Size
+}
+
+# The fallback: one request read in 1 MB pieces, saying how far it has got. A
+# connection that goes quiet for a minute fails instead of hanging for ever.
+function Save-Stream {
+  param([string] $Url, [string] $OutFile, [long] $Size)
+  $req = [Net.HttpWebRequest]::Create($Url)
+  $req.UserAgent = 'conn-install'
+  $req.Timeout = 60000
+  $req.ReadWriteTimeout = 60000
+  $res = $req.GetResponse()
+  $total = if ($res.ContentLength -gt 0) { $res.ContentLength } else { $Size }
+  $done = 0L
+  try {
+    $in = $res.GetResponseStream()
+    $out = [IO.File]::Create($OutFile)
+    try {
+      $buf = New-Object byte[] (1MB)
+      $shown = [DateTime]::MinValue
+      while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+        $out.Write($buf, 0, $n)
+        $done += $n
+        if (([DateTime]::UtcNow - $shown).TotalMilliseconds -ge 500) {
+          $shown = [DateTime]::UtcNow
+          Write-Host -NoNewline ("`r  {0} of {1} MB" -f [math]::Floor($done / 1MB), [math]::Round($total / 1MB))
+        }
+      }
+      Write-Host ("`r  {0} of {1} MB" -f [math]::Round($done / 1MB), [math]::Round($total / 1MB))
+    } finally {
+      $out.Dispose()
+      $in.Dispose()
+    }
+  } finally {
+    $res.Dispose()
+  }
+}
+
 function Install-Conn {
   if ($env:OS -ne 'Windows_NT') { throw 'this installer is for Windows. On Linux, use install.sh' }
 
@@ -133,22 +187,29 @@ function Install-Conn {
   $file = Join-Path ([IO.Path]::GetTempPath()) $asset.name
   Step "Downloading $([math]::Round($asset.size / 1MB)) MB"
 
-  # Invoke-WebRequest draws a progress bar that costs more than the download on
-  # a file this size, so it is turned off and the size is said up front instead.
-  $progress = $ProgressPreference
-  $ProgressPreference = 'SilentlyContinue'
   try {
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $file -UseBasicParsing
+    Save-Download $asset.browser_download_url $file $asset.size
   } catch {
     throw "the download failed ($($_.Exception.Message))"
-  } finally {
-    $ProgressPreference = $progress
+  }
+  # A cut-off download would otherwise be handed to Windows as a broken
+  # installer, which says nothing useful about why.
+  $got = (Get-Item $file).Length
+  if ($asset.size -and $got -ne $asset.size) {
+    Remove-Item $file -ErrorAction SilentlyContinue
+    throw "the download stopped at $([math]::Round($got / 1MB)) of $([math]::Round($asset.size / 1MB)) MB. Run the command again."
   }
 
   Step 'Installing'
-  $start = @{ FilePath = $file; Wait = $true; PassThru = $true }
+  # The installer opens Conn when it finishes. Start-Process -Wait waits for
+  # every process the installer started as well, so it sat on "Installing"
+  # until Conn was closed. Waiting on the installer alone ends when it does.
+  $start = @{ FilePath = $file; PassThru = $true }
   if ($Silent) { $start.ArgumentList = '/S' }
   $run = Start-Process @start
+  # Holding the handle from the start is what makes ExitCode readable later.
+  $null = $run.Handle
+  $run.WaitForExit()
   if ($run.ExitCode -ne 0) { throw "the installer stopped with exit code $($run.ExitCode)" }
   Remove-Item $file -ErrorAction SilentlyContinue
 
@@ -196,7 +257,9 @@ function Invoke-PinnedInstall {
   if ($Version) { $bound.Version = $Version }
   if ($Force) { $bound.Force = $true }
   if ($Silent) { $bound.Silent = $true }
-  & $file @bound
+  # Run as text, the way `irm | iex` runs this one. Running the .ps1 file
+  # itself is refused under the default execution policy.
+  & ([scriptblock]::Create([IO.File]::ReadAllText($file))) @bound
   return $true
 }
 
