@@ -122,6 +122,78 @@ async function onAgentSession(bin, api) {
   }
 }
 
+// Editing or retrying a message forks the transcript. The fork has to keep the
+// file checkpoints of every message before that point, or Undo edits vanishes
+// from all of them (#23).
+async function onFork(bin, api) {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-rewind-fork-files-'));
+  const cwd = path.join(home, 'work');
+  fs.mkdirSync(cwd, { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd });
+  Object.assign(process.env, { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: path.join(home, '.claude') });
+  const { server, port } = await api.serve({ project: cwd });
+  Object.assign(process.env, {
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
+    ANTHROPIC_API_KEY: 'sk-ant-conn-rewind-files',
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+  });
+  require(path.join(ROOT, 'src/main/driver.js')).preferBinary(bin);
+  const { AgentSession } = require(path.join(ROOT, 'src/main/agent.js'));
+  // history.js reads HOME when it loads, so load it under this HOME.
+  delete require.cache[require.resolve(path.join(ROOT, 'src/main/history.js'))];
+  const history = require(path.join(ROOT, 'src/main/history.js'));
+
+  const read = (f) => (fs.existsSync(path.join(cwd, f)) ? fs.readFileSync(path.join(cwd, f), 'utf8') : null);
+  const sessions = [];
+  const open = async (resume) => {
+    const s = new AgentSession({ cwd, resume, model: 'claude-sonnet-4-5' });
+    s.results = 0;
+    s.on('message', (m) => { if (m.type === 'result') s.results += 1; });
+    s.on('permission', (p) => s.decide(p.id, 'allow'));
+    sessions.push(s);
+    await s.start();
+    return s;
+  };
+  const turn = async (s, text) => {
+    const want = s.results + 1;
+    const uuid = s.send(text);
+    if (!await until(() => s.results >= want, 60000, 50)) throw new Error(`no result for ${J(text)}`);
+    return uuid;
+  };
+  const dry = (s, uuid) => s.query.rewindFiles(uuid, { dryRun: true }).catch((e) => ({ threw: e.message }));
+
+  try {
+    const s1 = await open(null);
+    const first = await turn(s1, 'write a.txt: one');
+    const second = await turn(s1, 'edit a.txt: one => two\nwrite b.txt: x');
+    const third = await turn(s1, 'write c.txt: three');
+    const id = s1.sessionId;
+    s1.stop();
+    await sleep(500);
+
+    const fork = await history.forkBefore(cwd, id, third);
+    const s2 = await open(fork.sessionId);
+    const kept = await dry(s2, fork.uuids[first]);
+    check('fork-keeps-the-first-turns-checkpoint', kept.canRewind === true, J(kept));
+    const undone = await s2.query.rewindFiles(fork.uuids[second], {}).catch((e) => ({ threw: e.message }));
+    check('undo-on-a-kept-turn-restores-its-files', undone.canRewind === true && read('a.txt') === 'one' && read('b.txt') === null, `${J(undone)} a=${read('a.txt')} b=${read('b.txt')}`);
+    check('undo-on-a-kept-turn-leaves-the-dropped-turns-file', read('c.txt') === 'three', `c=${read('c.txt')}`);
+    s2.stop();
+    await sleep(500);
+
+    const s3 = await open(fork.sessionId);
+    const again = await dry(s3, fork.uuids[first]);
+    check('fork-checkpoints-survive-another-resume', again.canRewind === true, J(again));
+  } catch (e) {
+    check('fork-run', false, e.stack || e.message);
+  } finally {
+    for (const s of sessions) s.stop();
+    server.close();
+    await sleep(500);
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 async function inTheApp() {
   const drive = await import(pathToFileURL(path.join(ROOT, '.claude/skills/verify/drive.mjs')).href);
   const { boot, stop, evaluate, click, hover, shot, type, heldBy } = drive;
@@ -288,6 +360,7 @@ async function inTheApp() {
   }
   const api = await import(pathToFileURL(path.join(ROOT, '.claude/skills/verify/claude-api.mjs')).href);
   await onAgentSession(bin, api);
+  await onFork(bin, api);
   await inTheApp();
   console.log(failures.length ? `\n${failures.length} failed` : '\nall passed');
   process.exit(failures.length ? 1 : 0);

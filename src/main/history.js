@@ -585,11 +585,63 @@ async function forkBefore(cwd, id, uuid) {
 
   const { forkSession } = await sdk();
   const { sessionId } = await forkSession(id, { dir: cwd, upToMessageId: at.parent });
+  const forked = path.join(dir, `${sessionId}.jsonl`);
   const uuids = {};
-  for await (const o of entries(path.join(dir, `${sessionId}.jsonl`))) {
-    if (o.type === 'user' && o.forkedFrom?.messageUuid) uuids[o.forkedFrom.messageUuid] = o.uuid;
+  const kept = {};
+  for await (const o of entries(forked)) {
+    const from = o.forkedFrom?.messageUuid;
+    if (!from) continue;
+    kept[from] = o.uuid;
+    if (o.type === 'user') uuids[from] = o.uuid;
   }
+  // Without the checkpoints the fork still works; Undo edits just stays hidden
+  // on the kept messages, as it did before they were carried over.
+  await carryCheckpoints(file, id, forked, sessionId, kept).catch(() => {});
   return { sessionId, uuids };
+}
+
+const FILE_HISTORY = path.join(PROJECTS, '..', 'file-history');
+
+// forkSession copies the conversation but not its file checkpoints, so Undo
+// edits had nothing to restore for any message the fork kept. This carries the
+// kept messages' snapshot and delta entries over under the fork's ids, with the
+// backups they name. It leans on the CLI's private transcript format, which
+// scripts/p1-rewind-files-repro.js checks against the real binary.
+async function carryCheckpoints(from, fromId, to, toId, kept) {
+  const lines = [];
+  const backups = new Set();
+  const keep = (b) => { if (b?.backupFileName) backups.add(b.backupFileName); };
+  for await (const o of entries(from)) {
+    if (o.type === 'file-history-snapshot') {
+      const messageId = kept[o.messageId];
+      if (!messageId) continue;
+      Object.values(o.snapshot?.trackedFileBackups || {}).forEach(keep);
+      lines.push({ ...o, messageId, snapshot: { ...o.snapshot, messageId } });
+    } else if (o.type === 'file-history-delta') {
+      const messageId = kept[o.messageId];
+      const snapshotMessageId = kept[o.snapshotMessageId];
+      if (!messageId || !snapshotMessageId) continue;
+      keep(o.backup);
+      lines.push({ ...o, messageId, snapshotMessageId });
+    }
+  }
+  if (!lines.length) return;
+
+  const dest = path.join(FILE_HISTORY, toId);
+  fs.mkdirSync(dest, { recursive: true });
+  for (const name of backups) {
+    if (path.basename(name) !== name) continue;
+    try {
+      // The CLI skips restoring from a backup whose mtime moved, so a plain
+      // copy leaves the file as it is while reporting the undo as done.
+      fs.cpSync(path.join(FILE_HISTORY, fromId, name), path.join(dest, name), { preserveTimestamps: true, errorOnExist: true, force: false });
+    } catch (e) {
+      if (e.code !== 'ERR_FS_CP_EEXIST' && e.code !== 'ENOENT') throw e;
+    }
+  }
+  const text = fs.readFileSync(to, 'utf8');
+  const lead = text && !text.endsWith('\n') ? '\n' : '';
+  fs.appendFileSync(to, lead + lines.map((o) => JSON.stringify(o)).join('\n') + '\n');
 }
 
 // The parts of an Agent tool's result worth drawing. The rest is usage
