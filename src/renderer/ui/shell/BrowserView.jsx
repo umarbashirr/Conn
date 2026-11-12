@@ -27,6 +27,8 @@ import {
   AppWindowIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowDownLeftIcon,
+  ArrowUpRightIcon,
   ChevronDownIcon,
   EllipsisVerticalIcon,
   FolderTreeIcon,
@@ -72,6 +74,9 @@ import {
   setBookmarkBar,
   toggleBookmark,
   askAboutError,
+  attachBrowser,
+  detachBrowser,
+  poppedTab,
   clearLogs,
   consoleErrors,
   getBrowserVersion,
@@ -101,6 +106,7 @@ import {
 } from './browser-store';
 import { warmPane } from './pane-cover';
 import { useLayout, usePaneCover } from './Shell';
+import { useSettings } from '../useSettings';
 
 const VIEWPORT_ICON = {
   scan: ScanIcon,
@@ -346,8 +352,11 @@ function DeviceBar({ tab, showing }) {
 function PaneMenu({ tab }) {
   const s = useBrowser(tab);
   const { previewFull } = useLayout();
+  const { settings, set } = useSettings();
   const [open, setOpen] = useState(false);
   usePaneCover(open);
+  const devtoolsDetached = !!settings?.browser?.devtoolsDetached;
+  const popped = poppedTab() === tab;
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -400,6 +409,18 @@ function PaneMenu({ tab }) {
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => go('devtools', tab)}>
           DevTools
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(e) => { e.preventDefault(); set({ browser: { devtoolsDetached: !devtoolsDetached } }); }}>
+          DevTools in a Window
+          <Switch
+            className="ml-auto"
+            checked={devtoolsDetached}
+            onCheckedChange={(on) => set({ browser: { devtoolsDetached: on } })}
+            onClick={(e) => e.stopPropagation()} />
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => (popped ? attachBrowser() : detachBrowser(tab))}>
+          {popped ? 'Dock the Browser' : 'Browser in a Window'}
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => go('openExternal', tab)}>
           Open in system browser
@@ -702,9 +723,32 @@ function DeviceFrame({ tab, showing }) {
   );
 }
 
+function Popped() {
+  return (
+    <Empty className="absolute inset-0 bg-background">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <ArrowUpRightIcon />
+        </EmptyMedia>
+        <EmptyTitle>The browser is in its own window</EmptyTitle>
+        <EmptyDescription>
+          The agent still drives it from here. Close that window or bring it back to see the page in this column.
+        </EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" size="sm" onClick={attachBrowser}>
+          <ArrowDownLeftIcon />
+          Bring it back
+        </Button>
+      </EmptyContent>
+    </Empty>
+  );
+}
+
 function Stage({ tab, showing }) {
   const s = useBrowser(tab);
   if (!showing) return null;
+  if (tab === poppedTab()) return <Popped />;
   if (s.error) return <PageError tab={tab} error={s.error} />;
   return s.live ? <DeviceFrame tab={tab} showing={showing} /> : <Placeholder tab={tab} />;
 }

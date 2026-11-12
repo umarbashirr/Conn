@@ -112,6 +112,11 @@ let lastBounds = null; // the renderer measures before the pane exists
 // a flag the shell set, and the shell stopped setting it, so every preview was
 // born hidden and stayed that way until the first menu closed over it.
 let paneCovered = false;
+// The preview moved out into a window of its own, and the tab it is showing.
+// While it is out, that window is the box: whatever tab the shell puts in the
+// box is flown there, and the main window draws a placeholder in the hole.
+let popout = null;
+let poppedTab = null;
 const terms = new Map();
 
 // Which chat the panel is showing. `conn ask` from a terminal has to land in
@@ -366,9 +371,90 @@ function send(channel, payload) {
 // It never raises the window. An agent loading a page while you are working in
 // another app used to pull Conn in front of it.
 function showPreview(show, project, chat = null, tab = null) {
+  // A preview in its own window shows the page there, and leaves the main
+  // window's folder and column the way the person left them.
+  if (popout && show === true && tab && panes.has(tab)) {
+    popTo(tab);
+    return { ok: true, preview: 'open' };
+  }
   if (project && open.has(project) && project !== focused) focusProject(project);
   send('app:command', { name: 'preview', open: show, chat, tab });
   return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
+}
+
+const popoutBox = () => {
+  const [width, height] = popout.getContentSize();
+  return { x: 0, y: 0, width, height };
+};
+
+const popoutTitle = (st) => `${st?.title || st?.url || 'Browser'} · Conn`;
+
+/* Flies `tab` into the popout, and sends the page that was there back to the
+   main window, parked. It never focuses the popout: an agent changing pages
+   should not take the keyboard away from whatever you are typing in. */
+function popTo(tab) {
+  if (!popout || popout.isDestroyed() || !tab || tab === poppedTab) return;
+  const next = panes.get(tab)?.pane;
+  if (!next) return;
+  const prev = poppedTab && panes.get(poppedTab)?.pane;
+  if (prev && win && !win.isDestroyed()) {
+    prev.moveTo(win);
+    prev.setVisible(false);
+  }
+  poppedTab = tab;
+  next.moveTo(popout);
+  next.setBounds(popoutBox());
+  next.setVisible(true);
+  popout.setTitle(popoutTitle(next.state()));
+  send('browser:popout', { tab });
+  applyShown();
+}
+
+function detachBrowser(tab) {
+  if (!tab || !panes.has(tab) || !win || win.isDestroyed()) return { error: 'no preview to move' };
+  if (!popout) {
+    const [w, h] = win.getSize();
+    popout = new BrowserWindow({
+      width: Math.max(640, Math.round(w * 0.6)),
+      height: Math.max(480, Math.round(h * 0.85)),
+      minWidth: 320,
+      minHeight: 240,
+      backgroundColor: '#141414',
+      icon: iconPath(),
+      autoHideMenuBar: true,
+      title: 'Browser · Conn',
+      // The window shows nothing of its own: the page is a view laid over it.
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    });
+    popout.setMenuBarVisibility(false);
+    const fit = () => { if (popout) panes.get(poppedTab)?.pane.setBounds(popoutBox()); };
+    for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) popout.on(ev, fit);
+    // The page goes home before the window is torn down, so closing the window
+    // is the same as bringing the browser back.
+    popout.on('close', () => returnPopped());
+  }
+  popTo(tab);
+  return { ok: true, detached: true };
+}
+
+function returnPopped() {
+  const rec = poppedTab && panes.get(poppedTab);
+  poppedTab = null;
+  popout = null;
+  if (rec && win && !win.isDestroyed()) {
+    rec.pane.moveTo(win);
+    rec.pane.setVisible(false);
+  }
+  send('browser:popout', { tab: null });
+  applyShown();
+}
+
+function attachBrowser() {
+  const w = popout;
+  if (!w) return { ok: true, detached: false };
+  returnPopped();
+  if (!w.isDestroyed()) w.close();
+  return { ok: true, detached: false };
 }
 
 // The preview one tab is showing, made on first use. Everything that can reach
@@ -380,7 +466,10 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   if (!create || !tab || !win || win.isDestroyed()) return null;
 
   const made = new BrowserPane(win, HOME_URL, { project });
-  made.on('state', (st) => send('browser:state', { ...st, tab, project }));
+  made.on('state', (st) => {
+    send('browser:state', { ...st, tab, project });
+    if (tab === poppedTab && popout && !popout.isDestroyed()) popout.setTitle(popoutTitle(st));
+  });
   made.on('console', (c) => send('browser:console', { ...c, tab, project }));
   made.on('recorded', (r) => send('browser:recorded', { ...r, tab, project }));
   panes.set(tab, { pane: made, project, chat });
@@ -424,6 +513,7 @@ function newTab(dir, chat, { activate = true } = {}) {
 // loading, go on logging, and keep their place in history.
 function applyShown() {
   for (const [tab, rec] of panes) {
+    if (tab === poppedTab) continue;
     if (tab === shownTab) {
       if (lastBounds) rec.pane.setBounds(lastBounds);
       rec.pane.setVisible(!paneCovered);
@@ -444,7 +534,16 @@ function owner(project, tab) {
 
 function dropPane(tab) {
   const rec = panes.get(tab);
+  // Closing the tab in the popout closes the popout with it. The page is
+  // disposed straight after, so it is not sent home first.
+  const w = tab === poppedTab ? popout : null;
+  if (w) {
+    poppedTab = null;
+    popout = null;
+    send('browser:popout', { tab: null });
+  }
   rec?.pane.dispose();
+  if (w && !w.isDestroyed()) w.destroy();
   panes.delete(tab);
   leases.get(tab)?.stop();
   leases.delete(tab);
@@ -983,8 +1082,10 @@ async function driveTool(tool, args, { cwd, actor }) {
   if (busy) throw new Error(busy);
   try {
     // A subagent's page loads stay where they are; the main thread's come forward.
-    const reveal = tool === 'navigate' && !actor.background;
-    if (reveal) showPreview(true, cwd, actor.chat, tab);
+    // The popout is where a page comes forward to while the browser is out.
+    const wanted = tool === 'navigate' && !actor.background;
+    if (wanted) showPreview(true, cwd, actor.chat, tab);
+    const reveal = wanted && tab !== poppedTab;
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab, reveal });
     // The pane is the one leased above, resolved once. Resolving again after
     // the wait could land on a tab this call never leased.
@@ -1208,8 +1309,12 @@ async function createWindow() {
     for (const t of terms.values()) t.kill();
     terms.clear();
     fileWatcher?.clear();
+    const w = popout;
+    popout = null;
+    poppedTab = null;
     for (const rec of panes.values()) rec.pane.dispose();
     panes.clear();
+    if (w && !w.isDestroyed()) w.destroy();
     win = null;
   });
 }
@@ -1657,6 +1762,9 @@ function registerIpc() {
     }
     if (partial?.agent?.provider !== undefined) await applyProvider(partial.agent.provider);
     if (partial?.keybindings) refreshMenu();
+    if (partial?.browser?.devtoolsDetached !== undefined) {
+      for (const rec of panes.values()) rec.pane.redockDevTools(next.browser.devtoolsDetached);
+    }
     send('settings:changed', next);
     return next;
   });
@@ -2087,10 +2195,13 @@ function registerIpc() {
   // The box belongs to the window and holds one preview at a time. Which one is
   // the shell's to say: it owns the tab strip and knows which tab is active in
   // the folder on screen.
-  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; paneOf(shownTab, { create: false })?.setBounds(b); });
+  // A tab in the popout is sized by the popout, and no menu in the main window
+  // is over it.
+  const inBox = () => (shownTab === poppedTab ? null : paneOf(shownTab, { create: false }));
+  ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; inBox()?.setBounds(b); });
   ipcMain.on('browser:visible', (_e, v) => {
     paneCovered = !v;
-    paneOf(shownTab, { create: false })?.setVisible(!paneCovered);
+    inBox()?.setVisible(!paneCovered);
   });
   ipcMain.on('browser:show', (_e, { tab, project, chat } = {}) => {
     shownTab = tab || null;
@@ -2103,6 +2214,7 @@ function registerIpc() {
     if (shownTab) {
       paneOf(shownTab, { project: owner(project), chat });
       if (chat) panes.get(shownTab).chat = chat;
+      popTo(shownTab);
     }
     applyShown();
   });
@@ -2122,7 +2234,9 @@ function registerIpc() {
       case 'hardReload': return pane.hardReload();
       case 'clearData': return pane.clearData(arg);
       case 'stop': return pane.stop();
-      case 'devtools': return pane.toggleDevTools();
+      case 'devtools': return pane.toggleDevTools(settings.get('browser').devtoolsDetached);
+      case 'detach': return detachBrowser([...panes].find(([, r]) => r.pane === pane)?.[0]);
+      case 'attach': return attachBrowser();
       case 'state': return pane.state();
       case 'console': return pane.consoleLog({ limit: 200 });
       case 'network': return pane.networkLog({ limit: 100 });

@@ -54,7 +54,7 @@ const blank = () => ({
    (pane-cover.js) and is applied on top of this answer. */
 export function guestWanted() {
   const tab = onScreen();
-  if (!tab) return false;
+  if (!tab || tab === popped) return false;
   const b = previewOf(tab);
   return !!(b.live && !b.error);
 }
@@ -79,6 +79,11 @@ let focusedDir = '';
 let shown = null; // the tab main has in the box
 let current = null; // the tab browserState points at
 let drawn = ''; // what the chrome was last told about those two
+let popped = null; // the tab main has in the browser's own window
+
+export const poppedTab = () => popped;
+export const detachBrowser = (tab) => window.conn.browser.action('detach', null, tab);
+export const attachBrowser = () => window.conn.browser.action('attach');
 
 // A window with nothing previewed anywhere still has a status bar. Nothing ever
 // writes to this one.
@@ -634,6 +639,12 @@ window.conn.browser.onState((s) => {
       act('syncPreviewBounds');
     }
   }
+});
+
+window.conn.browser.onPopout(({ tab }) => {
+  popped = tab || null;
+  changed();
+  bumpGuest();
 });
 
 window.conn.browser.onRecorded((r) => {

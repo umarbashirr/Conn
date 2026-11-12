@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld('conn', {
     onState: on('browser:state'),
     onConsole: on('browser:console'),
     onRecorded: on('browser:recorded'),
+    // Which tab is in the browser's own window, or null once it is back.
+    onPopout: on('browser:popout'),
     // An agent asked for a preview in a folder with no tab open for one, so
     // main made the page and minted the id. The shell draws the tab.
     onOpenTab: on('preview:tab'),

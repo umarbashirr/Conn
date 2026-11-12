@@ -567,14 +567,37 @@ class BrowserPane extends EventEmitter {
 
   networkLog({ limit = 50 } = {}) { return this.network.slice(-limit); }
 
-  toggleDevTools() {
-    if (this.wc.isDevToolsOpened()) {
-      this.wc.closeDevTools();
-    } else {
-      if (this.debuggerAttached) { try { this.wc.debugger.detach(); } catch {} this.debuggerAttached = false; }
-      this.wc.openDevTools({ mode: 'bottom' });
-    }
+  // Docked under the page, or in a window of its own.
+  toggleDevTools(detached = false) {
+    if (this.wc.isDevToolsOpened()) this.wc.closeDevTools();
+    else this.#openDevTools(detached);
     return { open: this.wc.isDevToolsOpened() };
+  }
+
+  // DevTools cannot change dock while open, so it is closed and opened again.
+  // Opening it from inside devtools-closed does nothing, so the reopen waits a
+  // tick. The devtools-closed handler takes the debugger back first, and
+  // opening gives it up again.
+  redockDevTools(detached) {
+    if (!this.wc.isDevToolsOpened()) return;
+    this.wc.once('devtools-closed', () => setTimeout(() => {
+      if (!this.wc.isDestroyed()) this.#openDevTools(detached);
+    }, 0));
+    this.wc.closeDevTools();
+  }
+
+  #openDevTools(detached) {
+    if (this.debuggerAttached) { try { this.wc.debugger.detach(); } catch {} this.debuggerAttached = false; }
+    this.wc.openDevTools({ mode: detached ? 'detach' : 'bottom' });
+  }
+
+  // Which window the view is painted in. A page moved into a window of its own
+  // keeps its tab, its history and its debugger; only the parent changes.
+  moveTo(win) {
+    if (win === this.win) return;
+    try { this.win.contentView.removeChildView(this.view); } catch {}
+    this.win = win;
+    win.contentView.addChildView(this.view);
   }
 }
 

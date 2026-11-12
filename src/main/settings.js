@@ -52,6 +52,10 @@ const DEFAULTS = {
   notifications: {
     enabled: true,
   },
+  browser: {
+    // DevTools opens in a window of its own rather than docked under the page.
+    devtoolsDetached: false,
+  },
   startup: {
     reopenProject: true,
     checkUpdates: true,
