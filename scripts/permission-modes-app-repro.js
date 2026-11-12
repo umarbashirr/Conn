@@ -6,13 +6,12 @@
    the new flag: straight away when idle, after the turn when busy. Every
    process the app starts has to be gone once the app is. Runs on a throwaway
    HOME. Needs a built renderer: `npx vite build` first. */
-const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { launch } = require('./lib/launch');
 
 const ROOT = path.join(__dirname, '..');
-const PORT = 9345;
 const CHAT = 'modes-probe';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -95,13 +94,10 @@ async function main() {
     return fn(launches());
   };
 
-  const electron = require(path.join(ROOT, 'node_modules', 'electron'));
-  const app = spawn(electron, [
-    ROOT, `--remote-debugging-port=${PORT}`, `--user-data-dir=${path.join(base, 'userdata')}`, '--no-sandbox',
-  ], { env: { ...process.env, HOME: home, CONN_CWD: proj }, stdio: 'ignore' });
+  const { app, cdp } = await launch(ROOT, { userData: path.join(base, 'userdata'), env: { ...process.env, HOME: home, CONN_CWD: proj } });
 
   try {
-    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
+    const page = await connect(await target(cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     await page.evaluate(async (chat) => {
       for (let i = 0; i < 60 && !window.conn?.agent; i++) await new Promise((r) => setTimeout(r, 250));
       window.__probe = { cards: [], session: null };

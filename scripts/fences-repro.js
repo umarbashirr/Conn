@@ -9,15 +9,13 @@
    The agent is answered from the main process over the Node inspector, so no
    agent runs. Runs on a throwaway HOME. Needs a built renderer: `npx vite
    build` first. */
-const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { launch } = require('./lib/launch');
 
 const ROOT = path.join(__dirname, '..');
-const PORT = 9501;
-const INSPECT = 9502;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const failures = [];
@@ -139,13 +137,10 @@ async function main() {
   // An empty HOME sends zsh into its first-run menu, which would eat the line Run types.
   fs.writeFileSync(path.join(home, '.zshrc'), '');
 
-  const electron = require(path.join(ROOT, 'node_modules', 'electron'));
-  const app = spawn(electron, [
-    `--inspect=${INSPECT}`, ROOT, `--remote-debugging-port=${PORT}`, `--user-data-dir=${path.join(base, 'userdata')}`, '--no-sandbox',
-  ], { env: { ...process.env, HOME: home, CONN_CWD: proj }, stdio: 'ignore' });
+  const { app, inspector, cdp } = await launch(ROOT, { userData: path.join(base, 'userdata'), env: { ...process.env, HOME: home, CONN_CWD: proj } });
 
   try {
-    const main = await connect(await target(INSPECT, (t) => t.type === 'node'));
+    const main = await connect(inspector);
     await main.run(`(() => {
       const req = process.getBuiltinModule('module').createRequire(${JSON.stringify(path.join(ROOT, 'src/main/index.js'))});
       const { ipcMain } = req('electron');
@@ -169,7 +164,7 @@ async function main() {
       return true;
     })()`);
 
-    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
+    const page = await connect(await target(cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     const watching = await waitFor(() => main.run(`(() => {
       const req = process.getBuiltinModule('module').createRequire(${JSON.stringify(path.join(ROOT, 'src/main/index.js'))});
       const { webContents } = req('electron');

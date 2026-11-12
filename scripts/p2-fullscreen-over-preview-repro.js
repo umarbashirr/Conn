@@ -9,15 +9,13 @@
    main is told about the pane's visibility is read off the same IPC that sets
    the native view. Runs on a throwaway HOME. Needs a built renderer:
    `npx vite build` first. */
-const { spawn } = require('child_process');
 const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { launch } = require('./lib/launch');
 
 const ROOT = path.join(__dirname, '..');
-const PORT = 9371;
-const INSPECT = 9372;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const failures = [];
@@ -119,13 +117,10 @@ async function main() {
   for (const d of [path.join(home, '.conn'), proj]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
 
-  const electron = require(path.join(ROOT, 'node_modules', 'electron'));
-  const app = spawn(electron, [
-    `--inspect=${INSPECT}`, ROOT, `--remote-debugging-port=${PORT}`, `--user-data-dir=${path.join(base, 'userdata')}`, '--no-sandbox',
-  ], { env: { ...process.env, HOME: home, CONN_CWD: proj }, stdio: 'ignore' });
+  const { app, inspector, cdp } = await launch(ROOT, { userData: path.join(base, 'userdata'), env: { ...process.env, HOME: home, CONN_CWD: proj } });
 
   try {
-    const main = await connect(await target(INSPECT, (t) => t.type === 'node'));
+    const main = await connect(inspector);
     await main.run(`(() => {
       const req = process.getBuiltinModule('module').createRequire(${JSON.stringify(path.join(ROOT, 'src/main/index.js'))});
       const { ipcMain, BrowserWindow } = req('electron');
@@ -145,7 +140,7 @@ async function main() {
     })()`);
     const shown = () => main.run('globalThis.__visible.at(-1)');
 
-    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
+    const page = await connect(await target(cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1500, height: 950, deviceScaleFactor: 1, mobile: false });
     await main.run('globalThis.__front()');
     await page.evaluate(async () => {

@@ -2384,6 +2384,10 @@ app.whenReady().then(async () => {
   setInterval(checkIfWanted, UPDATE_CHECK_EVERY_MS);
 
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+  // The repro scripts in scripts/ drive main over the inspector and swap IPC
+  // handlers. They wait for this, or they race the app registering them.
+  globalThis.__connReady = true;
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

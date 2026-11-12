@@ -12,14 +12,12 @@
    runs until the test ends it or an interrupt arrives, and an interrupt
    settles 400ms later with the result the SDK sends for a stopped turn. Runs
    on a throwaway HOME. Needs a built renderer: `npx vite build` first. */
-const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { launch } = require('./lib/launch');
 
 const ROOT = path.join(__dirname, '..');
-const PORT = 9343;
-const INSPECT = 9344;
 const SETTLE_MS = 400;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -97,14 +95,11 @@ async function main() {
   for (const d of [path.join(home, '.conn'), proj]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(home, '.conn', 'open-projects.json'), JSON.stringify([proj]));
 
-  const electron = require(path.join(ROOT, 'node_modules', 'electron'));
-  const app = spawn(electron, [
-    `--inspect=${INSPECT}`, ROOT, `--remote-debugging-port=${PORT}`, `--user-data-dir=${path.join(base, 'userdata')}`, '--no-sandbox',
-  ], { env: { ...process.env, HOME: home, CONN_CWD: proj }, stdio: 'ignore' });
+  const { app, inspector, cdp } = await launch(ROOT, { userData: path.join(base, 'userdata'), env: { ...process.env, HOME: home, CONN_CWD: proj } });
 
   try {
-    const page = await connect(await target(PORT, (t) => t.type === 'page' && /index\.html/.test(t.url)));
-    const main = await connect(await target(INSPECT, (t) => t.type === 'node'));
+    const page = await connect(await target(cdp, (t) => t.type === 'page' && /index\.html/.test(t.url)));
+    const main = await connect(inspector);
     await main.run(`(() => {
       const req = process.getBuiltinModule('module').createRequire(${JSON.stringify(path.join(ROOT, 'src/main/index.js'))});
       const { ipcMain } = req('electron');
