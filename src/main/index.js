@@ -362,10 +362,12 @@ function send(channel, payload) {
 // window is looking at another would otherwise show the wrong page under the
 // right heading. `tab` is the one the caller drives, so the column opens on it
 // rather than on whichever its strip had in front.
+//
+// It never raises the window. An agent loading a page while you are working in
+// another app used to pull Conn in front of it.
 function showPreview(show, project, chat = null, tab = null) {
   if (project && open.has(project) && project !== focused) focusProject(project);
   send('app:command', { name: 'preview', open: show, chat, tab });
-  if (show === true && win && !win.isFocused()) win.show();
   return { ok: true, preview: show === undefined ? 'toggled' : show ? 'open' : 'closed' };
 }
 
