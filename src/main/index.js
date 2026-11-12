@@ -1276,6 +1276,14 @@ async function createWindow() {
 
   // The renderer is a Vite build: the chat pane is React, the shell is not.
   await win.loadFile(path.join(ROOT, 'build', 'renderer', 'index.html'));
+
+  // A reloaded page names its chats with fresh keys and never speaks the old
+  // ones again. Sessions left under the old keys would run on with nobody
+  // watching, and reopening one of those chats would resume a second CLI on
+  // the same transcript.
+  win.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+    if (isMainFrame && !isSameDocument) for (const chat of [...sessions.keys()]) stopChat(chat);
+  });
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 
   // The probe usually lands before the window does, and that push has nowhere
