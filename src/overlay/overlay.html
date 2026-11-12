@@ -14,7 +14,7 @@
     cursor: default;
   }
   .bar {
-    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
     display: flex; align-items: center; gap: 10px;
     padding: 6px 6px 6px 14px; border-radius: 999px;
     background: rgba(23, 23, 27, 0.88); color: #c9c9d1;
@@ -32,7 +32,7 @@
   button:focus-visible { outline: 2px solid #b58cf6; outline-offset: 2px; }
   svg { width: 14px; height: 14px; flex: none; }
   .nudge { animation: nudge 360ms ease-out; }
-  @keyframes nudge { 30% { transform: translateX(-50%) scale(1.06); } 100% { transform: translateX(-50%) scale(1); } }
+  @keyframes nudge { 30% { transform: translate(-50%, -50%) scale(1.06); } 100% { transform: translate(-50%, -50%) scale(1); } }
   @media (prefers-reduced-motion: reduce) { .nudge { animation: none; } }
 </style>
 </head>
