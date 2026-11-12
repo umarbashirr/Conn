@@ -1,12 +1,5 @@
-/* The strip along the bottom: what the page in the preview is doing, and the
-   zoom.
-
-   It used to lead with the bridge's port and a link to copy the MCP
-   registration command. Both were there to be read once and then never again,
-   and a port number nobody acts on is not status, it is furniture. The command
-   is still in the Help menu, which is where you go when you actually want it. */
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { MinusIcon, PlusIcon } from 'lucide-react';
+import { CircleCheckIcon, CircleAlertIcon, GlobeIcon, LoaderCircleIcon, MinusIcon, PlusIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { resetZoom, stepZoom, zoomLevel } from '../../app.js';
@@ -24,30 +17,43 @@ export default function StatusBar() {
   useSyncExternalStore(subscribeBrowser, getBrowserVersion, getBrowserVersion);
   const zoom = useZoom();
 
+  const state = browserState;
+  const Icon = state.error ? CircleAlertIcon : state.loading ? LoaderCircleIcon : state.live ? GlobeIcon : CircleCheckIcon;
+  const label = state.error ? "Preview error" : state.loading ? "Loading preview" : state.live ? "Preview" : "Ready";
+
   return (
     <footer
       id="status"
-      className="flex h-6 shrink-0 items-center gap-2.5 bg-[var(--ground)] px-3 text-[11px] text-muted-foreground">
-      <span className="min-w-0 flex-1" />
+      aria-label="Application status"
+      className="flex h-9 shrink-0 items-center gap-3 border-t border-border/60 bg-[var(--ground)] px-3 text-xs text-muted-foreground">
+      <div className="flex min-w-0 flex-1 items-center gap-2" role="status" aria-live="polite">
+        <Icon aria-hidden="true" className={`size-3.5 shrink-0 ${state.loading ? 'animate-spin motion-reduce:animate-none' : ''} ${state.error ? 'text-destructive' : ''}`} />
+        <span className="shrink-0">{label}</span>
+        {state.live && !state.loading && (
+          <span className="truncate text-muted-foreground/70" title={state.status || state.url}>
+            <span aria-hidden="true" className="mr-2">·</span>{state.status || state.url}
+          </span>
+        )}
+      </div>
 
-      <span className="max-w-[50ch] truncate font-mono text-muted-foreground">{browserState.status}</span>
+      <Separator orientation="vertical" className="!h-4" />
 
-      <Separator orientation="vertical" className="mx-1 !h-3" />
-
-      <div className="flex items-center gap-0.5">
-        <Button variant="ghost" size="icon-xs" title="Smaller (Ctrl+-)" onClick={() => stepZoom(-1)}>
+      <div role="group" aria-label="Application zoom" className="flex shrink-0 items-center gap-1">
+        <span className="mr-1 hidden sm:inline">Zoom</span>
+        <Button variant="ghost" size="icon-xs" aria-label="Zoom out" title="Smaller (Ctrl+-)" onClick={() => stepZoom(-1)}>
           <MinusIcon />
         </Button>
         <Button
           variant="ghost"
           size="xs"
           data-default={zoom === 1 ? '' : undefined}
-          className="min-w-[5ch] font-mono text-[10px] data-[default]:text-muted-foreground"
+          aria-label={`Zoom ${Math.round(zoom * 100)}%, reset to 100%`}
+          className="min-w-[6ch] tabular-nums"
           title="Back to 100% (Ctrl+0)"
           onClick={resetZoom}>
           {`${Math.round(zoom * 100)}%`}
         </Button>
-        <Button variant="ghost" size="icon-xs" title="Bigger (Ctrl++)" onClick={() => stepZoom(1)}>
+        <Button variant="ghost" size="icon-xs" aria-label="Zoom in" title="Bigger (Ctrl++)" onClick={() => stepZoom(1)}>
           <PlusIcon />
         </Button>
       </div>
