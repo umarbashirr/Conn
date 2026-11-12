@@ -203,6 +203,24 @@ just that element:
 Then you finish the sentence: "make this the same height as the input". The agent gets a selector and
 a picture, not a vague description of the thing in the corner.
 
+Drag instead of clicking to pick a stretch of the page, such as two cards that do not line up. The
+chip carries the box you drew, the controls inside it with the refs the agent can act on, and a
+screenshot of just that area:
+
+```
+[preview area]
+  area: 270x78 at 13,69 in the viewport, page scrolled to 0,0
+  contains: button "Alpha" (e1), button "Bravo" (e2)
+  screenshot: /tmp/conn-shots-1000/pick-1794488561216.png
+```
+
+**Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
+layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
+clicks and typing still reach the page. Press **Take control** on that layer to get the page back.
+It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
+meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
+when the agent's turn ends.
+
 ## Skills and MCP servers
 
 The pill above the composer says how many of each this folder has. Click it to see them.
@@ -341,7 +359,7 @@ to your shell. `Ctrl+B` and `Ctrl+D` are the app's: the sidebar and dictation.
 | `Ctrl+D` | dictate into the chat box |
 | `Shift+Tab` | cycle the permission modes, from the prompt |
 | `Ctrl+Shift+B` | show or hide the preview |
-| `Ctrl+Shift+E` | pick an element |
+| `Ctrl+Shift+E` | pick an element, or drag to pick an area |
 | `Ctrl+Shift+T` | new terminal tab |
 | `Ctrl+Shift+L` | focus the address bar |
 | `Ctrl+Shift+J` | console and network drawer |

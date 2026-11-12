@@ -42,6 +42,21 @@ function Body({ item }) {
     );
   }
 
+  if (item.kind === 'element' && item.hit.area) {
+    const { hit, shotPath } = item;
+    return (
+      <div className="flex flex-col gap-2.5">
+        <Field label="box" mono>{hit.rect.w}×{hit.rect.h} at {hit.rect.x},{hit.rect.y}</Field>
+        {hit.contains.length > 0 && (
+          <Field label="contains">
+            {hit.contains.map((c) => `${c.role === 'generic' ? c.tag : c.role} ${c.name}`.trim()).join(', ')}
+          </Field>
+        )}
+        {shotPath && <PathRow label="shot" path={shotPath} />}
+      </div>
+    );
+  }
+
   if (item.kind === 'element') {
     const { hit, shotPath } = item;
     return (
@@ -138,7 +153,7 @@ export function AttachmentPreview({ item, onNote, onOpenChange }) {
             <DialogHeader className="gap-0 text-left">
               <DialogTitle className="flex items-center gap-2 truncate pr-6 text-sm">
                 {item.kind === 'element' && <CrosshairIcon className="size-4 shrink-0 text-muted-foreground" />}
-                <span className="truncate">{item.kind === 'element' ? 'Element from the page' : item.name}</span>
+                <span className="truncate">{item.kind === 'element' ? (item.hit.area ? 'Area of the page' : 'Element from the page') : item.name}</span>
               </DialogTitle>
               <DialogDescription className="text-xs">{subtitle(item)}</DialogDescription>
             </DialogHeader>

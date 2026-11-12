@@ -335,7 +335,10 @@
     },
 
     // Let the human point at something instead of describing it, then say what
-    // is wrong with it without leaving the page. The note bar is drawn in here
+    // is wrong with it without leaving the page. A click picks the element under
+    // the pointer; a drag picks the stretch of the page it drew over, for the
+    // times the thing is a region (two cards that do not line up, a gap) rather
+    // than one node. The note bar is drawn in here
     // rather than as a dialog in the app shell for two reasons: the shell would
     // have to move the whole pane out of its own way to be seen over it, and
     // the thing being described would go with it.
@@ -370,6 +373,8 @@
         let bar = null;
         let locked = false;
         let settled = false;
+        let press = null;      // where the button went down, until it comes up
+        let dragging = false;
 
         const ours = (el) => !!(el && el.closest && el.closest('[data-conn-overlay]'));
 
@@ -399,7 +404,94 @@
 
         const follow = () => { if (current && current.isConnected) place(current); };
 
+        // The drawn rectangle reuses the hover box: square corners, the size in
+        // the tip, and nothing under it highlighted while it grows.
+        const span = (e) => {
+          const left = Math.min(press.x, e.clientX);
+          const top = Math.min(press.y, e.clientY);
+          return { left, top, width: Math.abs(e.clientX - press.x), height: Math.abs(e.clientY - press.y) };
+        };
+        const drawSpan = (s) => {
+          box.style.visibility = 'visible';
+          box.style.left = s.left + 'px';
+          box.style.top = s.top + 'px';
+          box.style.width = s.width + 'px';
+          box.style.height = s.height + 'px';
+          box.style.borderRadius = '0px';
+          box.style.transition = 'none';
+          tip.style.visibility = 'visible';
+          tip.textContent = `area  ${Math.round(s.width)}\u00d7${Math.round(s.height)}`;
+          tip.style.left = `${Math.max(4, Math.min(s.left, window.innerWidth - tip.offsetWidth - 4))}px`;
+          tip.style.top = `${Math.max(4, s.top - (tip.offsetHeight || 20) - 4)}px`;
+        };
+
+        // What is inside the area, outermost first: an element wholly inside
+        // it, named the way the snapshot names things, and not one already
+        // covered by an ancestor on the list. Enough to say which controls the
+        // area holds without pasting the page.
+        const inside = (s) => {
+          const out = [];
+          const right = s.left + s.width;
+          const bottom = s.top + s.height;
+          for (const el of document.body.querySelectorAll('*')) {
+            if (out.length >= 12) break;
+            if (ours(el) || out.some((o) => o.el.contains(el))) continue;
+            const r = el.getBoundingClientRect();
+            if (!r.width || !r.height) continue;
+            if (r.left < s.left || r.top < s.top || r.right > right || r.bottom > bottom) continue;
+            const kind = role(el);
+            const name = label(el);
+            if (kind === 'generic' && !name) continue;
+            out.push({ el, ref: ref(el), role: kind, tag: el.tagName.toLowerCase(), name: name.slice(0, 60) });
+          }
+          return out.map(({ el, ...rest }) => rest);
+        };
+
+        const down = (e) => {
+          if (e.button !== 0 || ours(e.target)) return;
+          // Nothing the page does on a press should run while it is being
+          // pointed at, and a drag must not select its text instead.
+          e.preventDefault(); e.stopPropagation();
+          press = { x: e.clientX, y: e.clientY };
+          dragging = false;
+        };
+        const up = (e) => {
+          if (!press) return;
+          e.preventDefault(); e.stopPropagation();
+          const was = dragging;
+          const s = span(e);
+          press = null;
+          dragging = false;
+          if (!was) return;
+          // The click Chromium sends after this press would land on the page
+          // once the bar is up and the click handler is gone.
+          const eat = (c) => { c.preventDefault(); c.stopPropagation(); };
+          document.addEventListener('click', eat, { capture: true, once: true });
+          setTimeout(() => document.removeEventListener('click', eat, true), 0);
+          const w = Math.round(s.width);
+          const h = Math.round(s.height);
+          ask({
+            area: true,
+            ref: null,
+            css: null,
+            role: 'area',
+            tag: 'area',
+            name: `${w}\u00d7${h}`,
+            text: '',
+            rect: { x: Math.round(s.left), y: Math.round(s.top), w, h },
+            scroll: { x: Math.round(window.scrollX), y: Math.round(window.scrollY) },
+            contains: inside(s),
+          }, { left: s.left, top: s.top, right: s.left + s.width, bottom: s.top + s.height });
+        };
+
         const move = (e) => {
+          if (press) {
+            if (!dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) < 6) return;
+            dragging = true;
+            current = null;
+            drawSpan(span(e));
+            return;
+          }
           const el = document.elementFromPoint(e.clientX, e.clientY);
           if (!el || ours(el) || el === current) return;
           current = el;
@@ -418,6 +510,8 @@
           locked = true;
           document.removeEventListener('mousemove', move, true);
           document.removeEventListener('click', click, true);
+          document.removeEventListener('mousedown', down, true);
+          document.removeEventListener('mouseup', up, true);
           tip.remove();
 
           bar = document.createElement('div');
@@ -484,12 +578,16 @@
           box.remove(); tip.remove(); bar?.remove();
           document.removeEventListener('mousemove', move, true);
           document.removeEventListener('click', click, true);
+          document.removeEventListener('mousedown', down, true);
+          document.removeEventListener('mouseup', up, true);
           document.removeEventListener('keydown', key, true);
           document.removeEventListener('scroll', follow, true);
           window.removeEventListener('resize', follow);
         };
         this._resolvePick = finish;
         document.addEventListener('mousemove', move, true);
+        document.addEventListener('mousedown', down, true);
+        document.addEventListener('mouseup', up, true);
         document.addEventListener('click', click, true);
         document.addEventListener('keydown', key, true);
         document.addEventListener('scroll', follow, true);

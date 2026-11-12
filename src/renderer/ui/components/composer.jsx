@@ -736,7 +736,9 @@ function Attachment({ item, onOpen, onRemove }) {
               are about to send says what you meant without opening anything. */}
           {item.note && <span className="min-w-0 truncate text-muted-foreground">— {item.note}</span>}
         </>,
-        item.note ? `${hit.css} — ${item.note}` : 'Click for the selector and the box it was in',
+        hit.area
+          ? (item.note ? `area ${hit.name} — ${item.note}` : 'Click for the box and what is inside it')
+          : (item.note ? `${hit.css} — ${item.note}` : 'Click for the selector and the box it was in'),
       )}
       {remove}
     </Badge>

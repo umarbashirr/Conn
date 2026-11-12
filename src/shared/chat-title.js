@@ -7,7 +7,7 @@ const PLACEHOLDER = /\[(Image #\d+|Pasted text #\d+|Attached )[^\]]*\]/g;
 // picture or a file: a bracketed head line, indented detail lines, a blank
 // line. The agent needs all of it. A title needs none of it, except the note
 // someone wrote against it, which is the message when nothing was typed.
-const ATTACHED = /^\[(?:preview element|attached [a-z]+)\][^\n]*(?:\n {2}[^\n]*)*\n\n/;
+const ATTACHED = /^\[(?:preview (?:element|area)|attached [a-z]+)\][^\n]*(?:\n {2}[^\n]*)*\n\n/;
 const NOTE = /\n {2}note: ([^\n]+)/g;
 
 function chatTitle(text) {

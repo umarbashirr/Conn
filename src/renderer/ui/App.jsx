@@ -83,7 +83,17 @@ function attachmentText(list, body, names, { provider, canvas }) {
   const lines = [];
 
   for (const a of list) {
-    if (a.kind === 'element') {
+    if (a.kind === 'element' && a.hit.area) {
+      const { hit, shotPath } = a;
+      const named = (c) => `${c.role === 'generic' ? c.tag : c.role} ${JSON.stringify(c.name)}${c.ref ? ` (${c.ref})` : ''}`;
+      lines.push([
+        '[preview area]',
+        `  area: ${hit.rect.w}x${hit.rect.h} at ${hit.rect.x},${hit.rect.y} in the viewport, page scrolled to ${hit.scroll.x},${hit.scroll.y}`,
+        hit.contains.length ? `  contains: ${hit.contains.map(named).join(', ')}` : null,
+        shotPath ? `  screenshot: ${shotPath}` : null,
+        noteLine(a),
+      ].filter(Boolean).join('\n'));
+    } else if (a.kind === 'element') {
       const { hit, shotPath } = a;
       lines.push([
         '[preview element]',

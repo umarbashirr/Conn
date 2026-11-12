@@ -4,6 +4,7 @@
 // block is for the agent; the person already sees the $ badge they typed.
 const HEAD_KIND = {
   'preview element': 'element',
+  'preview area': 'element',
   'attached image': 'element',
   'attached file': 'element',
   'conn canvas selection': 'frames',
@@ -23,6 +24,10 @@ function attachedLabel(head, detail, tail) {
   if (head === 'preview element') {
     const line = /\n {2}element: (.+)/.exec(tail);
     return line ? line[1].replace(/"/g, '') : 'element';
+  }
+  if (head === 'preview area') {
+    const size = /\n {2}area: (\d+x\d+)/.exec(tail);
+    return size ? `area ${size[1]}` : 'area';
   }
   if (head === 'conn canvas selection') {
     const names = [...tail.matchAll(/ {2}\((.+)\)$/gm)].map((m) => m[1]);

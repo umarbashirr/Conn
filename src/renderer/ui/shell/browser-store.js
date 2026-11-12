@@ -447,10 +447,12 @@ export async function pickElement(tab = current) {
   changed();
   if (!hit) return;
 
-  // Grab the element itself so the agent can look at it, not just read about it.
+  // Grab the element, or the area drawn, so the agent can look at it, not just
+  // read about it.
   let shotPath = null;
   try {
-    const shot = await window.conn.browser.action('screenshot', { target: hit.ref, name: `pick-${Date.now()}` }, tab);
+    const where = hit.area ? { clip: hit.rect } : { target: hit.ref };
+    const shot = await window.conn.browser.action('screenshot', { ...where, name: `pick-${Date.now()}` }, tab);
     shotPath = shot?.path || null;
   } catch { /* the description is worth sending without the picture */ }
 

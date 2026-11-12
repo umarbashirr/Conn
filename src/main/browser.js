@@ -490,11 +490,18 @@ class BrowserPane extends EventEmitter {
     return nativeImage.createFromBuffer(Buffer.from(res.data, 'base64'));
   }
 
-  async screenshot({ fullPage = false, target, name } = {}) {
+  // `clip` is a box in the viewport, { x, y, w, h }, for an area picked by hand.
+  async screenshot({ fullPage = false, target, clip, name } = {}) {
     // The pointer the last action left on the page is for the human watching
     // the pane, not for whoever reads this file.
     await this.#js('window.__conn.cursorHide()').catch(() => {});
     const image = await this.#awake(async (woken) => {
+      if (clip) {
+        return this.#grab({
+          x: Math.max(0, Math.round(clip.x)), y: Math.max(0, Math.round(clip.y)),
+          width: Math.max(1, Math.round(clip.w)), height: Math.max(1, Math.round(clip.h)),
+        }, woken);
+      }
       if (target) {
         const p = await this.#js(`window.__conn.point(${JSON.stringify(target)})`);
         const r = p.rect;
