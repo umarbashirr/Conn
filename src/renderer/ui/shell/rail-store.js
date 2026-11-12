@@ -245,8 +245,8 @@ export function grouped(filter = '') {
     });
   }
 
-  // The folder you worked in last is the one you are most likely to want.
-  out.sort((a, b) => b.at - a.at);
+  // Folders stay in the order they were added. Sorting by the newest chat made
+  // them jump around every time an agent wrote to one.
   return out;
 }
 
