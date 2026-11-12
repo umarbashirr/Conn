@@ -1,0 +1,8 @@
+Options -Indexes
+DirectoryIndex index.html
+
+<IfModule mod_headers.c>
+  Header set Cache-Control "public, max-age=0, must-revalidate"
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
