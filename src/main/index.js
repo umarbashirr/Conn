@@ -1544,6 +1544,46 @@ function registerIpc() {
     return res;
   });
 
+  // A branch in its own folder, opened next to the one it was cut from, so a
+  // chat there edits files no other chat is touching.
+  ipcMain.handle('project:worktree', async (_e, { dir, name } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const res = await git.addWorktree(root, name);
+    if (!res.ok) return res;
+    const opened = addProject(res.dir);
+    if (opened?.error) return { ok: false, error: opened.error };
+    return res;
+  });
+
+  ipcMain.handle('project:worktrees', async (_e, { dir } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.', worktrees: [] };
+    const res = await git.listWorktrees(root);
+    for (const w of res.worktrees) w.open = open.has(w.dir);
+    return res;
+  });
+  // The folder is closed in this window first, so its chats and shells stop
+  // before git deletes the files under them.
+  ipcMain.handle('project:worktree-remove', async (_e, { dir, target, force } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const at = path.resolve(target || '');
+    // Refused before anything closes, so a dirty worktree is not shut in the
+    // window only for git to decline to remove it.
+    if (!force) {
+      const w = (await git.listWorktrees(root)).worktrees.find((x) => x.dir === at);
+      if (w?.dirty) return { ok: false, dirty: true, error: 'It has uncommitted changes.' };
+    }
+    if (open.has(at)) {
+      const closed = closeProject(at);
+      if (closed?.error) return { ok: false, error: closed.error };
+    }
+    const res = await git.removeWorktree(root, at, !!force);
+    announce();
+    return res;
+  });
+
   // --- terminal ---
   ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh, project } = {}) => {
     const id = 't' + (terms.size + 1) + '-' + Date.now().toString(36);

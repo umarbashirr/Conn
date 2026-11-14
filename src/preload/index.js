@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('conn', {
     reorder: (dirs) => ipcRenderer.invoke('project:reorder', { dirs }),
     branches: (dir) => ipcRenderer.invoke('project:branches', { dir }),
     checkout: (dir, name, create) => ipcRenderer.invoke('project:checkout', { dir, name, create: !!create }),
+    worktree: (dir, name) => ipcRenderer.invoke('project:worktree', { dir, name }),
+    worktrees: (dir) => ipcRenderer.invoke('project:worktrees', { dir }),
+    removeWorktree: (dir, target, force) => ipcRenderer.invoke('project:worktree-remove', { dir, target, force: !!force }),
     onChanged: on('project:changed'),
   },
 

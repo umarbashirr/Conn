@@ -18,7 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ClipboardIcon, CopyIcon, DownloadIcon, FileDownIcon, FileIcon, FolderIcon, FolderPlusIcon, FolderTreeIcon,
-  GitCompareIcon, GlobeIcon, InfoIcon, MaximizeIcon, MessageSquareIcon, PaletteIcon,
+  GitCompareIcon, GitForkIcon, GlobeIcon, InfoIcon, MaximizeIcon, MessageSquareIcon, PaletteIcon,
   PlusIcon, RotateCwIcon, SettingsIcon, SquarePenIcon, SquareTerminalIcon, SunMoonIcon, TerminalIcon,
 } from 'lucide-react';
 import {
@@ -43,6 +43,7 @@ const COMMANDS = [
   { name: 'preview', bind: 'preview', label: 'Preview browser', icon: GlobeIcon },
   { name: 'files', bind: 'files', label: 'Project files', icon: FolderTreeIcon },
   { name: 'changes', bind: 'changes', label: 'Uncommitted changes', icon: GitCompareIcon },
+  { name: 'worktrees', label: 'Worktrees', icon: GitForkIcon },
   { name: 'terminal', bind: 'terminal', label: 'Terminal', icon: TerminalIcon },
   { name: 'drawer', bind: 'drawer', label: 'Console and network', icon: SquareTerminalIcon },
   { name: 'previewFull', bind: 'previewFull', label: 'Right pane at full width', icon: MaximizeIcon },

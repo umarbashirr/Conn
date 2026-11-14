@@ -101,4 +101,107 @@ async function useBranch(dir, name, create) {
   return { ok: true, branch: branch(dir) };
 }
 
-module.exports = { branch, branches, gitDir, useBranch };
+// Where git keeps the main checkout's .git, so every worktree of a repository
+// lands under the same main folder rather than nesting inside another worktree.
+async function commonRoot(dir) {
+  const res = await new Promise((resolve) => {
+    execFile('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, timeout: 20000, windowsHide: true },
+      (err, stdout) => resolve(err ? null : stdout.trim()));
+  });
+  return res ? path.dirname(res) : null;
+}
+
+// The same place Claude Code puts its worktrees, so a chat started in one by
+// the CLI and a chat started here share the folder and the rail section.
+const WORKTREES = path.join('.claude', 'worktrees');
+
+// Keep the worktree folders out of the main checkout's git status without
+// touching a tracked .gitignore.
+function excludeWorktrees(common) {
+  const file = path.join(common, '.git', 'info', 'exclude');
+  const line = `/${WORKTREES.split(path.sep).join('/')}/`;
+  try {
+    const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+    if (text.split('\n').some((l) => l.trim() === line)) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`);
+  } catch { /* a read-only .git still gets its worktree, just a noisier status */ }
+}
+
+// A new branch from what `dir` has checked out, in its own folder. The folder
+// name is the branch name with slashes flattened, so feat/x and feat-x clash
+// and the second is refused rather than silently renamed.
+async function addWorktree(dir, name) {
+  if (!gitDir(dir)) return { ok: false, error: 'This folder is not a git repository.' };
+  const next = typeof name === 'string' ? name.trim() : '';
+  const why = branchNameError(next);
+  if (why) return { ok: false, error: why };
+  if (branches(dir).includes(next)) return { ok: false, error: 'That branch already exists.' };
+  const common = await commonRoot(dir);
+  if (!common) return { ok: false, error: 'Could not find the repository root.' };
+  const target = path.join(common, WORKTREES, next.replace(/\//g, '-'));
+  if (fs.existsSync(target)) return { ok: false, error: `${target} already exists.` };
+  excludeWorktrees(common);
+  const res = await gitRun(['worktree', 'add', '-b', next, target, 'HEAD'], dir);
+  if (res.missing) return { ok: false, error: 'git is not installed.' };
+  if (res.code !== 0) return { ok: false, error: said(res.stderr) };
+  return { ok: true, dir: target, branch: next };
+}
+
+function gitOut(args, cwd) {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, timeout: 20000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+      (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+
+// Every worktree of the repository `dir` belongs to, the main checkout first,
+// read from git rather than from the folder, so ones made by `claude
+// --worktree` or by hand in a terminal show too. Each linked one carries how
+// far it has moved from the branch the main checkout is on, and how many files
+// it has not committed.
+async function listWorktrees(dir) {
+  if (!gitDir(dir)) return { ok: false, error: 'This folder is not a git repository.', worktrees: [] };
+  const text = await gitOut(['worktree', 'list', '--porcelain'], dir);
+  if (text == null) return { ok: false, error: 'git worktree list failed.', worktrees: [] };
+  const list = [];
+  let cur = null;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('worktree ')) list.push(cur = { dir: path.resolve(line.slice(9)), branch: null, head: '', detached: false, prunable: false });
+    else if (!cur) continue;
+    else if (line.startsWith('HEAD ')) cur.head = line.slice(5, 12);
+    else if (line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '');
+    else if (line === 'detached') cur.detached = true;
+    else if (line.startsWith('prunable')) cur.prunable = true;
+  }
+  list.forEach((w, i) => { w.main = i === 0; });
+  const base = list[0]?.branch || null;
+  await Promise.all(list.map(async (w) => {
+    if (w.main || w.prunable) return;
+    const [counts, status] = await Promise.all([
+      base && w.branch ? gitOut(['rev-list', '--left-right', '--count', `${base}...${w.branch}`], dir) : null,
+      gitOut(['status', '--porcelain'], w.dir),
+    ]);
+    const m = /^(\d+)\s+(\d+)/.exec(counts || '');
+    if (m) { w.behind = Number(m[1]); w.ahead = Number(m[2]); }
+    w.dirty = status == null ? null : status.split('\n').filter(Boolean).length;
+  }));
+  return { ok: true, base, worktrees: list };
+}
+
+// Takes the folder away and keeps the branch, so the commits made there are
+// still one `git switch` away. Uncommitted files stop it unless `force`.
+async function removeWorktree(dir, target, force) {
+  const { worktrees } = await listWorktrees(dir);
+  const w = worktrees.find((x) => x.dir === path.resolve(target || ''));
+  if (!w) return { ok: false, error: 'That is not a worktree of this repository.' };
+  if (w.main) return { ok: false, error: 'The main checkout cannot be removed.' };
+  const res = await gitRun(['worktree', 'remove', ...(force ? ['--force'] : []), w.dir], worktrees[0].dir);
+  if (res.code !== 0) {
+    const dirty = /contains modified or untracked files|is dirty/.test(res.stderr);
+    return { ok: false, dirty, error: dirty ? 'It has uncommitted changes.' : said(res.stderr) };
+  }
+  return { ok: true, branch: w.branch };
+}
+
+module.exports = { addWorktree, branch, branches, gitDir, listWorktrees, removeWorktree, useBranch };

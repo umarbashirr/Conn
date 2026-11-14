@@ -737,6 +737,7 @@ const toggleFiles = () => toggleRight('files');
 const toggleChanges = () => toggleRight('changes');
 const toggleAgents = () => toggleRight('agents');
 const toggleCanvas = () => toggleRight('canvas');
+const toggleWorktrees = () => toggleRight('worktrees');
 
 // The right column at full width: the chat collapses to nothing and whichever
 // tab is showing takes the whole content column. The rail is deliberately left
@@ -820,6 +821,10 @@ export function runCommand(name, arg) {
       if (arg === true) return showRight('canvas');
       if (arg === false) return hideRight();
       return toggleCanvas();
+    case 'worktrees':
+      if (arg === true) return showRight('worktrees');
+      if (arg === false) return hideRight();
+      return toggleWorktrees();
     case 'openFile':
       if (!arg) return undefined;
       showRight('files');

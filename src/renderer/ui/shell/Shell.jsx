@@ -16,7 +16,7 @@
    means percent, so "18" is 18% of the window. */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { usePanelRef } from 'react-resizable-panels';
-import { BotIcon, FolderTreeIcon, GitCompareIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
+import { BotIcon, FolderTreeIcon, GitCompareIcon, GitForkIcon, GlobeIcon, PaletteIcon, PlusIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -33,6 +33,7 @@ import { focusShell, runCommand } from '../../app.js';
 import { onProject, project } from '../../project.js';
 import TitleBar from './TitleBar';
 import AgentsView from './AgentsView';
+import WorktreesView from './WorktreesView';
 import BrowserView from './BrowserView';
 import CanvasView from './CanvasView';
 import ChangesView from './ChangesView';
@@ -108,6 +109,7 @@ export const VIEW_KINDS = {
   terminal: { icon: SquareTerminalIcon, label: 'Terminal', command: 'terminal', adds: 'newTerminal', bind: 'terminal', title: 'Terminal' },
   agents: { icon: BotIcon, label: 'Agents', command: 'agents', title: "This chat's subagents" },
   canvas: { icon: PaletteIcon, label: 'Canvas', command: 'canvas', bind: 'canvas', title: 'Design canvas' },
+  worktrees: { icon: GitForkIcon, label: 'Worktrees', command: 'worktrees', title: "This repository's worktrees" },
 };
 
 // A preview whose page has not said what it is yet, or has not loaded anything
@@ -338,6 +340,7 @@ export default function Shell() {
                 <ChangesView />
                 <AgentsView />
                 <CanvasView />
+                <WorktreesView />
                 <Terminals />
               </section>
             </ResizablePanel>
