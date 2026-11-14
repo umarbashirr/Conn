@@ -34,6 +34,7 @@ writeFileSync(
 export const Platform = { OS: 'ios', select: (m) => m.ios ?? m.default };
 export const StatusBar = { currentHeight: 0 };
 export const StyleSheet = { hairlineWidth: 1, create: (s) => s };
+export const Appearance = { getColorScheme: () => 'dark', addChangeListener: () => ({ remove() {} }) };
 export function View(props) { return props; }
 export function Text(props) { return props; }
 export function Pressable(props) { return props; }
@@ -61,6 +62,8 @@ writeFileSync(
 `,
 );
 
+writeFileSync(join(outDir, 'vector-icons.js'), 'export function Ionicons(props) { return props; }\n');
+
 await build({
   entryPoints: [join(root, 'src/chat.tsx')],
   outfile: join(outDir, 'chat.js'),
@@ -72,6 +75,7 @@ await build({
   alias: {
     'react-native': stubPath,
     '@react-native-async-storage/async-storage': join(outDir, 'async-storage.js'),
+    '@expo/vector-icons': join(outDir, 'vector-icons.js'),
   },
   plugins: [
     {

@@ -2,7 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { Platform, Text } from 'react-native';
 import Markdown, { MarkdownIt, type RenderRules } from 'react-native-markdown-display';
 import multimdTable from 'markdown-it-multimd-table';
-import { zinc } from './theme/zinc';
+import { currentScheme, zinc } from './theme/zinc';
 
 const mono = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
@@ -54,8 +54,8 @@ type Tone = 'prose' | 'faint';
 
 function palette(tone: Tone) {
   const color = tone === 'faint' ? zinc.faint : zinc.text;
-  const fontSize = tone === 'faint' ? 12 : 14;
-  const lineHeight = tone === 'faint' ? 17 : 21;
+  const fontSize = tone === 'faint' ? 13.5 : 16;
+  const lineHeight = tone === 'faint' ? 19 : 23;
   const text = { color, fontSize, lineHeight };
   return {
     body: text,
@@ -65,9 +65,9 @@ function palette(tone: Tone) {
       marginTop: 0,
       marginBottom: tone === 'faint' ? 4 : 8,
     },
-    heading1: { ...text, fontSize: 20, lineHeight: 26, fontWeight: '600' as const, marginTop: 8, marginBottom: 4 },
-    heading2: { ...text, fontSize: 17, lineHeight: 23, fontWeight: '600' as const, marginTop: 8, marginBottom: 4 },
-    heading3: { ...text, fontSize: 15, lineHeight: 21, fontWeight: '600' as const, marginTop: 6, marginBottom: 2 },
+    heading1: { ...text, fontSize: 21, lineHeight: 27, fontWeight: '600' as const, marginTop: 8, marginBottom: 4 },
+    heading2: { ...text, fontSize: 18, lineHeight: 24, fontWeight: '600' as const, marginTop: 8, marginBottom: 4 },
+    heading3: { ...text, fontSize: 16, lineHeight: 22, fontWeight: '600' as const, marginTop: 6, marginBottom: 2 },
     heading4: { ...text, fontWeight: '600' as const },
     heading5: text,
     heading6: text,
@@ -98,23 +98,23 @@ function palette(tone: Tone) {
     },
     fence: {
       fontFamily: mono,
-      backgroundColor: zinc.input,
+      backgroundColor: zinc.raised,
       color: zinc.text,
       borderWidth: 0,
-      borderRadius: 8,
-      padding: 10,
-      fontSize: 12,
-      lineHeight: 18,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 13.5,
+      lineHeight: 20,
     },
     code_block: {
       fontFamily: mono,
-      backgroundColor: zinc.input,
+      backgroundColor: zinc.raised,
       color: zinc.text,
       borderWidth: 0,
-      borderRadius: 8,
-      padding: 10,
-      fontSize: 12,
-      lineHeight: 18,
+      borderRadius: 10,
+      padding: 12,
+      fontSize: 13.5,
+      lineHeight: 20,
     },
     table: { borderColor: zinc.border, borderWidth: 1 },
     tr: { borderColor: zinc.border },
@@ -123,8 +123,12 @@ function palette(tone: Tone) {
   };
 }
 
-const proseStyle = palette('prose');
-const faintStyle = palette('faint');
+const built: Partial<Record<string, ReturnType<typeof palette>>> = {};
+
+function styleFor(tone: Tone, scheme: string): ReturnType<typeof palette> {
+  const key = `${scheme}:${tone}`;
+  return (built[key] ??= palette(tone));
+}
 
 function fenceBody(content: string): string {
   return content.endsWith('\n') ? content.slice(0, -1) : content;
@@ -149,8 +153,9 @@ const rules: RenderRules = {
 };
 
 export function MarkdownText({ text, tone = 'prose' }: { text: string; tone?: Tone }): ReactElement {
+  const scheme = currentScheme();
   return (
-    <Markdown markdownit={markdownIt} style={tone === 'faint' ? faintStyle : proseStyle} rules={rules}>
+    <Markdown markdownit={markdownIt} style={styleFor(tone, scheme)} rules={rules}>
       {text}
     </Markdown>
   );

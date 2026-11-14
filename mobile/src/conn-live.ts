@@ -606,6 +606,11 @@ function onLive(frame: Record<string, unknown>): void {
     case 'agent:permission':
       onPermission(session, payload);
       return;
+    case 'agent:echo':
+      if (typeof payload.text === 'string' && typeof payload.id === 'string' && payload.id !== '') {
+        emit({ type: 'prompt', session, id: payload.id, text: payload.text });
+      }
+      return;
     case 'agent:ready':
       learnResume(session, payload.sessionId);
       return;
@@ -631,11 +636,10 @@ function onAck(frame: Record<string, unknown>): void {
     hadAuth = true;
     authFailed = false;
     delayMs = 1000;
-    const down = wasDown;
     wasDown = false;
     flush();
     refreshChats();
-    if (down && lastChat) note(lastChat, 'reconnected to Conn');
+    setLink(true);
     return;
   }
   if (frame.of === 'projects') {
@@ -745,7 +749,7 @@ function onFrame(raw: unknown): void {
   else if (raw.op === 'reject') {
     authFailed = true;
     authed = false;
-    if (lastChat) note(lastChat, 'The mobile gate rejected the token.', { error: true, id: 'gate-auth' });
+    setLink(false, 'Conn didn’t accept this phone. Scan the code again.');
   }
 }
 
@@ -753,6 +757,24 @@ function enqueueStorage<T>(op: () => Promise<T>): Promise<T> {
   const run = storageTail.then(op, op);
   storageTail = run.then(() => undefined, () => undefined);
   return run;
+}
+
+export type LinkState = { readonly online: boolean; readonly reason: string };
+let link: LinkState = { online: false, reason: '' };
+const linkListeners = new Set<(state: LinkState) => void>();
+
+function setLink(online: boolean, reason = ''): void {
+  if (link.online === online && link.reason === reason) return;
+  link = { online, reason };
+  for (const cb of linkListeners) cb(link);
+}
+
+// Whether the socket to Conn is up right now, and why not when it is down.
+// The screens show this as a banner instead of writing it into a chat.
+export function onLink(cb: (state: LinkState) => void): () => void {
+  cb(link);
+  linkListeners.add(cb);
+  return () => { linkListeners.delete(cb); };
 }
 
 function emitPhone(next: PhoneStatus): void {
@@ -838,16 +860,14 @@ function openSocket(): void {
     authed = false;
     if (authFailed) return;
     if (event.code === 4000 && event.reason === 'replaced') {
-      if (lastChat) {
-        note(lastChat, 'Another phone took the mobile gate.', { error: true, id: 'gate-link' });
-      }
+      setLink(false, 'Another phone is connected to Conn.');
       return;
     }
     if (hadAuth) {
       wasDown = true;
-      if (lastChat) note(lastChat, 'the link to Conn dropped', { error: true, id: 'gate-link' });
-    } else if (lastChat) {
-      note(lastChat, 'Conn is not reachable.', { error: true, id: 'gate-link' });
+      setLink(false, 'Reconnecting to Conn…');
+    } else {
+      setLink(false, 'Can’t reach Conn. Is it open on your computer?');
     }
     scheduleReconnect();
   };

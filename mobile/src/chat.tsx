@@ -6,7 +6,8 @@ import { attachLive, decidePerm, refreshChats, requestTranscript, sendTurn } fro
 import { takePhotos, type Photo, type PhotoSource } from './photos';
 import { MarkdownText } from './markdown-text';
 import { QuestionCard } from './question-card';
-import { layout, zinc } from './theme/zinc';
+import { Ionicons } from '@expo/vector-icons';
+import { layout, radius, space, type, zinc, themed } from './theme/zinc';
 
 declare const sessionBrand: unique symbol;
 declare const itemBrand: unique symbol;
@@ -187,6 +188,7 @@ export type LiveEvent =
       readonly verdict: PermVerdict;
       readonly answers?: Readonly<Record<string, string>>;
     }
+  | { readonly type: 'prompt'; readonly session: SessionId; readonly id: string; readonly text: string }
   | { readonly type: 'catalog'; readonly folders: readonly CatalogFolder[] }
   | { readonly type: 'transcript'; readonly session: SessionId; readonly messages: readonly unknown[] };
 
@@ -248,7 +250,7 @@ const NEW_TITLE = 'New chat';
 const STARTERS: readonly string[] = [
   'Explain how this project is organised',
   'What should change?',
-  'Where do the zinc colors live?',
+  'Run the tests and fix what fails',
 ];
 
 const SEEDED_AT = Date.now();
@@ -368,7 +370,7 @@ function rowMark(session: Session): RowMark {
 
 function rowLine(mark: RowMark): string {
   if (mark === 'working') return 'Working';
-  if (mark === 'waiting') return 'Review';
+  if (mark === 'waiting') return 'Needs your review';
   return '';
 }
 
@@ -652,6 +654,15 @@ function upsertItem(state: ChatState, session: SessionId, item: LiveItem, now: n
   return { ...ready, itemsBySession: { ...ready.itemsBySession, [session]: next } };
 }
 
+// A prompt typed on the computer into a chat this phone is following.
+function addPrompt(state: ChatState, session: SessionId, id: string, text: string, now: number): ChatState {
+  if (text.trim() === '') return state;
+  const ready = ensureSession(state, session, now);
+  const items = ready.itemsBySession[session];
+  if (items.some((entry) => entry.id === id)) return ready;
+  return { ...ready, itemsBySession: { ...ready.itemsBySession, [session]: [...items, userItem(id, text)] } };
+}
+
 function markPerm(
   state: ChatState,
   session: SessionId,
@@ -833,6 +844,8 @@ function reduceLive(state: ChatState, event: LiveEvent, now: number): ChatState 
       return upsertItem(state, event.session, event.item, now);
     case 'decide':
       return markPerm(state, event.session, event.itemId, event.verdict, event.answers);
+    case 'prompt':
+      return addPrompt(state, event.session, event.id, event.text, now);
     case 'catalog':
       return applyCatalog(state, event, now);
     case 'transcript':
@@ -1183,15 +1196,23 @@ function ToolPermCard({ item }: { item: PermItem }): ReactElement {
       {item.reason ? <Text style={styles.permReason}>{item.reason}</Text> : null}
       {item.askedBy ? <Text style={styles.reasoning}>{item.askedBy}</Text> : null}
       <View style={styles.permActions}>
-        <Pressable onPress={() => answerPerm(item.id, 'allow')} accessibilityLabel="Allow">
-          <Text style={styles.permAction}>Allow</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'always')} accessibilityLabel="Always">
-          <Text style={styles.permAction}>Always</Text>
-        </Pressable>
-        <Pressable onPress={() => answerPerm(item.id, 'deny')} accessibilityLabel="Deny">
-          <Text style={styles.permAction}>Deny</Text>
-        </Pressable>
+        {(
+          [
+            ['allow', 'Allow', styles.permPrimary, styles.permPrimaryText],
+            ['always', 'Always', null, null],
+            ['deny', 'Deny', null, styles.permDenyText],
+          ] as const
+        ).map(([verdict, label, box, text]) => (
+          <Pressable
+            key={verdict}
+            onPress={() => answerPerm(item.id, verdict)}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            style={({ pressed }) => [styles.permButton, box, pressed && styles.permPressed]}
+          >
+            <Text style={[styles.permAction, text]}>{label}</Text>
+          </Pressable>
+        ))}
       </View>
     </View>
   );
@@ -1258,7 +1279,18 @@ function AgentRow({ item }: { item: AgentItem }) {
 }
 
 function renderNote(item: NoteItem): ReactElement {
-  return <Text style={[styles.note, { color: item.error ? zinc.danger : zinc.faint }]}>{item.text}</Text>;
+  const text = item.text.charAt(0).toUpperCase() + item.text.slice(1);
+  const done = !item.error && /^done in /i.test(item.text);
+  return (
+    <View style={[styles.noteRow, item.error && styles.noteError]}>
+      <Ionicons
+        name={item.error ? 'alert-circle' : done ? 'checkmark-circle' : 'information-circle-outline'}
+        size={15}
+        color={item.error ? zinc.danger : done ? zinc.working : zinc.faint}
+      />
+      <Text style={[styles.note, { color: item.error ? zinc.danger : zinc.faint }]}>{text}</Text>
+    </View>
+  );
 }
 
 function renderTool(item: ToolItem, permMark: PermMark | undefined): ReactElement {
@@ -1301,12 +1333,13 @@ export function ChatItemView({ row }: { row: TranscriptRow }): ReactElement {
 
 const monoFont = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   user: {
     alignSelf: 'flex-end',
     maxWidth: '85%',
     backgroundColor: zinc.secondary,
-    borderRadius: 16,
+    borderRadius: radius.lg + 4,
+    borderCurve: 'continuous',
     paddingHorizontal: layout.bubbleX,
     paddingVertical: layout.bubbleY,
     marginTop: 4,
@@ -1314,8 +1347,8 @@ const styles = StyleSheet.create({
   },
   userText: {
     color: zinc.text,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
   },
   thumbs: {
     flexDirection: 'row',
@@ -1324,8 +1357,8 @@ const styles = StyleSheet.create({
   },
   assistant: {
     color: zinc.text,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 23,
   },
   think: {
     gap: 4,
@@ -1333,12 +1366,12 @@ const styles = StyleSheet.create({
   },
   thinkLabel: {
     color: zinc.faint,
-    fontSize: 12,
+    fontSize: 13.5,
   },
   reasoning: {
     color: zinc.faint,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13.5,
+    lineHeight: 19,
   },
   plan: {
     gap: 3,
@@ -1347,11 +1380,11 @@ const styles = StyleSheet.create({
     borderLeftColor: zinc.border,
   },
   planEntry: {
-    fontSize: 12.5,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 20,
   },
   toolRow: {
-    paddingVertical: 4,
+    paddingVertical: 6,
     paddingHorizontal: 8,
     borderRadius: 6,
     borderLeftWidth: 2,
@@ -1370,19 +1403,19 @@ const styles = StyleSheet.create({
     width: 10,
   },
   toolName: {
-    fontSize: 12.5,
-    lineHeight: 17,
+    fontSize: 14,
+    lineHeight: 19,
   },
   toolSummary: {
     flex: 1,
     color: zinc.muted,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 19,
     fontFamily: monoFont,
   },
   toolOutput: {
-    fontSize: 11.5,
-    lineHeight: 16,
+    fontSize: 12.5,
+    lineHeight: 18,
     fontFamily: monoFont,
     backgroundColor: zinc.chrome,
     borderRadius: 5,
@@ -1406,21 +1439,55 @@ const styles = StyleSheet.create({
   },
   permReason: {
     color: zinc.waiting,
-    fontSize: 12.5,
+    fontSize: 14,
+    lineHeight: 19,
   },
   permActions: {
     flexDirection: 'row',
-    gap: 16,
+    gap: space.sm,
+    marginTop: space.xs,
+  },
+  permButton: {
+    flex: 1,
+    minHeight: layout.touch,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    backgroundColor: zinc.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  permPrimary: {
+    backgroundColor: zinc.send,
+  },
+  permPressed: {
+    opacity: 0.7,
   },
   permAction: {
-    color: zinc.text,
-    fontSize: 13,
-    fontWeight: '600',
+    ...type.headline,
+    fontSize: 15,
+  },
+  permPrimaryText: {
+    color: zinc.sendGlyph,
+  },
+  permDenyText: {
+    color: zinc.danger,
+  },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs + 2,
+    paddingVertical: space.xxs,
+  },
+  noteError: {
+    alignSelf: 'flex-start',
+    backgroundColor: zinc.dangerFill,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   note: {
-    fontSize: 11.5,
-    lineHeight: 16,
-    fontFamily: monoFont,
-    paddingHorizontal: 4,
+    fontSize: 13,
+    lineHeight: 18,
+    flexShrink: 1,
   },
-});
+}));

@@ -29,6 +29,7 @@ function flatten(style) {
 }
 export const Platform = { OS: 'ios', select: (spec) => spec.ios ?? spec.default };
 export const StyleSheet = { hairlineWidth: 1, create: (styles) => styles, flatten };
+export const Appearance = { getColorScheme: () => 'dark', addChangeListener: () => ({ remove() {} }) };
 export function View(props) { return React.createElement('View', props, props.children); }
 export function Text(props) { return React.createElement('Text', props, props.children); }
 export function TextInput(props) { return React.createElement('TextInput', props, props.children); }
@@ -65,6 +66,8 @@ writeFileSync(
 `,
 );
 
+writeFileSync(join(outDir, 'vector-icons.js'), 'export function Ionicons(props) { return props; }\n');
+
 await build({
   entryPoints: [join(root, 'src/chat.tsx')],
   outfile: join(outDir, 'chat.js'),
@@ -80,6 +83,7 @@ await build({
     'react-native-fit-image': join(outDir, 'fit-image.js'),
     punycode: join(outDir, 'punycode.js'),
     '@react-native-async-storage/async-storage': join(outDir, 'async-storage.js'),
+    '@expo/vector-icons': join(outDir, 'vector-icons.js'),
   },
   plugins: [
     {
@@ -145,11 +149,11 @@ const leaves = texts(React.createElement(ChatItemView, {
 const joined = leaves.map((leaf) => leaf.text).join('');
 assert.equal(joined.includes('**See**'), false, 'bold markers stay visible');
 assert.ok(
-  leaves.some((leaf) => leaf.text === 'See' && (leaf.style.fontWeight === 'bold' || leaf.style.fontWeight === '700') && leaf.style.color === '#EDEDED'),
+  leaves.some((leaf) => leaf.text === 'See' && (leaf.style.fontWeight === 'bold' || leaf.style.fontWeight === '700') && leaf.style.color === '#F2F2F3'),
   'See is bold',
 );
 assert.ok(
-  leaves.some((leaf) => leaf.text === 'code' && leaf.style.backgroundColor === '#262626'),
+  leaves.some((leaf) => leaf.text === 'code' && leaf.style.backgroundColor === '#232326'),
   'inline code text',
 );
 assert.ok(

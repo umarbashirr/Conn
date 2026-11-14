@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { OTHER, replyOf, type Question, type Reply } from '../../src/shared/ask-answers.js';
-import { layout, zinc } from './theme/zinc';
+import { layout, zinc, themed } from './theme/zinc';
 
 function chosenLabels(pick: string | string[] | undefined): readonly string[] {
   if (typeof pick === 'string') return [pick];
@@ -87,7 +87,7 @@ export function QuestionCard(props: {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   card: {
     backgroundColor: zinc.waitingFill,
     borderColor: zinc.waitingBorder,
@@ -102,46 +102,51 @@ const styles = StyleSheet.create({
   },
   header: {
     color: zinc.waiting,
-    fontSize: 11,
+    fontSize: 12.5,
     fontWeight: '600',
+    letterSpacing: 0.2,
   },
   prompt: {
     color: zinc.text,
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 22,
   },
   option: {
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   optionOn: {
     backgroundColor: zinc.secondary,
   },
   optionLabel: {
     color: zinc.text,
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 15,
+    lineHeight: 20,
   },
   optionNote: {
     color: zinc.faint,
-    fontSize: 12,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
   },
   other: {
     color: zinc.text,
-    fontSize: 13,
+    fontSize: 15,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: zinc.border,
-    paddingVertical: 4,
+    paddingVertical: 8,
   },
   actions: {
     flexDirection: 'row',
-    gap: 16,
+    alignItems: 'center',
+    gap: 20,
+    minHeight: 44,
   },
   action: {
     color: zinc.text,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '600',
   },
   actionOff: {
@@ -149,6 +154,6 @@ const styles = StyleSheet.create({
   },
   skip: {
     color: zinc.muted,
-    fontSize: 13,
+    fontSize: 15,
   },
-});
+}));

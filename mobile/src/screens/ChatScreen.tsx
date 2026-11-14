@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -12,7 +12,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { chat, ChatItemView, type ChatView } from '../chat';
-import { layout, zinc } from '../theme/zinc';
+import { Ionicons } from '@expo/vector-icons';
+import { Avatar } from '../components/avatar';
+import { useKeyboardOpen } from '../components/keyboard';
+import { LinkBanner } from '../components/link-banner';
+import { layout, providerName, radius, space, type, zinc, themed } from '../theme/zinc';
 
 function PhotoChip({
   photo,
@@ -25,7 +29,7 @@ function PhotoChip({
     <View style={styles.chipPhoto}>
       <Image source={{ uri: photo.uri }} accessibilityLabel="Attached photo" style={styles.chipImage} />
       <Pressable onPress={onRemove} accessibilityLabel="Remove photo" hitSlop={6} style={styles.chipRemove}>
-        <Text style={styles.chipRemoveText}>×</Text>
+        <Ionicons name="close" size={13} color={zinc.text} />
       </Pressable>
     </View>
   );
@@ -33,7 +37,7 @@ function PhotoChip({
 
 function subtitle(screen: ChatView): { text: string; tone: 'work' | 'wait' | 'plain' } {
   if (screen.line !== '') return { text: screen.line, tone: screen.mark === 'waiting' ? 'wait' : 'work' };
-  const parts = [screen.provider, screen.folder === 'Drafts' ? '' : screen.folder].filter((part) => part !== '');
+  const parts = [providerName(screen.provider), screen.folder === 'Drafts' ? '' : screen.folder].filter((part) => part !== '');
   return { text: parts.join(' · '), tone: 'plain' };
 }
 
@@ -42,30 +46,52 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
   const list = useRef<{ scrollToEnd: (options?: { animated?: boolean }) => void } | null>(null);
   const stick = useRef(true);
   const under = subtitle(screen);
+  const keyboard = useKeyboardOpen();
+
+  // Opening the keyboard is a sign the person is about to reply, so the
+  // newest message should sit just above the composer, not behind the keys.
+  useEffect(() => {
+    if (!keyboard) return;
+    stick.current = true;
+    const t = setTimeout(() => list.current?.scrollToEnd({ animated: true }), Platform.OS === 'ios' ? 0 : 60);
+    return () => clearTimeout(t);
+  }, [keyboard]);
+
   return (
-    <KeyboardAvoidingView
-      style={styles.screen}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={insets.top}
-    >
-      <View style={[styles.header, { paddingTop: 8 + insets.top }]}>
-        <Pressable onPress={chat.back} accessibilityLabel="Back" hitSlop={8} style={styles.back}>
-          <Text style={styles.backText}>‹</Text>
+    // Android draws edge to edge here, so the system no longer shrinks the
+    // window for the keyboard. Both platforms pad the screen themselves.
+    <KeyboardAvoidingView style={styles.screen} behavior="padding">
+      <View style={[styles.header, { paddingTop: space.xs + insets.top }]}>
+        <Pressable
+          onPress={chat.back}
+          accessibilityRole="button"
+          accessibilityLabel="Back to chats"
+          hitSlop={8}
+          style={({ pressed }) => [styles.back, pressed && styles.pressed]}
+        >
+          <Ionicons name="chevron-back" size={26} color={zinc.text} />
         </Pressable>
+        <Avatar provider={screen.provider || 'claude'} size={34} />
         <View style={styles.headerText}>
           <Text style={styles.title} numberOfLines={1}>
             {screen.title}
           </Text>
           {under.text === '' ? null : (
-            <Text
+            <View style={styles.subRow}>
+              {under.tone === 'plain' ? null : (
+                <View style={[styles.subDot, { backgroundColor: under.tone === 'wait' ? zinc.waiting : zinc.working }]} />
+              )}
+              <Text
               style={[styles.subtitle, under.tone === 'work' && styles.work, under.tone === 'wait' && styles.wait]}
               numberOfLines={1}
             >
               {under.text}
-            </Text>
+              </Text>
+            </View>
           )}
         </View>
       </View>
+      <LinkBanner paired />
       <ScrollView
         ref={(node) => {
           list.current = node;
@@ -73,6 +99,7 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
         style={styles.transcript}
         contentContainerStyle={[styles.transcriptContent, screen.rows.length === 0 && styles.transcriptEmpty]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
         onScroll={(event) => {
           const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
           stick.current = contentSize.height - layoutMeasurement.height - contentOffset.y < 80;
@@ -84,7 +111,11 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
       >
         {screen.rows.length === 0 ? (
           <View style={styles.empty}>
-            <Text style={styles.emptyNote}>Nothing in this chat yet.</Text>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="sparkles-outline" size={24} color={zinc.muted} />
+            </View>
+            <Text style={styles.emptyTitle}>What should the agent do?</Text>
+            <Text style={styles.emptyNote}>It works in {screen.folder === 'Drafts' ? 'your current folder' : screen.folder} on your computer.</Text>
             {screen.starters.length === 0 ? null : (
               <View style={styles.starters}>
                 {screen.starters.map((text) => (
@@ -106,7 +137,7 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
       <View
         style={[
           styles.composer,
-          { paddingBottom: Math.max(layout.composerPad, insets.bottom + 6) },
+          { paddingBottom: keyboard ? space.sm : Math.max(layout.composerPad, insets.bottom + 6) },
         ]}
       >
         <View style={styles.composerBox}>
@@ -130,7 +161,7 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
               hitSlop={6}
               style={[styles.attach, !screen.canAttach && styles.sendOff]}
             >
-              <Text style={styles.attachGlyph}>＋</Text>
+              <Ionicons name="add" size={24} color={zinc.muted} />
             </Pressable>
             <TextInput
               value={screen.draft}
@@ -149,7 +180,7 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
               hitSlop={6}
               style={[styles.send, !screen.canSend && styles.sendOff]}
             >
-              <Text style={styles.sendGlyph}>↑</Text>
+              <Ionicons name="arrow-up" size={19} color={zinc.sendGlyph} />
             </Pressable>
           </View>
         </View>
@@ -158,7 +189,7 @@ export function ChatScreen({ screen }: { screen: ChatView }) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: zinc.ground,
@@ -166,136 +197,153 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingBottom: 9,
+    paddingLeft: space.xxs,
+    paddingRight: layout.screen,
+    paddingBottom: space.sm + 2,
     backgroundColor: zinc.chrome,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: zinc.border,
-    gap: 10,
+    gap: space.sm,
   },
   back: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: zinc.secondary,
+    width: 36,
+    marginRight: -space.xs,
+    height: layout.touch,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  backText: {
-    color: zinc.text,
-    fontSize: 22,
-    lineHeight: 24,
+  pressed: {
+    opacity: 0.6,
   },
   headerText: {
     flex: 1,
-    gap: 1,
+    gap: space.xxs,
   },
-  title: {
-    color: zinc.text,
-    fontSize: 15,
-    fontWeight: '500',
+  title: type.headline,
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs + 2,
   },
-  subtitle: {
-    color: zinc.muted,
-    fontSize: 12,
+  subDot: {
+    width: 7,
+    height: 7,
+    borderRadius: radius.full,
   },
+  subtitle: type.caption,
   work: {
     color: zinc.working,
   },
   wait: {
     color: zinc.waiting,
+    fontWeight: '600',
   },
   transcript: {
     flex: 1,
   },
   transcriptContent: {
     paddingHorizontal: layout.screen,
-    paddingTop: 14,
-    paddingBottom: 20,
-    gap: layout.gap,
+    paddingTop: space.lg,
+    paddingBottom: space.xl,
+    gap: space.md,
   },
   transcriptEmpty: {
     flexGrow: 1,
     justifyContent: 'center',
   },
   empty: {
-    gap: 14,
+    alignItems: 'center',
+    gap: space.sm,
+    paddingHorizontal: space.lg,
   },
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: radius.full,
+    backgroundColor: zinc.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.xs,
+  },
+  emptyTitle: type.headline,
   emptyNote: {
-    color: zinc.muted,
-    fontSize: 14,
+    ...type.subhead,
+    textAlign: 'center',
   },
   starters: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    justifyContent: 'center',
+    gap: space.sm,
+    marginTop: space.md,
   },
   chip: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: zinc.border,
-    backgroundColor: zinc.chrome,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: zinc.raised,
+    borderRadius: radius.full,
+    paddingHorizontal: space.md + 2,
+    paddingVertical: space.sm,
   },
   chipPressed: {
     backgroundColor: zinc.secondary,
   },
   chipText: {
-    color: zinc.muted,
-    fontSize: 12.5,
+    ...type.subhead,
+    color: zinc.text,
   },
   composer: {
-    paddingHorizontal: 12,
-    paddingTop: 6,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
     backgroundColor: zinc.ground,
   },
   composerBox: {
-    backgroundColor: zinc.input,
+    backgroundColor: zinc.raised,
     borderColor: zinc.border,
     borderWidth: StyleSheet.hairlineWidth,
+    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.06)',
     borderRadius: layout.composer,
-    paddingLeft: 8,
-    paddingRight: 6,
-    paddingVertical: 6,
-    gap: 6,
+    borderCurve: 'continuous',
+    paddingLeft: space.xs,
+    paddingRight: space.xs + 2,
+    paddingVertical: space.xs + 2,
+    gap: space.sm,
   },
   composerLine: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
+    gap: space.xs,
   },
   photoRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    paddingLeft: 6,
+    gap: space.sm,
+    paddingLeft: space.sm,
+    paddingTop: space.xs,
   },
   chipPhoto: {
-    width: 52,
-    height: 52,
+    width: 56,
+    height: 56,
   },
   chipImage: {
-    width: 52,
-    height: 52,
-    borderRadius: 8,
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
     backgroundColor: zinc.secondary,
   },
   chipRemove: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: zinc.chrome,
+    top: -6,
+    right: -6,
+    width: 22,
+    height: 22,
+    borderRadius: radius.full,
+    backgroundColor: zinc.secondary,
+    borderWidth: 1.5,
+    borderColor: zinc.raised,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  chipRemoveText: {
-    color: zinc.text,
-    fontSize: 12,
-    lineHeight: 14,
   },
   attach: {
     width: layout.send,
@@ -303,24 +351,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  attachGlyph: {
-    color: zinc.muted,
-    fontSize: 22,
-    lineHeight: 24,
-  },
   input: {
+    ...type.body,
     flex: 1,
-    color: zinc.text,
-    paddingTop: 5,
-    paddingBottom: 5,
-    fontSize: 14.5,
-    lineHeight: 20,
-    maxHeight: 120,
+    paddingTop: space.xs + 3,
+    paddingBottom: space.xs + 3,
+    maxHeight: 140,
   },
   send: {
     width: layout.send,
     height: layout.send,
-    borderRadius: layout.send / 2,
+    borderRadius: radius.full,
     backgroundColor: zinc.send,
     alignItems: 'center',
     justifyContent: 'center',
@@ -328,10 +369,4 @@ const styles = StyleSheet.create({
   sendOff: {
     opacity: 0.3,
   },
-  sendGlyph: {
-    color: zinc.sendGlyph,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 18,
-  },
-});
+}));

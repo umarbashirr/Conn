@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ComponentProps } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,23 +9,41 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { chat, type SessionRow, type SessionsView } from '../chat';
-import { adoptTicket, onPhone, type PhoneStatus } from '../conn-live';
-import { layout, zinc } from '../theme/zinc';
+import { adoptTicket, onLink, onPhone, type LinkState, type PhoneStatus } from '../conn-live';
+import { Avatar } from '../components/avatar';
+import { LinkBanner } from '../components/link-banner';
+import { SettingsSheet } from '../components/settings-sheet';
+import { layout, providerName, radius, space, themed, type, zinc } from '../theme/zinc';
 import { Scan } from './Scan';
 
-function RowMark({ mark }: { mark: SessionRow['mark'] }) {
+type IconName = ComponentProps<typeof Ionicons>['name'];
+
+// The status a row's avatar carries in its corner. Idle and done carry none.
+function Badge({ mark }: { mark: SessionRow['mark'] }) {
   switch (mark) {
     case 'working':
-      return <ActivityIndicator size="small" color={zinc.working} style={styles.spinner} />;
+      return (
+        <View style={[styles.badge, { backgroundColor: zinc.working }]}>
+          <Ionicons name="ellipsis-horizontal" size={10} color="#FFFFFF" />
+        </View>
+      );
     case 'waiting':
-      return <View style={[styles.dot, styles.waitDot]} />;
+      return (
+        <View style={[styles.badge, { backgroundColor: zinc.waiting }]}>
+          <Ionicons name="hand-left" size={9} color="#FFFFFF" />
+        </View>
+      );
     case 'pinned':
-      return <View style={styles.pin} />;
+      return (
+        <View style={[styles.badge, { backgroundColor: zinc.secondary }]}>
+          <Ionicons name="pin" size={9} color={zinc.muted} />
+        </View>
+      );
     case 'done':
-      return <Text style={styles.check}>✓</Text>;
     case 'idle':
-      return <View style={styles.dot} />;
+      return null;
     default: {
       const _never: never = mark;
       return _never;
@@ -33,84 +51,113 @@ function RowMark({ mark }: { mark: SessionRow['mark'] }) {
   }
 }
 
-function SessionButton({ row, onOpen }: { row: SessionRow; onOpen: (id: SessionRow['id']) => void }) {
-  const lineStyle = row.mark === 'waiting' ? styles.waitingLine : styles.workingLine;
+function SessionButton({
+  row,
+  first,
+  onOpen,
+}: {
+  row: SessionRow;
+  first: boolean;
+  onOpen: (id: SessionRow['id']) => void;
+}) {
+  const done = row.mark === 'done';
+  const name = providerName(row.provider);
   return (
     <Pressable
       onPress={() => onOpen(row.id)}
-      accessibilityLabel={row.line === '' ? row.title : `${row.title}, ${row.line}`}
+      accessibilityRole="button"
+      accessibilityLabel={[row.title, row.line, name].filter((part) => part !== '').join(', ')}
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
     >
-      <View style={styles.mark}>
-        <RowMark mark={row.mark} />
+      <View style={[styles.avatarSlot, done && styles.dim]}>
+        <Avatar provider={row.provider} size={40} />
+        <Badge mark={row.mark} />
       </View>
-      <View style={styles.rowBody}>
+      <View style={[styles.rowBody, !first && styles.rowRule]}>
         <View style={styles.rowTop}>
-          <Text style={styles.title} numberOfLines={1}>
+          <Text style={[styles.title, done && styles.titleDone]} numberOfLines={1}>
             {row.title}
           </Text>
           <Text style={styles.time}>{row.atLabel}</Text>
         </View>
         {row.line !== '' ? (
-          <Text style={lineStyle}>{row.line}</Text>
-        ) : row.provider === '' ? null : (
-          <Text style={styles.provider}>{row.provider}</Text>
+          <Text style={row.mark === 'waiting' ? styles.waitingLine : styles.workingLine} numberOfLines={1}>
+            {row.line}
+          </Text>
+        ) : (
+          <Text style={styles.provider} numberOfLines={1}>
+            {done ? `${name} · Completed` : name}
+          </Text>
         )}
       </View>
     </Pressable>
   );
 }
 
-function statusLabel(status: PhoneStatus): string {
-  switch (status) {
-    case 'bound':
-      return 'Connected';
-    case 'empty':
-      return 'Not connected';
-    case 'pending':
-      return 'Checking…';
-    default: {
-      const _never: never = status;
-      return _never;
-    }
-  }
+function IconButton({
+  icon,
+  label,
+  filled,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  filled?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      style={({ pressed }) => [styles.iconButton, filled && styles.iconFilled, pressed && styles.pressed]}
+    >
+      <Ionicons name={icon} size={filled ? 21 : 20} color={filled ? zinc.sendGlyph : zinc.text} />
+    </Pressable>
+  );
 }
 
-function statusHue(status: PhoneStatus): string {
-  switch (status) {
-    case 'bound':
-      return zinc.working;
-    case 'empty':
-      return zinc.waiting;
-    case 'pending':
-      return zinc.faint;
-    default: {
-      const _never: never = status;
-      return _never;
-    }
-  }
-}
-
-function actionLabel(status: PhoneStatus): string {
-  switch (status) {
-    case 'bound':
-      return 'Scan again';
-    case 'empty':
-    case 'pending':
-      return 'Connect';
-    default: {
-      const _never: never = status;
-      return _never;
-    }
-  }
+function Empty({
+  icon,
+  title,
+  body,
+  action,
+  onAction,
+}: {
+  icon: IconName;
+  title: string;
+  body: string;
+  action: string;
+  onAction: () => void;
+}) {
+  return (
+    <View style={styles.empty}>
+      <View style={styles.emptyIcon}>
+        <Ionicons name={icon} size={30} color={zinc.text} />
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{body}</Text>
+      <Pressable
+        onPress={onAction}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
+      >
+        <Text style={styles.primaryText}>{action}</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 export function SessionsScreen({ screen }: { screen: SessionsView }) {
   const insets = useSafeAreaInsets();
   const [phone, setPhone] = useState<PhoneStatus>('pending');
   const [scanning, setScanning] = useState(false);
+  const [settings, setSettings] = useState(false);
 
+  const [link, setLink] = useState<LinkState>({ online: false, reason: '' });
   useEffect(() => onPhone(setPhone), []);
+  useEffect(() => onLink(setLink), []);
 
   if (scanning) {
     return (
@@ -125,274 +172,378 @@ export function SessionsScreen({ screen }: { screen: SessionsView }) {
     );
   }
 
+  const searching = screen.query.trim() !== '';
+  const connected = phone === 'bound';
+  const offline = connected && !link.online && link.reason !== '';
+  const total = screen.sections.reduce((n, s) => n + s.rows.length, 0);
+
   return (
-    <View
-      style={[
-        styles.screen,
-        {
-          paddingTop: 12 + insets.top,
-          paddingBottom: layout.screen + insets.bottom,
-        },
-      ]}
-    >
+    <View style={[styles.screen, { paddingTop: space.sm + insets.top }]}>
       <View style={styles.header}>
-        <View style={styles.statusRow}>
-          <View style={[styles.statusDot, { backgroundColor: statusHue(phone) }]} />
-          <Text style={styles.statusText}>{statusLabel(phone)}</Text>
+        <View>
+          <Text style={styles.heading} accessibilityRole="header">
+            Chats
+          </Text>
+          <View style={styles.status}>
+            <View
+              style={[
+                styles.statusDot,
+                { backgroundColor: offline || !connected ? (phone === 'pending' ? zinc.faint : zinc.waiting) : link.online ? zinc.working : zinc.faint },
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {!connected
+                ? phone === 'pending' ? 'Connecting…' : 'Not paired'
+                : offline ? 'Offline'
+                : !link.online ? 'Connecting…'
+                : total === 1 ? '1 open chat' : `${total} open chats`}
+            </Text>
+          </View>
         </View>
-        <Pressable
-          onPress={() => setScanning(true)}
-          accessibilityLabel={actionLabel(phone)}
-          style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
-        >
-          <Text style={styles.newChatText}>{actionLabel(phone)}</Text>
-        </Pressable>
+        <View style={styles.actions}>
+          <IconButton icon="settings-outline" label="Settings" onPress={() => setSettings(true)} />
+          <IconButton icon="add" label="New chat" filled onPress={chat.newChat} />
+        </View>
       </View>
-      <View style={styles.toolbar}>
+
+      <LinkBanner paired={connected} />
+
+      <View style={styles.search}>
+        <Ionicons name="search" size={17} color={zinc.faint} />
         <TextInput
           value={screen.query}
           onChangeText={chat.setQuery}
           placeholder="Search"
           placeholderTextColor={zinc.faint}
-          accessibilityLabel="Search"
+          accessibilityLabel="Search chats"
           autoCapitalize="none"
           autoCorrect={false}
-          style={styles.search}
+          returnKeyType="search"
+          style={styles.searchInput}
         />
-        <Pressable
-          onPress={chat.newChat}
-          accessibilityLabel="New chat"
-          style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
-        >
-          <Text style={styles.newChatText}>+ New chat</Text>
-        </Pressable>
+        {searching ? (
+          <Pressable onPress={() => chat.setQuery('')} accessibilityLabel="Clear search" hitSlop={8}>
+            <Ionicons name="close-circle" size={18} color={zinc.faint} />
+          </Pressable>
+        ) : null}
       </View>
+
       <ScrollView
         style={styles.list}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: space.xxl + insets.bottom }]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {screen.sections.length === 0 ? (
-          <Text style={styles.empty}>No chats</Text>
-        ) : (
-          screen.sections.map((section) => (
-            <View key={section.dir} style={styles.section}>
-              <Text style={styles.project}>{section.project}</Text>
-              {section.done.length === 0 ? null : (
-                <View style={styles.completed}>
-                  <Pressable
-                    onPress={() => chat.toggleDone(section.dir)}
-                    accessibilityLabel={`Completed, ${section.done.length}`}
-                    style={styles.completedHead}
-                  >
-                    <Text style={styles.completedLabel}>
-                      {screen.query.trim() !== '' || screen.openDone.includes(section.dir) ? '▾' : '▸'} Completed
-                    </Text>
-                    <Text style={styles.completedCount}>{section.done.length}</Text>
-                  </Pressable>
-                  {screen.query.trim() !== '' || screen.openDone.includes(section.dir) ? (
-                    <View style={styles.sectionRows}>
-                      {section.done.map((row) => (
-                        <SessionButton key={row.id} row={row} onOpen={chat.open} />
-                      ))}
-                    </View>
-                  ) : null}
-                </View>
-              )}
-              <View style={styles.sectionRows}>
-                {section.rows.map((row) => (
-                  <SessionButton key={row.id} row={row} onOpen={chat.open} />
-                ))}
-              </View>
+          phone === 'pending' || (connected && !link.online && !offline) ? (
+            <ActivityIndicator color={zinc.faint} style={styles.checking} />
+          ) : searching ? (
+            <View style={styles.noMatch}>
+              <Ionicons name="search" size={22} color={zinc.faint} />
+              <Text style={styles.noMatchText}>No chats match “{screen.query.trim()}”</Text>
             </View>
-          ))
+          ) : offline ? null : connected ? (
+            <Empty
+              icon="chatbubbles-outline"
+              title="No chats yet"
+              body="Start a chat here, or open one in Conn on your computer and it shows up here."
+              action="Start a chat"
+              onAction={chat.newChat}
+            />
+          ) : (
+            <Empty
+              icon="qr-code-outline"
+              title="Pair with your computer"
+              body="Open Conn on your computer, go to Customize › Phone, and scan the code."
+              action="Scan QR code"
+              onAction={() => setScanning(true)}
+            />
+          )
+        ) : (
+          screen.sections.map((section) => {
+            const showDone = searching || screen.openDone.includes(section.dir);
+            const count = section.rows.length;
+            return (
+              <View key={section.dir} style={styles.section}>
+                <View style={styles.sectionHead}>
+                  <Text style={styles.project} numberOfLines={1}>
+                    {section.project}
+                  </Text>
+                  {count > 0 ? <Text style={styles.sectionCount}>{count}</Text> : null}
+                </View>
+                <View style={styles.group}>
+                  {section.rows.map((row, i) => (
+                    <SessionButton key={row.id} row={row} first={i === 0} onOpen={chat.open} />
+                  ))}
+                  {section.done.length === 0 ? null : (
+                    <Pressable
+                      onPress={() => chat.toggleDone(section.dir)}
+                      accessibilityRole="button"
+                      accessibilityState={{ expanded: showDone }}
+                      accessibilityLabel={`Completed, ${section.done.length}`}
+                      style={({ pressed }) => [styles.doneRow, pressed && styles.rowPressed]}
+                    >
+                      <View style={[styles.doneInner, count > 0 && styles.rowRule]}>
+                        <Ionicons name="checkmark-done" size={17} color={zinc.faint} />
+                        <Text style={styles.doneLabel}>
+                          {showDone ? 'Hide completed' : `Show ${section.done.length} completed`}
+                        </Text>
+                        <Ionicons name={showDone ? 'chevron-up' : 'chevron-down'} size={16} color={zinc.faint} />
+                      </View>
+                    </Pressable>
+                  )}
+                  {showDone
+                    ? section.done.map((row) => (
+                        <SessionButton key={row.id} row={row} first={false} onOpen={chat.open} />
+                      ))
+                    : null}
+                </View>
+              </View>
+            );
+          })
         )}
       </ScrollView>
+
+      <SettingsSheet
+        open={settings}
+        phone={phone}
+        onClose={() => setSettings(false)}
+        onScan={() => setScanning(true)}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = themed(() => StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: zinc.chrome,
-    paddingHorizontal: 12,
+    backgroundColor: zinc.ground,
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    paddingHorizontal: layout.screen,
+    paddingTop: space.sm,
   },
-  statusRow: {
+  heading: type.title,
+  status: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 4,
+    gap: space.xs + 2,
+    marginTop: space.xxs,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 7,
+    height: 7,
+    borderRadius: radius.full,
   },
-  statusText: {
-    color: zinc.muted,
-    fontSize: 12.5,
-  },
-  toolbar: {
+  statusText: type.subhead,
+  actions: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+    gap: space.sm,
+    paddingTop: space.xxs,
   },
-  search: {
-    flex: 1,
-    color: zinc.text,
-    backgroundColor: zinc.ground,
-    borderColor: zinc.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    fontSize: 13,
-  },
-  newChat: {
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
     backgroundColor: zinc.secondary,
-    borderColor: zinc.border,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  pressed: {
-    opacity: 0.75,
-  },
-  newChatText: {
-    color: zinc.text,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  list: {
-    flex: 1,
-    marginTop: 6,
-  },
-  listContent: {
-    paddingBottom: layout.screen,
-  },
-  empty: {
-    color: zinc.muted,
-    fontSize: 13,
-    marginTop: 24,
-    paddingHorizontal: 4,
-  },
-  section: {
-    marginTop: 14,
-  },
-  project: {
-    color: zinc.muted,
-    fontSize: 12,
-    fontWeight: '500',
-    paddingHorizontal: 6,
-    marginBottom: 2,
-  },
-  completed: {
-    marginBottom: 4,
-  },
-  completedHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 4,
-  },
-  completedLabel: {
-    color: zinc.faint,
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  completedCount: {
-    marginLeft: 'auto',
-    color: zinc.faint,
-    fontSize: 11,
-    fontVariant: ['tabular-nums'],
-  },
-  mark: {
-    width: 14,
-    height: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  spinner: {
-    width: 14,
-    height: 14,
+  iconFilled: {
+    backgroundColor: zinc.send,
   },
-  waitDot: {
-    backgroundColor: zinc.waiting,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  pressed: {
+    opacity: 0.7,
   },
-  pin: {
-    width: 8,
-    height: 8,
-    borderRadius: 1,
-    backgroundColor: zinc.muted,
+  search: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    minHeight: 42,
+    marginHorizontal: layout.screen,
+    marginTop: space.lg,
+    paddingHorizontal: space.md,
+    backgroundColor: zinc.secondary,
+    borderRadius: radius.md + 2,
+    borderCurve: 'continuous',
   },
-  check: {
-    width: 14,
-    color: zinc.muted,
-    fontSize: 12,
+  searchInput: {
+    ...type.body,
+    flex: 1,
+    paddingVertical: space.sm,
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: layout.screen,
+  },
+  checking: {
+    marginTop: space.xxl * 2,
+  },
+  noMatch: {
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.xxl * 1.5,
+  },
+  noMatchText: type.subhead,
+  empty: {
+    alignItems: 'center',
+    gap: space.sm,
+    marginTop: space.xxl * 2,
+    paddingHorizontal: space.lg,
+  },
+  emptyIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.xl + 2,
+    borderCurve: 'continuous',
+    backgroundColor: zinc.raised,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: zinc.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.md,
+  },
+  emptyTitle: {
+    ...type.headline,
+    fontSize: 20,
+    lineHeight: 26,
+  },
+  emptyBody: {
+    ...type.subhead,
     textAlign: 'center',
+    maxWidth: 300,
   },
-  workingLine: {
-    color: zinc.working,
-    fontSize: 11,
+  primary: {
+    marginTop: space.lg,
+    minHeight: 48,
+    paddingHorizontal: space.xl + 4,
+    borderRadius: radius.full,
+    backgroundColor: zinc.send,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  waitingLine: {
-    color: zinc.waiting,
-    fontSize: 11,
+  primaryText: {
+    ...type.headline,
+    fontSize: 16,
+    color: zinc.sendGlyph,
   },
-  sectionRows: {
-    gap: 1,
+  section: {
+    marginTop: space.xl,
+  },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: space.sm,
+    paddingHorizontal: space.xs,
+    marginBottom: space.sm,
+  },
+  project: {
+    ...type.headline,
+    fontSize: 15,
+    flexShrink: 1,
+  },
+  sectionCount: type.caption,
+  group: {
+    backgroundColor: zinc.raised,
+    borderRadius: radius.lg + 2,
+    borderCurve: 'continuous',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: zinc.border,
+    overflow: 'hidden',
   },
   row: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
-    borderRadius: 6,
+    alignItems: 'stretch',
+    paddingLeft: space.md,
+    minHeight: 68,
   },
   rowPressed: {
     backgroundColor: zinc.secondary,
   },
-  dot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: zinc.faint,
+  rowRule: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: zinc.border,
+  },
+  avatarSlot: {
+    width: 40,
+    marginRight: space.md,
+    justifyContent: 'center',
+  },
+  dim: {
+    opacity: 0.55,
+  },
+  badge: {
+    position: 'absolute',
+    right: -3,
+    bottom: 10,
+    width: 17,
+    height: 17,
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: zinc.raised,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowBody: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
+    gap: 3,
+    paddingVertical: space.md,
+    paddingRight: space.md,
   },
   rowTop: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    gap: 8,
+    gap: space.sm,
   },
   title: {
+    ...type.row,
     flex: 1,
-    color: zinc.text,
-    fontSize: 13.5,
-    lineHeight: 18,
+  },
+  titleDone: {
+    color: zinc.muted,
+    fontWeight: '500',
   },
   time: {
-    color: zinc.faint,
-    fontSize: 11,
+    ...type.caption,
     fontVariant: ['tabular-nums'],
   },
   provider: {
-    color: zinc.faint,
-    fontSize: 11,
-    marginTop: 1,
+    ...type.subhead,
+    fontSize: 13.5,
   },
-});
+  workingLine: {
+    ...type.subhead,
+    fontSize: 13.5,
+    color: zinc.working,
+    fontWeight: '500',
+  },
+  waitingLine: {
+    ...type.subhead,
+    fontSize: 13.5,
+    color: zinc.waiting,
+    fontWeight: '600',
+  },
+  doneRow: {
+    paddingLeft: space.md,
+  },
+  doneInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 48,
+    paddingLeft: space.md - 2,
+    paddingRight: space.md,
+  },
+  doneLabel: {
+    ...type.subhead,
+    flex: 1,
+    fontWeight: '500',
+  },
+}));
