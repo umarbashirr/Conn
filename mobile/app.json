@@ -15,7 +15,8 @@
           "cameraPermission": "Conn uses the camera so you can take a photo and send it in a chat.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "ios": {
       "supportsTablet": true,
