@@ -240,7 +240,7 @@ function Chord({ id, settings }) {
   return <MenubarShortcut>{text}</MenubarShortcut>;
 }
 
-const WINDOW_BUTTON = 'size-7 rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground [&_svg]:size-3.5';
+const WINDOW_BUTTON = 'size-[28px] rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground [&_svg]:size-[16px]';
 
 export default function TitleBar() {
   const folder = useProject();

@@ -720,7 +720,7 @@ export default function App() {
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
-        <ConversationContent data-chat-column className="conn-seat mx-auto w-full max-w-3xl gap-2.5">
+        <ConversationContent data-chat-column className="conn-seat mx-auto w-full max-w-[min(100%,880px)] gap-2.5">
           {empty ? (
             <>
               <h1 className="pt-6 pb-3 text-center font-medium text-2xl tracking-tight">
@@ -739,6 +739,7 @@ export default function App() {
         {!empty && (
           <ChatFloor
             agents={working}
+            streaming={agent.busy}
             onOpen={(a) => openSheet(a.id)}
             onStopAll={() => working.filter((a) => a.taskId).forEach(agent.stopAgent)} />
         )}

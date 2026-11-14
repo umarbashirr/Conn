@@ -7,7 +7,7 @@ import { Conversation, ConversationContent, ConversationScrollButton } from '@/c
 import { SubagentGlyph } from '@/components/subagent-glyph';
 import { SubagentStream, useSubagentTranscript } from '@/components/subagent-stream';
 import { Button } from '@/components/ui/button';
-import { nameOf } from '@/lib/subagents';
+import { isLive, nameOf } from '@/lib/subagents';
 import { cn } from '@/lib/utils';
 
 export function SubagentSheet({ item, agent, Items, full, onToggleFull, onClose }) {
@@ -49,7 +49,7 @@ export function SubagentSheet({ item, agent, Items, full, onToggleFull, onClose 
         <ConversationContent className="gap-3 p-3">
           <SubagentStream item={item} agent={agent} Items={Items} />
         </ConversationContent>
-        <ConversationScrollButton />
+        <ConversationScrollButton streaming={isLive(item)} />
       </Conversation>
     </div>
   );

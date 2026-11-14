@@ -20,6 +20,7 @@ const shellEnv = require('./shell-env');
 const { applyMenu } = require('./menu');
 const git = require('./git');
 const diff = require('./diff');
+const permissionRules = require('./permission-rules');
 const editors = require('./editors');
 const files = require('./files');
 const canvas = require('./canvas');
@@ -858,10 +859,47 @@ async function applyProvider(next) {
 // the chats in the other projects keep their turns, their shells stay up, and
 // the preview pane and the bridge port belong to the window rather than to any
 // one folder.
+//
+// The window holds MAX_OPEN folders. Opening one more used to drop the oldest,
+// whatever it was doing, and the oldest is usually the repository a stack of
+// worktrees was cut from. Now the oldest folder that is safe to close goes:
+// not one with a chat still working, not the one on screen, and not the main
+// checkout of a worktree that is open. When every folder is one of those,
+// nothing closes and the open is refused.
+function folderBusy(dir) {
+  for (const [chat, cwd] of chatProjects) {
+    if (cwd !== dir) continue;
+    const a = sessions.get(chat);
+    if (a && !a.closed && (a.working ?? a.busy)) return true;
+  }
+  return false;
+}
+
+const WORKTREE_DIR = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+const hostsWorktree = (dir) => openDirs().some((d) => d.startsWith(dir + WORKTREE_DIR));
+
+// Which folder to close to make room for one more, null when there is room,
+// or { error } when every open folder has to stay.
+function roomFor() {
+  if (open.size < projects.MAX_OPEN) return null;
+  const spare = openDirs().find((d) => d !== focused && !folderBusy(d) && !hostsWorktree(d));
+  if (spare) return { evict: spare };
+  return { error: `${projects.MAX_OPEN} folders are open and each is in use: a chat is working, it is on screen, or a worktree is open from it. Close a folder first.` };
+}
+
 function addProject(dir) {
   const target = path.resolve(dir);
   if (!projects.isDir(target)) return { error: `${target} is not a folder` };
   if (open.has(target)) return focusProject(target);
+
+  const room = roomFor();
+  if (room?.error) return { error: room.error };
+  if (room?.evict) {
+    stopProject(room.evict);
+    open.delete(room.evict);
+    projects.closeProject(room.evict);
+    bridge?.removeProject?.(room.evict);
+  }
 
   open.set(target, { dir: target, chosen: true });
   projects.remember(target);
@@ -1549,6 +1587,10 @@ function registerIpc() {
   ipcMain.handle('project:worktree', async (_e, { dir, name } = {}) => {
     const root = openDir(dir);
     if (!root) return { ok: false, error: 'That folder is not open.' };
+    // Asked before git makes anything, so a full window does not leave a
+    // worktree on disk that never opened.
+    const full = roomFor();
+    if (full?.error) return { ok: false, error: full.error };
     const res = await git.addWorktree(root, name);
     if (!res.ok) return res;
     const opened = addProject(res.dir);
@@ -1606,6 +1648,17 @@ function registerIpc() {
     const res = await git.pushBase(root);
     if (res.ok) announce();
     return res;
+  });
+
+  // The permission rules Claude has saved for this folder and for the person.
+  // Only a folder this window has open, so the paths cannot be steered.
+  ipcMain.handle('rules:list', (_e, { project } = {}) => {
+    const dir = project ? openDir(project) : null;
+    return permissionRules.list(dir);
+  });
+  ipcMain.handle('rules:remove', (_e, { project, ...rule } = {}) => {
+    const dir = project ? openDir(project) : null;
+    return permissionRules.remove(dir, rule);
   });
 
   // --- terminal ---

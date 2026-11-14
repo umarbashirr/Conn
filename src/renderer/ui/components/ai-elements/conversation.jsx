@@ -150,8 +150,12 @@ export const ConversationEmptyState = ({
   </div>
 );
 
+// Shown once you have scrolled up. While a reply is still streaming in below
+// (`streaming`), it says so in words, because an arrow alone does not tell you
+// there is anything new down there. It always has a name for screen readers.
 export const ConversationScrollButton = ({
   className,
+  streaming = false,
   ...props
 }) => {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
@@ -160,16 +164,21 @@ export const ConversationScrollButton = ({
     scrollToBottom();
   }, [scrollToBottom]);
 
+  const label = streaming ? "New messages below" : "Jump to latest";
   return (!isAtBottom && (<Button
     className={cn(
       "conn-rise absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+      streaming && "h-9 w-auto gap-1.5 px-3 font-normal",
       className
     )}
     onClick={handleScrollToBottom}
-    size="icon"
+    size={streaming ? "sm" : "icon"}
     type="button"
     variant="outline"
+    aria-label={label}
+    title={label}
     {...props}>
     <ArrowDownIcon className="size-4" />
+    {streaming && <span>New messages</span>}
   </Button>));
 };

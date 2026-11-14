@@ -83,7 +83,7 @@ function AgentDetail({ item, agent }) {
         <ConversationContent className="gap-3 p-3">
           <SubagentStream item={item} agent={agent} Items={Items} />
         </ConversationContent>
-        <ConversationScrollButton />
+        <ConversationScrollButton streaming={isLive(item)} />
       </Conversation>
     </div>
   );

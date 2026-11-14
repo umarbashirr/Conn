@@ -86,10 +86,10 @@ function useFits(anchor) {
     if (!root || !column || !box) return undefined;
     const measure = () => {
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      // The column's own width when centred: its cap, or all of the box.
+      // The column's own width. The seat moves it with a translate, which
+      // leaves its width alone, so this is the centred width too.
       const room = box.clientWidth;
-      const cap = parseFloat(getComputedStyle(column).maxWidth) || room;
-      const free = Math.max(0, room - Math.min(cap, room));
+      const free = Math.max(0, room - column.offsetWidth);
       // What sits right of the box inside the root, a scrollbar for one.
       const beyond = Math.max(0, root.getBoundingClientRect().right - box.getBoundingClientRect().right);
       const need = (PANEL_REM + 2 * MARGIN_REM) * rem - beyond;
@@ -103,6 +103,7 @@ function useFits(anchor) {
     const watch = new ResizeObserver(measure);
     watch.observe(root);
     watch.observe(box);
+    watch.observe(column);
     return () => watch.disconnect();
   }, [anchor]);
   return fit;

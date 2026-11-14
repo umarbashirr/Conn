@@ -49,12 +49,12 @@ function WorkingPanel({ agents, onOpen, onStopAll, onClose }) {
   );
 }
 
-export function ChatFloor({ agents, onOpen, onStopAll }) {
+export function ChatFloor({ agents, streaming, onOpen, onStopAll }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { if (!agents.length) setOpen(false); }, [agents.length]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 conn-seat mx-auto flex w-full max-w-3xl flex-col gap-2 px-4">
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 conn-seat mx-auto flex w-full max-w-[min(100%,880px)] flex-col gap-2 px-4">
       {open && (
         <WorkingPanel
           agents={agents}
@@ -76,7 +76,7 @@ export function ChatFloor({ agents, onOpen, onStopAll }) {
             <span className="tabular-nums text-muted-foreground">{agents.length}</span>
           </Button>
         )}
-        <ConversationScrollButton className="pointer-events-auto static translate-x-0" />
+        <ConversationScrollButton streaming={streaming} className="pointer-events-auto static translate-x-0" />
       </div>
     </div>
   );

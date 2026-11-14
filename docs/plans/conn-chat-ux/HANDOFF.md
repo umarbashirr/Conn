@@ -30,13 +30,16 @@ CUX-01 to CUX-19 are merged on `main`:
 | 18 | #40, landed by #41 | Search inside chat transcripts from the palette |
 | 19 | #39, landed by #41 | New chat in the current folder |
 
-## Not built
+## Finished later
 
-- **CUX-20**, widen the chat column and enlarge the toolbar buttons. Never got its own PR. The
-  overview panel work (#50) changed the layout around it since, so re-check before reviving it.
-- **CUX-21**, label the jump-to-latest button while text streams. Not built.
-- **CUX-22**, manage always-allow permission rules. Not built: **Always** on a permission card
-  records a rule, but there is no screen to list or remove rules.
+CUX-20, CUX-21 and CUX-22 were built on 2026-11-14, straight on `main`:
 
-Their specs are in `plan.md` under those headings. The process files (`process/`, `gen/`, `probe/`)
-belong to the orchestration that ran the program and are not needed to read the code.
+- **CUX-20.** The chat column and composer cap at 880 px instead of 624, and the toolbar and
+  window buttons are 28 px with 16 px glyphs.
+- **CUX-21.** The jump-to-latest button reads "New messages" while a reply streams below, and has
+  an accessible name either way.
+- **CUX-22.** Settings, Permissions lists the rules in Claude's three settings files for the
+  focused folder and removes them one at a time.
+
+The process files (`process/`, `gen/`, `probe/`) belong to the orchestration that ran the program
+and are not needed to read the code.

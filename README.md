@@ -193,6 +193,8 @@ browser, wired in already: no MCP config, no restart, no setup step.
   Claude turn's file edits from its message.
 - **Usage**: the meter under the composer shows the chat's tokens and cost, and Usage in the rail
   shows 30 days of spend and your plan's limits, read from the CLIs' own transcripts.
+- **Saved permission rules**: Settings, Permissions lists the rules **Always** saved for Claude in
+  this folder and for every folder, and removes any of them.
 - **Search** (`Ctrl+K`) finds text inside every past chat, not only titles. **Export chat** in the
   palette saves a chat as Markdown.
 - **Next steps** appear as chips under a finished turn, worked out from what the turn did. A chip
@@ -429,7 +431,8 @@ outside those terminals can reach the tool routes without that token.
 ## Limits worth knowing
 
 - A window holds up to eight folders, and each worktree you open counts as one. Opening a ninth
-  closes the oldest and stops its chats. Each folder has its own chats, shells, and preview tabs, and
+  closes the oldest folder that is safe to close, never one with a chat still working, the one on
+  screen, or a main checkout with worktrees open. When none is safe, the open is refused. Each folder has its own chats, shells, and preview tabs, and
   more than one chat can run at the same time. The right column shows one tab of the focused folder.
   A shell command reaches the window that has that folder open, including when another folder is the
   one on screen.
@@ -447,4 +450,3 @@ outside those terminals can reach the tool routes without that token.
   is open, since only one debugger can attach at a time.
 - Updates are not installed silently. Conn finds a new release, downloads the installer for your
   system and hands it over, and you finish the install.
-- The MCP server has no raw-HTML tool. `conn html` has one.

@@ -1183,7 +1183,7 @@ export function Composer({
   }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
   return (
-    <div className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
+    <div className="conn-seat mx-auto w-full max-w-[min(100%,880px)] flex-none px-4 pb-4">
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}

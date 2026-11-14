@@ -29,6 +29,11 @@ function browserTools(z) {
       schema: { max: z.number().optional() },
     },
     {
+      name: 'browser_html', bridgeTool: 'html', label: 'Read HTML', title: 'Read page HTML',
+      description: 'Raw outer HTML of the current page, for markup the text and snapshot leave out. `max` caps the characters returned.',
+      schema: { max: z.number().optional() },
+    },
+    {
       name: 'browser_click', bridgeTool: 'click', label: 'Click', title: 'Click',
       description: 'Click an element by [ref=eN] handle or CSS selector, using a real mouse event.',
       schema: { target: z.string(), button: z.enum(['left', 'right', 'middle']).optional(), clickCount: z.number().optional() },

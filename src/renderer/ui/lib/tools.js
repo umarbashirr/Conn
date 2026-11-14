@@ -46,6 +46,7 @@ export const DOING = {
   browser_navigate: 'Opening',
   browser_snapshot: 'Reading the page',
   browser_text: 'Reading the page',
+  browser_html: 'Reading the HTML',
   browser_click: 'Clicking',
   browser_fill: 'Filling',
   browser_type: 'Typing',

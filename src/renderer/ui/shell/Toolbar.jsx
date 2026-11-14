@@ -46,7 +46,7 @@ import { activeTab, getTabsVersion, KINDS, subscribeTabs } from './tabs-store';
 import { formatChord, keyOf } from '@/lib/keys';
 import { useSettings } from '../useSettings';
 
-const ICON_BUTTON = 'size-7 rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-3.5';
+const ICON_BUTTON = 'size-[28px] rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-[16px]';
 
 // -------------------------------------------------------------------- theme
 

@@ -28,6 +28,7 @@ const SUMMARY = {
   browser_navigate: (i) => bareUrl(i.url),
   browser_snapshot: nothing,
   browser_text: nothing,
+  browser_html: nothing,
   browser_click: (i) => i.target,
   browser_fill: (i) => `${i.target} = ${JSON.stringify(i.value ?? '')}`,
   browser_type: (i) => [JSON.stringify(i.text ?? ''), i.target && `into ${i.target}`].filter(Boolean).join(' '),

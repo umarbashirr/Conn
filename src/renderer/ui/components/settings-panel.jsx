@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   CheckIcon, CircleAlertIcon, DownloadIcon, ExternalLinkIcon, FolderOpenIcon,
   InfoIcon, KeyboardIcon, MessageSquareIcon, MonitorIcon, MoonIcon, PaletteIcon, PowerIcon,
-  RefreshCwIcon, SmartphoneIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
+  RefreshCwIcon, ShieldCheckIcon, SmartphoneIcon, SparklesIcon, SquareTerminalIcon, SunIcon,
 } from 'lucide-react';
 import { toQR } from 'toqr';
 
@@ -30,11 +30,13 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { cn } from '@/lib/utils';
 import { MODES } from '@/components/composer';
 import { KeyboardPage } from '@/components/keyboard-page';
+import { PermissionRules } from '@/components/permission-rules';
 import { CHAT_SIZES, runCommand, toast, ZOOM_STEPS } from '../../app.js';
 
 export const SETTINGS_SECTIONS = [
   ['appearance', 'Appearance', PaletteIcon],
   ['agent', 'Agent', SparklesIcon],
+  ['permissions', 'Permissions', ShieldCheckIcon],
   ['chat', 'Chat', MessageSquareIcon],
   ['terminal', 'Terminal', SquareTerminalIcon],
   ['keyboard', 'Keyboard', KeyboardIcon],
@@ -1098,6 +1100,7 @@ export function SettingsPanel({ section, ...props }) {
       {section?.startsWith('agent-') && PROVIDERS[section.slice(6)] && (
         <AgentPage key={section} provider={section.slice(6)} {...props} />
       )}
+      {section === 'permissions' && <PermissionRules />}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'chat' && <DictationPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}

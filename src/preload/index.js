@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('conn', {
     onChanged: on('project:changed'),
   },
 
+  rules: {
+    list: (project) => ipcRenderer.invoke('rules:list', { project }),
+    remove: (project, rule) => ipcRenderer.invoke('rules:remove', { project, ...rule }),
+  },
+
   phone: {
     card: () => ipcRenderer.invoke('phone:card'),
     onCard: on('phone:card'),
