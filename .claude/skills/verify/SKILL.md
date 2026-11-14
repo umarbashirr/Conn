@@ -177,7 +177,7 @@ wait 20
 say: All done.
 ```
 
-Typed into the composer, the steps go on one line separated by ` ;; `, because `type` cannot put a newline in the composer: `edit index.html: <h1>Your cart</h1> => <h1>Your bag</h1> ;; wait 20`. `edit` reads the file first, because the CLI refuses to edit a file it has not read. `wait 20` holds the next reply 20 seconds, which keeps the turn running so you can press Stop. Paths are relative to the project. The turn ends with the `say` text, or `Done.`. A prompt with no steps gets `heard: <its last line>` back.
+Typed into the composer, the steps go on one line separated by ` ;; `, because `type` cannot put a newline in the composer: `edit index.html: <h1>Your cart</h1> => <h1>Your bag</h1> ;; wait 20`. `edit` reads the file first, because the CLI refuses to edit a file it has not read. `wait 20` holds the next reply 20 seconds, which keeps the turn running so you can press Stop. Paths are relative to the `shop` project the instance booted with, even when the chat runs in another folder such as a worktree. Use absolute paths there, and a `bash:` step (which runs in the CLI's real working directory) to prove where the chat runs. The turn ends with the `say` text, or `Done.`. A prompt with no steps gets `heard: <its last line>` back.
 
 ```
 node .claude/skills/verify/drive.mjs boot --xvfb --claude

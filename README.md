@@ -185,6 +185,16 @@ browser, wired in already: no MCP config, no restart, no setup step.
   Shift+Tab works from anywhere in the window except a text field, the terminal, or an open dialog
   or menu.
 - **Stop** interrupts mid-turn.
+- **Queue**: Enter while a turn runs queues the message, and queued messages go out in order. Each
+  can be edited, removed or sent next. Enter on an empty box sends the first one now. After Stop the
+  queue is held rather than sent.
+- **Edit, retry, fork and undo**: edit or retry a past message, fork a chat from any message into a
+  new one (carrying a summary or the full history, to the same or another provider), or undo a
+  Claude turn's file edits from its message.
+- **Usage**: the meter under the composer shows the chat's tokens and cost, and Usage in the rail
+  shows 30 days of spend and your plan's limits, read from the CLIs' own transcripts.
+- **Search** (`Ctrl+K`) finds text inside every past chat, not only titles. **Export chat** in the
+  palette saves a chat as Markdown.
 - **Next steps** appear as chips under a finished turn, worked out from what the turn did. A chip
   fills the box and does not send, so you can edit it first. Tab in an empty box takes the first one.
 - **Dictation**: `Ctrl+D` records into the chat box. The speech model is an English Whisper that runs
@@ -236,6 +246,26 @@ clicks and typing still reach the page. Press **Take control** on that layer to 
 It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
 meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
 when the agent's turn ends.
+
+## Worktrees
+
+Give a chat its own branch and its own folder, so two agents can work at once without touching each
+other's files. In the branch menu under the composer, **Create Branch** then **Open in worktree**, or
+type a name in the **Worktrees** pane (palette, toolbar, or the chat overview). The worktree is made
+in `.claude/worktrees/<name>`, the same place `claude --worktree` uses, opened as its own folder in
+the rail, and a new chat starts there. `node_modules` is linked from the main checkout when the
+lockfiles match, so dev servers run without a fresh install.
+
+The pane lists every worktree of the repository, including ones made in a terminal, with commits
+ahead of and behind the main checkout's branch and uncommitted files. Changes can compare a worktree
+with where it left `main` (**since main**) as well as show uncommitted edits. From each row:
+
+- **Merge** the branch into the main checkout's branch. Uncommitted files on either side stop it, and
+  a conflict is backed out, so `main` is never left mid-merge.
+- **Push to main** merges the same way, then pushes the branch to `origin`. It asks first, never
+  forces, and refuses when `origin` has commits you have not pulled. The main checkout's row shows
+  how many commits `origin` lacks and has its own push.
+- **Remove** the folder. The branch is kept. Uncommitted files ask a second time.
 
 ## Skills and MCP servers
 
@@ -398,7 +428,8 @@ outside those terminals can reach the tool routes without that token.
 
 ## Limits worth knowing
 
-- A window holds up to eight folders. Each folder has its own chats, shells, and preview tabs, and
+- A window holds up to eight folders, and each worktree you open counts as one. Opening a ninth
+  closes the oldest and stops its chats. Each folder has its own chats, shells, and preview tabs, and
   more than one chat can run at the same time. The right column shows one tab of the focused folder.
   A shell command reaches the window that has that folder open, including when another folder is the
   one on screen.
@@ -414,4 +445,6 @@ outside those terminals can reach the tool routes without that token.
 - Cross-origin iframes appear in snapshots but their contents cannot be read.
 - `screenshot --full`, viewport emulation and `record` go through CDP, and none works while DevTools
   is open, since only one debugger can attach at a time.
-- `homepage` in package.json is a placeholder. Set it to the real repository before publishing.
+- Updates are not installed silently. Conn finds a new release, downloads the installer for your
+  system and hands it over, and you finish the install.
+- The MCP server has no raw-HTML tool. `conn html` has one.

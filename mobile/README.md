@@ -43,7 +43,7 @@ npm start
 
 Then scan the QR code with [Expo Go](https://expo.dev/go) on a phone, or press `a` / `i` / `w` for Android emulator, iOS simulator, or web.
 
-This machine has no local Android SDK yet. Use Expo Go on a device, or install Android Studio / Xcode when you need native builds.
+To use the app without a dev server, install the Android APK from the `mobile-v*` releases on GitHub (sideloaded, not on Play). Release APKs are built locally with `npx expo prebuild --platform android` and Gradle, and every one must be signed with the same release key or it will not install over the last. There is no iOS build yet.
 
 ## Scripts
 

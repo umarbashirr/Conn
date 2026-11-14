@@ -14,7 +14,9 @@ Static landing page. No build and no package. Two scripts load with `defer`, and
 
 Edit visitor copy in `index.html`. Change an install command in `code#cmd-linux` or `code#cmd-windows`. Every copy button reads its command from the element named in `data-copy`. Do not add a macOS command.
 
-`og:image` and `twitter:image` use the relative path `og.png`. Some crawlers only accept an absolute URL, so once the site has a domain, change both to `https://<domain>/og.png`.
+The site is live at https://getconn.netlify.app. Netlify is not linked to the repo, so a change here goes live only when it is deployed by hand.
+
+`og:image` and `twitter:image` still use the relative path `og.png`. Some crawlers only accept an absolute URL, so change both to `https://getconn.netlify.app/og.png` (or the final domain).
 
 ## The hero demo
 
