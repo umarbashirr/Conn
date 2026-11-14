@@ -361,6 +361,20 @@ function applyInfo(info) {
 
 window.conn.project.onChanged(applyInfo);
 
+// The chat overview lists the changed files too, and it can be on screen
+// before the Changes tab ever is. One read, and from then on the file watcher
+// keeps the list current the way it does once the tab has been opened. No
+// timer: that stays the tab's alone.
+export function primeChanges() {
+  if (started) return;
+  started = true;
+  if (focusedDir) { refresh({ quiet: true }); return; }
+  window.conn.project.info().then((info) => {
+    if (!focusedDir) applyInfo(info);
+    refresh({ quiet: true });
+  });
+}
+
 // app.js calls these as the right column switches. Nothing is read until the
 // tab is first opened, and the timer only runs while it is the view on screen.
 window.connChanges = {

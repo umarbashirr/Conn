@@ -11,7 +11,7 @@ export function NextSteps({ steps, onPick }) {
       role="group"
       aria-label="Suggested next steps"
       data-next-steps
-      className="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-1.5 px-4 pb-2">
+      className="conn-seat mx-auto flex w-full max-w-3xl flex-wrap items-center gap-1.5 px-4 pb-2">
       {steps.map((s, i) => (
         <Button
           key={s.text}

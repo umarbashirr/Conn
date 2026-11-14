@@ -22,7 +22,7 @@ assert.deepEqual(chatOverview([], facts({ changes: 4 })), [], 'an empty chat has
   const s = chatOverview([user('u1')], facts());
   assert.deepEqual(kinds(s), ['header', 'places'], 'a chat with nothing done yet has only the header and the places');
   assert.deepEqual(section(s, 'header'), { kind: 'header', name: 'shop', branch: 'main' }, 'the header names the folder and its branch');
-  assert.deepEqual(section(s, 'places').places.map((p) => p.kind), ['changes', 'browser', 'terminal', 'files'],
+  assert.deepEqual(section(s, 'places').places.map((p) => p.kind), ['changes', 'browser', 'terminal', 'files', 'worktrees'],
     'the places are Changes, Browser, Terminal, Files in that order');
 }
 
@@ -150,6 +150,26 @@ assert.deepEqual(chatOverview([], facts({ changes: 4 })), [], 'an empty chat has
 {
   const items = [user('u1'), bash('fg', 'ls', 'a'), says('a1', 'done')];
   assert.deepEqual(kinds(chatOverview(items, facts())), ['header', 'places'], 'sections with nothing in them are left out');
+}
+
+{
+  const wt = (dir, extra) => ({ dir, branch: dir.split('/').pop(), main: false, ...extra });
+  const places = section(chatOverview([user('u1')], facts({
+    changes: 5,
+    changedFiles: ['a.js', 'src/b.js', 'c.css', 'd.md', 'e.txt'].map((path) => ({ path, status: 'edited' })),
+    openFile: 'src/app/main.js',
+    worktrees: [wt(PROJECT, { main: true }), wt('/w/x', { ahead: 2, dirty: 1 }), wt('/w/y', { prunable: true })],
+  })), 'places').places;
+  const of = (kind) => places.find((p) => p.kind === kind);
+  assert.deepEqual(of('changes').items.map((i) => i.label), ['a.js', 'b.js', 'c.css'], 'Changes lists the first three changed files');
+  assert.equal(of('changes').more, 2, 'and counts the rest');
+  assert.deepEqual(of('changes').items[1], { id: 'src/b.js', label: 'b.js', detail: 'src', mark: 'edited', act: { change: 'src/b.js' } },
+    'a changed file shows its name, its folder and how it changed');
+  assert.deepEqual(of('files').items.map((i) => i.act), [{ file: 'src/app/main.js' }], 'Files lists the open file');
+  assert.deepEqual(of('worktrees').items.map((i) => [i.label, i.detail]), [['x', '↑2 1 uncommitted']],
+    'Worktrees lists the linked ones, not the main checkout or a missing one');
+  assert.equal(of('worktrees').count, 1, 'and counts them');
+  assert.deepEqual(of('browser').items, [], 'a place with nothing open lists nothing');
 }
 
 console.log('overview-check: all assertions passed');

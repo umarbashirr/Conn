@@ -47,7 +47,10 @@ function useGutter(anchor) {
     const watch = new ResizeObserver(measure);
     watch.observe(root);
     watch.observe(column);
-    return () => watch.disconnect();
+    // The overview slides the column left to make room for itself, which
+    // moves this gutter without resizing anything the observer watches.
+    window.addEventListener('conn:chat-column-moved', measure);
+    return () => { watch.disconnect(); window.removeEventListener('conn:chat-column-moved', measure); };
   }, [anchor]);
   return fit;
 }
