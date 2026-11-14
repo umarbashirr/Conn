@@ -394,7 +394,36 @@ function stopProject(dir) {
 
 function send(channel, payload) {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
-  mobileGate.publish(channel, payload);
+  mobileGate.publish(channel, forPhone(payload));
+}
+
+// The phone names a saved chat h:<provider>:<session>, and a chat it started
+// itself by its own key. The window names chats by tab. Events leave for the
+// phone under the phone's name, so they land in the chat it has open.
+const phoneChats = new Set();
+
+function phoneChatOf(chat) {
+  if (typeof chat !== 'string' || chat.startsWith('h:') || phoneChats.has(chat)) return chat;
+  const agent = sessions.get(chat);
+  const sid = agent?.sessionId;
+  const runs = agent?.provider || chatPrefs.providerOf(chat, provider);
+  return sid && runs ? `h:${runs}:${sid}` : chat;
+}
+
+function forPhone(payload) {
+  if (!payload || typeof payload.chat !== 'string') return payload;
+  const chat = phoneChatOf(payload.chat);
+  return chat === payload.chat ? payload : { ...payload, chat };
+}
+
+// One running agent per session: whichever side sends, the turn goes to the
+// agent already holding that session, so the conversation does not fork.
+function liveChatFor(session, except) {
+  if (!session) return null;
+  for (const [chat, agent] of sessions) {
+    if (chat !== except && agent && !agent.closed && agent.sessionId === session) return chat;
+  }
+  return null;
 }
 
 // `project` is whose preview this is about. Opening it brings that folder
@@ -1414,15 +1443,33 @@ function shareLive(dir, name) {
     : a.addMcpServer(runtime, { type: 'stdio', ...launch }))));
 }
 
-async function deliverTurn({ chat, text, images, project, session, provider }) {
+async function deliverTurn({ chat, text, images, project, session, provider, from }) {
   try {
+    const phone = from === 'phone';
+    const held = liveChatFor(session, chat);
+    let target = chat;
+    if (phone && held) {
+      target = held;
+    } else if (!phone && held && held.startsWith('h:')) {
+      // The phone left an agent on this session. The window takes it over.
+      const other = sessions.get(held);
+      if (!(other?.working ?? other?.busy)) stopChat(held);
+    }
+    if (phone && target === chat && !chat.startsWith('h:')) phoneChats.add(chat);
     const agent = await ensureAgent({
-      chat,
+      chat: target,
       resume: session || null,
       project,
       provider,
     });
     const forkAt = agent.send(text, images);
+    const echo = { text, chat: target, project: cwdOfChat(target), id: `echo:${Date.now()}`, ...(forkAt && { forkAt }) };
+    if (phone) {
+      // The window shows the phone's prompt only in a tab it already has.
+      if (target !== chat && win && !win.isDestroyed()) win.webContents.send('agent:echo', echo);
+    } else {
+      mobileGate.publish('agent:echo', forPhone(echo));
+    }
     return { ok: true, sessionId: agent.sessionId || null, ...(forkAt && { forkAt }) };
   } catch (err) {
     return { error: err.message };
@@ -1431,7 +1478,10 @@ async function deliverTurn({ chat, text, images, project, session, provider }) {
 
 function deliverDecision({ chat, id, decision, input }) {
   if (settleBridge(id, decision)) return true;
-  return sessions.get(chat)?.decide(id, decision, input) === true;
+  const held = typeof chat === 'string' && chat.startsWith('h:') && !sessions.has(chat)
+    ? liveChatFor(chat.split(':').slice(2).join(':'))
+    : null;
+  return sessions.get(held || chat)?.decide(id, decision, input) === true;
 }
 
 function registerIpc() {
@@ -2429,7 +2479,7 @@ app.whenReady().then(async () => {
   mobileGate = await startMobileGate({
     focused: () => focused,
     knownProject: known,
-    deliverTurn,
+    deliverTurn: (turn) => deliverTurn({ ...turn, from: 'phone' }),
     deliverDecision,
     listChats: listChatsForPhone,
     listProjects: listProjectsForPhone,

@@ -14,6 +14,7 @@ const FANOUT = new Set([
   'agent:permission',
   'agent:ready',
   'agent:decided',
+  'agent:echo',
   'agent:error',
   'agent:closed',
 ]);
