@@ -10,7 +10,7 @@ import { turnEdits } from './turns.js';
 export const FILES_SHOWN = 4;
 export const PRS_SHOWN = 3;
 
-const PLACES = ['changes', 'browser', 'terminal', 'files'];
+const PLACES = ['changes', 'browser', 'terminal', 'files', 'worktrees'];
 const FOLDERLESS_PLACES = ['browser', 'terminal'];
 
 // Every item in transcript order, a subagent's own steps right after it.
@@ -27,18 +27,57 @@ const header = (_items, facts) => (facts.folderless ? null : { kind: 'header', n
 
 // ------------------------------------------------------------------- places
 
+// How many entries each place lists under its row before "N more".
+export const PLACE_ITEMS_SHOWN = 3;
+
+const base = (p) => p.split('/').pop();
+const parent = (p) => p.split('/').slice(0, -1).join('/');
+
+// What each place has open, as rows under its heading. Every row carries the
+// one thing the panel needs to bring it back: a tab, a changed file, the file
+// in the Files pane, or a worktree folder.
+function itemsOf(kind, facts) {
+  if (kind === 'browser' || kind === 'terminal') {
+    return (facts.tabs || []).filter((t) => t.kind === kind).map((t) => ({
+      id: t.id, label: t.title || (kind === 'browser' ? 'New tab' : 'Terminal'), act: { tab: t.id },
+    }));
+  }
+  if (kind === 'changes') {
+    return (facts.changedFiles || []).map((f) => ({
+      id: f.path, label: base(f.path), detail: parent(f.path), mark: f.status, act: { change: f.path },
+    }));
+  }
+  if (kind === 'files') {
+    return facts.openFile ? [{ id: facts.openFile, label: base(facts.openFile), detail: parent(facts.openFile), act: { file: facts.openFile } }] : [];
+  }
+  if (kind === 'worktrees') {
+    return (facts.worktrees || []).filter((w) => !w.main && !w.prunable).map((w) => {
+      const bits = [];
+      if (w.ahead) bits.push(`↑${w.ahead}`);
+      if (w.behind) bits.push(`↓${w.behind}`);
+      if (w.dirty) bits.push(`${w.dirty} uncommitted`);
+      return { id: w.dir, label: w.branch || w.head, detail: bits.join(' '), current: w.dir === facts.project, act: { worktree: w.dir } };
+    });
+  }
+  return [];
+}
+
 function places(_items, facts) {
   const kinds = facts.folderless ? FOLDERLESS_PLACES : PLACES;
   return {
     kind: 'places',
-    places: kinds.map((kind) => ({
-      kind,
-      open: facts.pane === kind,
-      count: kind === 'changes' ? facts.changes : null,
-      // Browser pages and shells can be several at once, and with the column
-      // shut they are otherwise out of sight, so each is listed under its row.
-      tabs: (facts.tabs || []).filter((t) => t.kind === kind),
-    })),
+    places: kinds.map((kind) => {
+      const all = itemsOf(kind, facts);
+      return {
+        kind,
+        open: facts.pane === kind,
+        count: kind === 'changes' ? facts.changes : (kind === 'worktrees' ? all.length : null),
+        // Kept for anything still reading the old shape.
+        tabs: (facts.tabs || []).filter((t) => t.kind === kind),
+        items: all.slice(0, PLACE_ITEMS_SHOWN),
+        more: Math.max(0, all.length - PLACE_ITEMS_SHOWN),
+      };
+    }),
   };
 }
 

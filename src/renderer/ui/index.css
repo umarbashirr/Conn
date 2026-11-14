@@ -184,6 +184,10 @@
      composer, the scroll button off the floor. */
   .conn-rise { animation: conn-rise 200ms cubic-bezier(.22, .61, .36, 1) both; }
 
+  /* The chat's centred strips, slid left of centre when the overview panel
+     needs the right gutter (see useColumnSeat). */
+  .conn-seat { translate: calc(var(--chat-shift, 0px) * -1) 0; }
+
   /* A disclosure body. Animating a grid row from 0fr to 1fr gets the height
      without anyone having to measure it first, which is the only thing that
      works when the body is a diff that has never been laid out. */

@@ -54,7 +54,7 @@ export function ChatFloor({ agents, onOpen, onStopAll }) {
   useEffect(() => { if (!agents.length) setOpen(false); }, [agents.length]);
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 mx-auto flex w-full max-w-3xl flex-col gap-2 px-4">
+    <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 conn-seat mx-auto flex w-full max-w-3xl flex-col gap-2 px-4">
       {open && (
         <WorkingPanel
           agents={agents}

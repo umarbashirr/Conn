@@ -557,15 +557,24 @@ function BranchPicker({ dir, branch }) {
   const exists = !!draft && list.includes(draft);
   const nameProblem = formatError || (exists ? 'A branch named that already exists.' : '');
 
-  const run = async (next, create) => {
+  // `where` is 'worktree' to cut the branch into its own folder and open that
+  // folder, leaving this one on the branch it is on.
+  const run = async (next, create, where) => {
     setBusy(true);
     setError('');
     setCreateError('');
-    const res = await window.conn.project.checkout(dir, next, create).catch(() => null);
+    const res = await (where === 'worktree'
+      ? window.conn.project.worktree(dir, next)
+      : window.conn.project.checkout(dir, next, create)).catch(() => null);
     setBusy(false);
     if (res?.ok) {
       setOpen(false);
       setCreating(false);
+      // The whole point of the worktree is that the next message runs there.
+      if (where === 'worktree' && res.dir) {
+        window.connChat?.newChat(res.dir);
+        requestAnimationFrame(() => document.querySelector('#agent-root [contenteditable="true"]')?.focus());
+      }
     } else if (create) setCreateError(res?.error || 'Could not create that branch.');
     else setError(res?.error || 'Could not switch branch.');
   };
@@ -657,9 +666,20 @@ function BranchPicker({ dir, branch }) {
               Cancel
               <span className="text-muted-foreground text-xs">Esc</span>
             </Button>
-            <Button type="button" size="sm" disabled={busy || !draft || !!nameProblem} onClick={() => run(draft, true)}>
-              Confirm
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                title="Make the branch in its own folder and open it, so a chat there does not touch this one"
+                disabled={busy || !draft || !!nameProblem}
+                onClick={() => run(draft, true, 'worktree')}>
+                Open in worktree
+              </Button>
+              <Button type="button" size="sm" disabled={busy || !draft || !!nameProblem} onClick={() => run(draft, true)}>
+                Confirm
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1163,7 +1183,7 @@ export function Composer({
   }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">
+    <div className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}

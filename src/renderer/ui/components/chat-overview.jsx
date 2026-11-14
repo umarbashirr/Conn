@@ -16,6 +16,9 @@ import { runCommand } from '../../app.js';
 import { openSheet } from '../shell/agents-store.js';
 import { useFocusedDir, useLayout, VIEW_KINDS } from '../shell/Shell';
 import { activeKind, getTabsVersion, revealTab, subscribeTabs, tabsOf } from '../shell/tabs-store';
+import { changesState, getChangesVersion, MARK, primeChanges, selectFile, subscribeChanges } from '../shell/changes-store';
+import { filesState, getFilesVersion, subscribeFiles } from '../shell/files-store';
+import { useWorktrees } from '../shell/worktrees-store';
 
 // The panel sits at right-4 and wants as much again between it and the column.
 // It grows into a wide gutter up to MAX_REM, so titles stop truncating while
@@ -25,6 +28,8 @@ const PANEL_REM = 14;
 const MAX_REM = 20;
 const MARGIN_REM = 1;
 const COLLAPSED_KEY = 'conn.overview.collapsed';
+// chat-outline.jsx listens for the same name.
+const COLUMN_MOVED = 'conn:chat-column-moved';
 
 // Every row in every section is this one shape, so the panel reads as a list.
 const ROW = 'flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50';
@@ -39,8 +44,15 @@ function useFacts(agent) {
   const layout = useLayout();
   const dir = useFocusedDir();
   useSyncExternalStore(subscribeTabs, getTabsVersion, getTabsVersion);
+  useSyncExternalStore(subscribeChanges, getChangesVersion, getChangesVersion);
+  useSyncExternalStore(subscribeFiles, getFilesVersion, getFilesVersion);
 
   const project = agent.folderless ? null : info.projects?.find((p) => p.dir === agent.project) || info;
+  const { worktrees } = useWorktrees(project?.dir || null, !agent.folderless);
+  // The Changes and Files stores hold the focused folder, so they only speak
+  // for this chat when it runs in that folder.
+  const mine = !!project?.dir && project.dir === dir;
+  useEffect(() => { if (mine) primeChanges(); }, [mine]);
   return {
     project: project?.dir || null,
     name: project?.name || 'No folder',
@@ -51,30 +63,67 @@ function useFacts(agent) {
       .filter((t) => t.kind === 'browser' || t.kind === 'terminal')
       .map(({ id, kind, title }) => ({ id, kind, title })),
     folderless: !!agent.folderless,
+    changedFiles: mine && changesState.repo && !changesState.error
+      ? changesState.files.map(({ path, kind }) => ({ path, status: kind })) : [],
+    openFile: mine ? filesState.view?.path || null : null,
+    worktrees,
   };
 }
 
 // Whether the gutter right of the chat column holds the panel. Measured, since
 // the column is centred and the window, the rail and the right column all move it.
+// The column is centred, so its free width is split between two gutters. The
+// panel needs room on the right; when the right gutter alone is too narrow the
+// column gives up its left gutter first, sliding left until it meets the edge.
+// Only when both gutters together cannot hold the panel does it fold to a
+// button. `shift` is how far left of centre the column sits for the panel.
 function useFits(anchor) {
-  const [fit, setFit] = useState({ fits: false, width: 0 });
+  const [fit, setFit] = useState({ fits: false, width: 0, shift: 0 });
   useLayoutEffect(() => {
     const root = anchor.current?.parentElement;
     const column = root?.querySelector('[data-chat-column]');
-    if (!root || !column) return undefined;
+    const box = column?.parentElement;
+    if (!root || !column || !box) return undefined;
     const measure = () => {
       const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-      const gutter = root.getBoundingClientRect().right - column.getBoundingClientRect().right;
-      const room = gutter - 2 * MARGIN_REM * rem;
-      setFit({ fits: room >= PANEL_REM * rem, width: Math.round(Math.min(room, MAX_REM * rem)) });
+      // The column's own width when centred: its cap, or all of the box.
+      const room = box.clientWidth;
+      const cap = parseFloat(getComputedStyle(column).maxWidth) || room;
+      const free = Math.max(0, room - Math.min(cap, room));
+      // What sits right of the box inside the root, a scrollbar for one.
+      const beyond = Math.max(0, root.getBoundingClientRect().right - box.getBoundingClientRect().right);
+      const need = (PANEL_REM + 2 * MARGIN_REM) * rem - beyond;
+      if (free < need) { setFit({ fits: false, width: 0, shift: 0 }); return; }
+      const right = Math.max(need, free / 2);
+      const width = Math.round(Math.min(right + beyond - 2 * MARGIN_REM * rem, MAX_REM * rem));
+      // How far left of centre the column has to sit.
+      setFit({ fits: true, width, shift: Math.round(right - free / 2) });
     };
     measure();
     const watch = new ResizeObserver(measure);
     watch.observe(root);
-    watch.observe(column);
+    watch.observe(box);
     return () => watch.disconnect();
   }, [anchor]);
   return fit;
+}
+
+// Slides the chat's centred strips (the transcript column, the composer and
+// the strips above it, all `conn-seat`) left by however far useFits moved the
+// column, and back to the centre otherwise. A translate, so the strips keep
+// their width and nothing below reflows. The outline in the left gutter
+// measures the column's left edge, and a move is not a resize, so it is told.
+function useColumnSeat(anchor, shift) {
+  useLayoutEffect(() => {
+    const root = anchor.current?.closest('#agent-root');
+    if (!root) return undefined;
+    root.style.setProperty('--chat-shift', `${shift || 0}px`);
+    window.dispatchEvent(new Event(COLUMN_MOVED));
+    return () => {
+      root.style.removeProperty('--chat-shift');
+      window.dispatchEvent(new Event(COLUMN_MOVED));
+    };
+  }, [anchor, shift]);
 }
 
 function useCollapsed() {
@@ -87,7 +136,9 @@ function useCollapsed() {
   return [collapsed, choose];
 }
 
-const modeOf = ({ fits, rightOpen, collapsed }) => (fits && !rightOpen && !collapsed ? 'panel' : 'button');
+// An open right column no longer folds the panel: if the chat still has room
+// beside it, the panel stays.
+const modeOf = ({ fits, collapsed }) => (fits && !collapsed ? 'panel' : 'button');
 
 // ---------------------------------------------------------------- sections
 
@@ -120,12 +171,21 @@ function Header({ name, branch, action }) {
 // listed under their row so they can be brought back with the column shut.
 const PLACE_ROW = 'flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
+
+// Bringing back whatever a row under a place stands for.
+function actOn(act) {
+  if (act.tab) revealTab(act.tab);
+  else if (act.change) { runCommand('changes', true); selectFile(act.change); }
+  else if (act.file) runCommand('openFile', act.file);
+  else if (act.worktree) window.conn.project.open({ dir: act.worktree });
+}
+
 function Places({ places, onAct }) {
   return (
     <div className="flex flex-col gap-0.5">
-      {places.map(({ kind, open, count, tabs = [] }) => {
+      {places.map(({ kind, open, count, items = [], more = 0 }) => {
         const { icon: Icon, label, command } = VIEW_KINDS[kind];
-        const shown = count > 0 ? count : tabs.length;
+        const shown = count > 0 ? count : items.length + more;
         return (
           <div key={kind} className="flex flex-col gap-0.5">
             <button
@@ -139,17 +199,30 @@ function Places({ places, onAct }) {
               <span className="truncate">{label}</span>
               {shown > 0 && <span className="ml-auto font-mono text-[10px] tabular-nums">{shown}</span>}
             </button>
-            {tabs.map((tab) => (
+            {items.map((item) => (
               <button
-                key={tab.id}
+                key={item.id}
                 type="button"
-                data-overview-tab={tab.id}
-                className={cn(PLACE_ROW, 'ml-5 h-6 text-[11.5px]')}
-                onClick={() => { revealTab(tab.id); onAct(); }}>
-                <span className="size-1 shrink-0 rounded-full bg-current opacity-50" />
-                <span className="truncate">{tab.title || (kind === 'browser' ? 'New tab' : 'Terminal')}</span>
+                data-overview-item={item.id}
+                title={item.detail ? `${item.label} · ${item.detail}` : item.label}
+                aria-current={item.current ? 'true' : undefined}
+                className={cn(PLACE_ROW, 'ml-5 h-6 text-[11.5px]', item.current && 'text-foreground')}
+                onClick={() => { actOn(item.act); onAct(); }}>
+                {item.mark
+                  ? <span className="w-2.5 shrink-0 text-center font-mono text-[10px] opacity-70">{MARK[item.mark] || '•'}</span>
+                  : <span className="size-1 shrink-0 rounded-full bg-current opacity-50" />}
+                <span className="min-w-0 shrink truncate">{item.label}</span>
+                {item.detail && <span className="min-w-0 flex-1 truncate text-right font-mono text-[10px] opacity-60">{item.detail}</span>}
               </button>
             ))}
+            {more > 0 && (
+              <button
+                type="button"
+                className={cn(PLACE_ROW, 'ml-5 h-6 text-[11.5px] opacity-80')}
+                onClick={() => { runCommand(command, true); onAct(); }}>
+                {more} more
+              </button>
+            )}
           </div>
         );
       })}
@@ -325,21 +398,22 @@ const CORNER = 'absolute top-[52px] right-4 z-10 flex max-h-[calc(100%-52px-9rem
 export function ChatOverview({ agent }) {
   const anchor = useRef(null);
   const facts = useFacts(agent);
-  const { rightOpen } = useLayout();
-  const { fits, width } = useFits(anchor);
+  const { fits, width, shift } = useFits(anchor);
   const [collapsed, collapse] = useCollapsed();
   const [open, setOpen] = useState(false);
 
   const items = useDeferredValue(agent.items);
-  const { project, name, branch, changes, pane, tabs, folderless } = facts;
-  // A fresh list each render; its contents are what decide a recompute.
-  const tabsKey = JSON.stringify(tabs);
+  const { project, name, branch, changes, pane, tabs, folderless, changedFiles, openFile, worktrees } = facts;
+  // Fresh lists each render; their contents are what decide a recompute.
+  const listsKey = JSON.stringify([tabs, changedFiles, worktrees]);
   const sections = useMemo(
-    () => chatOverview(items, { project, name, branch, changes, pane, tabs, folderless }),
-    [items, project, name, branch, changes, pane, tabsKey, folderless],
+    () => chatOverview(items, { project, name, branch, changes, pane, tabs, folderless, changedFiles, openFile, worktrees }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, project, name, branch, changes, pane, listsKey, folderless, openFile],
   );
 
-  const mode = modeOf({ fits, rightOpen, collapsed });
+  const mode = modeOf({ fits, collapsed });
+  useColumnSeat(anchor, mode === 'panel' ? shift : 0);
   const asPanel = (
     <Button variant="ghost" size="icon-xs" aria-label="Show as panel" title="Show as panel" className="text-muted-foreground"
       onClick={() => { collapse(false); setOpen(false); }}>
