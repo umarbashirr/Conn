@@ -3,6 +3,8 @@
 An agent, a terminal, and a browser the agent can drive, in one window. Two riders, one machine,
 either one can steer.
 
+Site and downloads: https://getconn.netlify.app
+
 Cursor puts an agent next to an editor. This puts one next to a shell and a live browser. The agent
 reads your code, runs commands, loads the page, clicks through it, reads the console, and takes
 screenshots it can actually see. You watch it happen, and you can grab the browser yourself at any
@@ -129,6 +131,11 @@ provider streams like Claude. Which CLI a chat uses is stored per chat, the same
 already are: switching the picker on a chat that has messages forks it rather than rewriting the
 thread. Point Conn at an unusual binary under Settings, Agent.
 
+Each provider's models are split into Latest and Legacy. A model is Legacy when a newer version of
+the same line is listed, or when the CLI calls it legacy or older. Each row carries the CLI's own
+one-line description. Effort and, where the model has one, the 1M context window sit under the list
+as one-click rows.
+
 ## Opening a project
 
 The installer puts `conn` on PATH, so a folder opens the way you would open one in an editor:
@@ -175,7 +182,16 @@ browser, wired in already: no MCP config, no restart, no setup step.
   on screen: refused in Plan, a card in Ask, allowed in Auto and Full bypass. The card offers
   **Allow**, **Always**, or **Deny**. A terminal agent driving the preview through `conn` or the MCP
   server uses that same chat mode, and Ask shows the card in the chat rather than refusing the call.
+  Shift+Tab works from anywhere in the window except a text field, the terminal, or an open dialog
+  or menu.
 - **Stop** interrupts mid-turn.
+- **Next steps** appear as chips under a finished turn, worked out from what the turn did. A chip
+  fills the box and does not send, so you can edit it first. Tab in an empty box takes the first one.
+- **Dictation**: `Ctrl+D` records into the chat box. The speech model is an English Whisper that runs
+  on your machine, in its own process. Pick Tiny (40 MB), Base (76 MB, the default) or Small
+  (248 MB, the most accurate) under Settings, Dictation; it downloads once. Names Whisper cannot
+  know, such as tool names, skills and this project's folders, are respelled after each take, but
+  only on an exact match, so ordinary speech is left alone.
 - **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
   Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
   a conversation you started in the terminal shows up in the rail, and a chat you started here shows
@@ -228,7 +244,8 @@ The pill above the composer says how many of each this folder has. Click it to s
 **Skills** are everything the agent can be told to do by name: the SKILL.md folders in `.claude/skills`
 here and in `~/.claude`, the commands in `.claude/commands`, whatever your enabled plugins ship, and,
 once a chat is running, the ones Claude Code ships with. Type `/` in the composer and the list filters
-as you type. Enter drops the name in and leaves the caret after it for the argument.
+as you type. Enter drops the name in where you typed it and leaves the caret after it for the
+argument. A prompt can name more than one skill.
 
 Switching a skill off hides it from the agent in this folder and nothing else: the files stay where
 they are and the `claude` CLI outside the app is unaffected. The off list rides along as a
@@ -357,7 +374,7 @@ to your shell. `Ctrl+B` and `Ctrl+D` are the app's: the sidebar and dictation.
 | `Ctrl+\`` | show or hide the terminal panel |
 | `Ctrl+B` | show or hide the session rail |
 | `Ctrl+D` | dictate into the chat box |
-| `Shift+Tab` | cycle the permission modes, from the prompt |
+| `Shift+Tab` | cycle the permission modes, outside text fields and the terminal |
 | `Ctrl+Shift+B` | show or hide the preview |
 | `Ctrl+Shift+E` | pick an element, or drag to pick an area |
 | `Ctrl+Shift+T` | new terminal tab |

@@ -7,9 +7,9 @@ Static landing page. No build and no package. Two scripts load with `defer`, and
 - `index.html` is the page. Copy, install commands, social meta tags and the hidden SVG sprite that every icon and logo references live here.
 - `styles.css` holds the colour tokens, the layout and the download button states. The page is warm paper (`--paper`) with ink text and one orange accent (`--accent`). Orange is a fill only: text on paper that needs the accent uses `--accent-ink`, because `--accent` fails contrast as text. `--w-*` tokens colour the dark app window mockups.
 - `download.js` detects the visitor's platform, reads the latest GitHub release, and fills in links, file names, sizes and the version. It also plays the download button animation and runs the copy buttons.
-- `page.js` runs the hero demo loop, the permission mode tabs and the scroll reveals. It adds `motion` to `<html>` unless the visitor prefers reduced motion. Every motion rule in the CSS is scoped to `html.motion`, so without it the page renders still and complete.
+- `page.js` runs the hero demo loop, the permission mode tabs and the scroll reveals. It also reads the repo's star count from the GitHub API and shows it in each `[data-stars]` badge. The badges stay hidden if the request fails or the count is zero. It adds `motion` to `<html>` unless the visitor prefers reduced motion. Every motion rule in the CSS is scoped to `html.motion`, so without it the page renders still and complete.
 - `og.png` is the 1200x630 social preview image.
-- `vercel.json` sets cache headers. It has no rewrites and no build.
+- `_headers` sets cache headers on Netlify. `vercel.json` and `.htaccess` do the same on Vercel and Hostinger.
 - `favicon.png` is the tab icon.
 
 Edit visitor copy in `index.html`. Change an install command in `code#cmd-linux` or `code#cmd-windows`. Every copy button reads its command from the element named in `data-copy`. Do not add a macOS command.
@@ -45,6 +45,15 @@ The Android card is static: its link, file name and size point at the `mobile-v0
 Platforms are `linux`, `windows` and `other`. macOS, iOS, Android, ChromeOS and anything unrecognised count as `other`, and the hero button then scrolls to `#download`. The `FILES` table in `download.js` holds, for each file, the pattern that picks the release asset and the noun the page uses for it. The file names in `index.html` are the 0.20.0 values and the sizes start empty. The script fills both when the release lists that file.
 
 The release has three states. Unknown means the GitHub request has not answered or failed, because of a rate limit or no network. The page keeps what it rendered, with the platform's label and every download link on the releases page. A file that is present gets its asset URL and `download` on every link, and its name and size. A file that is absent gets the treatment its elements declare, and the hero falls back to "See all downloads" with a note such as "The Windows installer isn't in v0.19.2 yet." Uploading a missing file to the release changes the page with no code change.
+
+## How to deploy this folder to Netlify
+
+The live site is https://getconn.netlify.app, the `getconn` project on Netlify. It is not linked to this repo, so a change to `site/` goes live only when someone deploys it.
+
+- To deploy by hand, drag the folder onto the project's Deploys page, or run `npx netlify-cli deploy --prod --dir site`.
+- To deploy on every push, link the repo under Project configuration, Build and deploy. Leave the build command empty and set the publish directory to `site`.
+
+`README.md`, `vercel.json` and `.htaccess` get uploaded too. They are harmless: Netlify serves them as plain files and ignores what is in them.
 
 ## How to deploy this folder to Vercel
 
