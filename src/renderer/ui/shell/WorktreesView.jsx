@@ -10,7 +10,7 @@
    Buttons say what they do with `title` rather than a Tooltip, for the reason
    ChangesView gives: the preview is a native view over this document. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { FolderOpenIcon, GitForkIcon, GitMergeIcon, GitPullRequestIcon, MessageSquarePlusIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react';
+import { FolderOpenIcon, GitForkIcon, ArrowUpToLineIcon, GitMergeIcon, MessageSquarePlusIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -39,7 +39,14 @@ function startChatIn(dir) {
 }
 
 function Counts({ w, base }) {
-  if (w.main) return <span className="text-muted-foreground text-xs">main checkout</span>;
+  if (w.main) {
+    return (
+      <span className="flex items-center gap-2 text-muted-foreground text-xs">
+        main checkout
+        {w.unpushed > 0 && <span className="font-mono text-[11px] text-sky-500" title={`${w.unpushed} commit${w.unpushed === 1 ? '' : 's'} origin does not have`}>{w.unpushed} unpushed</span>}
+      </span>
+    );
+  }
   const parts = [];
   if (w.ahead != null) parts.push(<span key="a" title={`${w.ahead} commit${w.ahead === 1 ? '' : 's'} not on ${base}`}>↑{w.ahead}</span>);
   if (w.behind != null) parts.push(<span key="b" title={`${w.behind} commit${w.behind === 1 ? '' : 's'} on ${base} not here`}>↓{w.behind}</span>);
@@ -53,6 +60,7 @@ function Row({ dir, w, base, here, onRemove }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [merging, setMerging] = useState(false);
+  const [pushing, setPushing] = useState(false);
   const [note, setNote] = useState('');
 
   // Both act on the branch, so both want something on it the base lacks.
@@ -69,14 +77,25 @@ function Row({ dir, w, base, here, onRemove }) {
     else setError(res?.error || 'Could not merge.');
   };
 
-  const pr = async () => {
+  // A worktree merges into the base and then pushes it; the main checkout
+  // just pushes. Either way it goes to origin, so the row asks first.
+  const push = async () => {
     setBusy(true);
     setError('');
-    setNote('Pushing and opening a pull request…');
-    const res = await window.conn.project.worktreePr(dir, w.dir).catch(() => null);
+    setNote('Pushing…');
+    const res = await (w.main
+      ? window.conn.project.pushBase(dir)
+      : window.conn.project.pushToMain(dir, w.dir)).catch(() => null);
     setBusy(false);
-    if (res?.ok) setNote(res.existed ? 'A pull request was already open; opened it.' : 'Pull request opened in your browser.');
-    else { setNote(''); setError(res?.error || 'Could not open a pull request.'); }
+    setPushing(false);
+    const merged = res?.merged ? `Merged ${res.merged} commit${res.merged === 1 ? '' : 's'} into ${base}` : '';
+    if (res?.ok) setNote(merged ? `${merged} and pushed it to origin.` : `Pushed ${base} to origin.`);
+    else {
+      // Merged but not pushed is still worth saying: the commits are on the
+      // base now, and pushing again is all that is left.
+      setNote(merged ? `${merged}.` : '');
+      setError(res?.error || 'Could not push.');
+    }
   };
 
   const remove = async () => {
@@ -114,19 +133,30 @@ function Row({ dir, w, base, here, onRemove }) {
                   className={ICON_BUTTON}
                   disabled={busy || !!blocked}
                   title={blocked || `Merge ${w.branch} into ${base}`}
-                  onClick={() => { setNote(''); setError(''); setMerging(true); }}>
+                  onClick={() => { setNote(''); setError(''); setPushing(false); setMerging(true); }}>
                   <GitMergeIcon className="size-3.5" />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon"
                   className={ICON_BUTTON}
-                  disabled={busy}
-                  title={`Push ${w.branch} and open a pull request into ${base}`}
-                  onClick={pr}>
-                  <GitPullRequestIcon className="size-3.5" />
+                  disabled={busy || !!blocked}
+                  title={blocked || `Merge ${w.branch} into ${base} and push ${base} to origin`}
+                  onClick={() => { setNote(''); setError(''); setMerging(false); setPushing(true); }}>
+                  <ArrowUpToLineIcon className="size-3.5" />
                 </Button>
               </>
+            )}
+            {w.main && w.unpushed > 0 && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={ICON_BUTTON}
+                disabled={busy}
+                title={`Push ${w.unpushed} commit${w.unpushed === 1 ? '' : 's'} on ${base} to origin`}
+                onClick={() => { setNote(''); setError(''); setPushing(true); }}>
+                <ArrowUpToLineIcon className="size-3.5" />
+              </Button>
             )}
             {!w.main && !confirm && (
               <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Remove this worktree (the branch is kept)" onClick={() => setConfirm(true)}>
@@ -160,6 +190,17 @@ function Row({ dir, w, base, here, onRemove }) {
           </span>
           <Button variant="ghost" size="xs" disabled={busy} onClick={() => setMerging(false)}>Cancel</Button>
           <Button size="xs" disabled={busy} onClick={merge}>Merge</Button>
+        </div>
+      )}
+      {pushing && (
+        <div className="flex items-center gap-2 pl-5.5 text-xs">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            {w.main
+              ? `Push ${w.unpushed} commit${w.unpushed === 1 ? '' : 's'} on ${base} to origin?`
+              : `Merge ${w.ahead} commit${w.ahead === 1 ? '' : 's'} from ${w.branch} into ${base} and push ${base} to origin?`}
+          </span>
+          <Button variant="ghost" size="xs" disabled={busy} onClick={() => setPushing(false)}>Cancel</Button>
+          <Button size="xs" disabled={busy} onClick={push}>Push</Button>
         </div>
       )}
       {note && (

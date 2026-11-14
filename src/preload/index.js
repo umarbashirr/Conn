@@ -36,7 +36,8 @@ contextBridge.exposeInMainWorld('conn', {
     worktrees: (dir) => ipcRenderer.invoke('project:worktrees', { dir }),
     removeWorktree: (dir, target, force) => ipcRenderer.invoke('project:worktree-remove', { dir, target, force: !!force }),
     mergeWorktree: (dir, target) => ipcRenderer.invoke('project:worktree-merge', { dir, target }),
-    worktreePr: (dir, target) => ipcRenderer.invoke('project:worktree-pr', { dir, target }),
+    pushToMain: (dir, target) => ipcRenderer.invoke('project:worktree-push', { dir, target }),
+    pushBase: (dir) => ipcRenderer.invoke('project:push-base', { dir }),
     onChanged: on('project:changed'),
   },
 

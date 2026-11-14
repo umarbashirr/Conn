@@ -215,7 +215,13 @@ async function listWorktrees(dir) {
   list.forEach((w, i) => { w.main = i === 0; });
   const base = list[0]?.branch || null;
   await Promise.all(list.map(async (w) => {
-    if (w.main || w.prunable) return;
+    if (w.main) {
+      // Commits on the base that origin has not got, when it tracks one.
+      const out = await gitOut(['rev-list', '--count', '@{upstream}..HEAD'], w.dir);
+      w.unpushed = out == null ? null : Number(out.trim()) || 0;
+      return;
+    }
+    if (w.prunable) return;
     const [counts, status] = await Promise.all([
       base && w.branch ? gitOut(['rev-list', '--left-right', '--count', `${base}...${w.branch}`], dir) : null,
       gitOut(['status', '--porcelain'], w.dir),
@@ -286,24 +292,60 @@ async function mergeWorktree(dir, target) {
   return { ok: true, branch: w.branch, base, commits: w.ahead };
 }
 
-// Pushes the worktree's branch and opens a pull request into the base branch,
-// or finds the one already open. gh signs in as whoever the terminal does.
-async function openPr(dir, target) {
-  const p = await pair(dir, target);
-  if (p.error) return { ok: false, error: p.error };
-  const { w, base } = p;
-  if (!w.ahead) return { ok: false, error: `${w.branch} has no commits that ${base} lacks.` };
-  const push = await run('git', ['push', '-u', 'origin', w.branch], w.dir);
-  if (push.missing) return { ok: false, error: 'git is not installed.' };
-  if (push.code !== 0) return { ok: false, error: said(push.stderr) };
-  const existing = await run('gh', ['pr', 'view', w.branch, '--json', 'url,state', '-q', 'select(.state=="OPEN") | .url'], w.dir);
-  if (existing.missing) return { ok: false, error: 'The branch is pushed, but the GitHub CLI (gh) is not installed.' };
-  const url = existing.code === 0 && /https:\/\/\S+/.exec(existing.stdout)?.[0];
-  if (url) return { ok: true, url, existed: true };
-  const made = await run('gh', ['pr', 'create', '--fill', '--base', base, '--head', w.branch], w.dir);
-  if (made.code !== 0) return { ok: false, error: said(made.stderr) };
-  const link = /https:\/\/\S+/.exec(made.stdout)?.[0];
-  return link ? { ok: true, url: link } : { ok: false, error: 'gh did not say where the pull request is.' };
+// The line of git's complaint that says what went wrong. git ends many errors
+// with advice ("and the repository exists."), so the last line is the wrong
+// one to show; the fatal: or error: line is the one that names the problem.
+function gitError(text, fallback) {
+  const lines = (text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const named = lines.find((l) => /^(fatal|error):/i.test(l));
+  return (named || lines.pop() || fallback).replace(/^(fatal|error):\s*/i, '');
 }
 
-module.exports = { addWorktree, mergeWorktree, openPr, branch, branches, gitDir, listWorktrees, removeWorktree, useBranch };
+// Why there is nowhere to push, or null when origin is there.
+async function noOrigin(cwd) {
+  const remotes = await gitOut(['remote'], cwd);
+  if (remotes == null) return 'Could not read the remotes.';
+  return remotes.split('\n').includes('origin') ? null : 'This repository has no remote named origin to push to.';
+}
+
+// Pushes the branch the main checkout is on to origin. Never forced: if
+// origin has commits this checkout lacks, git refuses and so does this.
+async function pushBase(dir) {
+  const { worktrees, base } = await listWorktrees(dir);
+  const main = worktrees[0];
+  if (!main || !base) return { ok: false, error: 'The main checkout is not on a branch to push.' };
+  const why = await noOrigin(main.dir);
+  if (why) return { ok: false, error: why };
+  const res = await run('git', ['push', 'origin', `${base}:${base}`], main.dir);
+  if (res.missing) return { ok: false, error: 'git is not installed.' };
+  if (res.code !== 0) {
+    const behind = /non-fast-forward|fetch first|\[rejected\]/.test(res.stderr);
+    return {
+      ok: false,
+      behind,
+      error: behind ? `origin/${base} has commits that ${base} does not. Pull them into ${base} first, then push again.` : gitError(res.stderr, 'Could not push.'),
+    };
+  }
+  return { ok: true, base };
+}
+
+// Merges the worktree's branch into the base, with every check Merge makes,
+// then pushes the base. A branch already merged just pushes.
+async function pushToMain(dir, target) {
+  const p = await pair(dir, target);
+  if (p.error) return { ok: false, error: p.error };
+  // Checked before merging, so a push that cannot happen does not leave a
+  // merge behind that nobody asked for on its own.
+  const why = await noOrigin(p.main.dir);
+  if (why) return { ok: false, error: why };
+  let commits = 0;
+  if (p.w.ahead) {
+    const merged = await mergeWorktree(dir, target);
+    if (!merged.ok) return merged;
+    commits = merged.commits;
+  }
+  const pushed = await pushBase(dir);
+  return { ...pushed, merged: commits };
+}
+
+module.exports = { addWorktree, mergeWorktree, pushBase, pushToMain, branch, branches, gitDir, listWorktrees, removeWorktree, useBranch };
