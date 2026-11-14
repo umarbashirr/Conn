@@ -1591,11 +1591,20 @@ function registerIpc() {
     if (res.ok) announce();
     return res;
   });
-  ipcMain.handle('project:worktree-pr', async (_e, { dir, target } = {}) => {
+  // Pushing goes to origin and cannot be taken back from here, so the pane
+  // asks first; these only run once it has.
+  ipcMain.handle('project:worktree-push', async (_e, { dir, target } = {}) => {
     const root = openDir(dir);
     if (!root) return { ok: false, error: 'That folder is not open.' };
-    const res = await git.openPr(root, target);
-    if (res.ok && /^https:\/\//.test(res.url)) shell.openExternal(res.url);
+    const res = await git.pushToMain(root, target);
+    if (res.merged || res.ok) announce();
+    return res;
+  });
+  ipcMain.handle('project:push-base', async (_e, { dir } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const res = await git.pushBase(root);
+    if (res.ok) announce();
     return res;
   });
 
