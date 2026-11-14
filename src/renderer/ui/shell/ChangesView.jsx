@@ -49,6 +49,7 @@ import {
   refresh,
   selectFile,
   setMode,
+  setSince,
   subscribeChanges,
   summary,
 } from './changes-store';
@@ -442,6 +443,14 @@ export default function ChangesView() {
       <div className="flex h-11 shrink-0 items-center gap-2 border-b px-2.5">
         <GitCompareIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-muted-foreground">{summary()}</span>
+        {s.base && (
+          <ToggleGroup type="single" variant="outline" size="sm" value={s.since} onValueChange={setSince}>
+            <ToggleGroupItem value="head" className="px-2 text-xs" title="Only what is not committed yet">uncommitted</ToggleGroupItem>
+            <ToggleGroupItem value="base" className="px-2 text-xs" title={`Everything this branch changed since it left ${s.base}, committed or not`}>
+              since {s.base}
+            </ToggleGroupItem>
+          </ToggleGroup>
+        )}
 
         <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Re-read the working tree" onClick={() => refresh()}>
           <RotateCwIcon />

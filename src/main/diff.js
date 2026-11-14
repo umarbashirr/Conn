@@ -143,7 +143,9 @@ function repoOf(repos, rel) {
 }
 
 // One repository's rows, with paths relative to the project folder.
-async function statusOf(root, repo, nested) {
+// `ref`, when given, is the commit to compare with instead of HEAD, so a
+// worktree's committed work shows next to its uncommitted work.
+async function statusOf(root, repo, nested, ref = null) {
   const cwd = repo.cwd;
   const top = await git(['rev-parse', '--show-toplevel'], cwd);
   if (top.missing) return { missing: true };
@@ -158,7 +160,20 @@ async function statusOf(root, repo, nested) {
   const born = head.code === 0;   // a repo with no commit yet has nothing to diff against
 
   const rows = [];
-  for (const entry of st.stdout.split('\0')) {
+  const entries = st.stdout.split('\0');
+  if (ref) {
+    // Everything tracked that differs from the ref, committed or not, then the
+    // untracked files status already found. A name-status letter goes in the
+    // working-tree column: committed or not, none of it is staged, which is
+    // what the index column would claim.
+    const since = await git(['diff', '--name-status', '-z', '--no-renames', ref, '--', '.'], cwd);
+    if (since.code !== 0) return { error: since.stderr.trim().split('\n')[0] || 'git diff failed', rows: [] };
+    const parts = since.stdout.split('\0');
+    const tracked = [];
+    for (let i = 0; i + 1 < parts.length; i += 2) if (parts[i]) tracked.push(` ${parts[i][0]} ${parts[i + 1]}`);
+    entries.splice(0, entries.length, ...tracked, ...entries.filter((e) => e.startsWith('??')));
+  }
+  for (const entry of entries) {
     if (!entry) continue;
     const x = entry[0];
     const y = entry[1];
@@ -173,7 +188,7 @@ async function statusOf(root, repo, nested) {
   // One numstat covers everything git already tracks, staged or not.
   if (born && rows.length) {
     const byPath = new Map(rows.map((f) => [f.path, f]));
-    const nums = await git(['diff', '--numstat', '-z', 'HEAD', '--', '.'], cwd);
+    const nums = await git(['diff', '--numstat', '-z', ref || 'HEAD', '--', '.'], cwd);
     if (nums.code === 0) {
       const parts = nums.stdout.split('\0');
       for (let i = 0; i < parts.length; i++) {
@@ -195,17 +210,47 @@ async function statusOf(root, repo, nested) {
   return { rows };
 }
 
+// The branch a linked worktree was cut from, taken as the branch its main
+// checkout is on. Null for the main checkout itself, and for a folder that is
+// not the top of a worktree.
+async function baseOf(root) {
+  const res = await git(['worktree', 'list', '--porcelain'], root);
+  if (res.code !== 0) return null;
+  const blocks = res.stdout.split('\n\n').map((b) => ({
+    dir: /^worktree (.+)$/m.exec(b)?.[1],
+    branch: /^branch refs\/heads\/(.+)$/m.exec(b)?.[1] || null,
+  })).filter((b) => b.dir);
+  if (blocks.length < 2) return null;
+  const here = path.resolve(root);
+  if (path.resolve(blocks[0].dir) === here) return null;
+  if (!blocks.slice(1).some((b) => path.resolve(b.dir) === here)) return null;
+  return blocks[0].branch;
+}
+
+// Where this branch left the base: the commit "since main" compares with.
+async function forkPoint(root, base) {
+  if (!base) return null;
+  const res = await git(['merge-base', base, 'HEAD'], root);
+  return res.code === 0 ? res.stdout.trim() || null : null;
+}
+
 // The list behind the pane: one row per changed file across every repository
 // in the folder, with the numbers the summary line needs. `repo: false` is not
 // an error, it is a folder with no git in it, and the pane says so rather than
 // showing an empty list.
-async function status(root) {
+//
+// `since: 'base'` in a linked worktree compares the folder's own repository
+// with where the branch left its base, not with HEAD. Nested repositories keep
+// comparing with their HEAD: the base is a branch of this one, not of theirs.
+async function status(root, { since } = {}) {
   if (!root) return { repo: false, reason: 'nofolder', files: [] };
   const repos = await reposIn(root);
   if (!repos.length) return { repo: false, reason: 'norepo', files: [] };
 
+  const base = repos.some((r) => r.dir === '') ? await baseOf(root) : null;
+  const ref = since === 'base' ? await forkPoint(root, base) : null;
   const nested = new Set(repos.map((r) => r.dir).filter(Boolean));
-  const answers = await Promise.all(repos.map((r) => statusOf(root, r, nested)));
+  const answers = await Promise.all(repos.map((r) => statusOf(root, r, nested, r.dir === '' ? ref : null)));
   if (answers.some((a) => a.missing)) return { repo: false, reason: 'nogit', files: [] };
   // One repository failing is its own trouble. The pane only gives up when
   // every one of them did.
@@ -231,7 +276,7 @@ async function status(root) {
     f.removed = 0;
   }
 
-  return { repo: true, files, capped, repos: repos.map((r) => r.dir) };
+  return { repo: true, files, capped, repos: repos.map((r) => r.dir), base, since: ref ? 'base' : 'head' };
 }
 
 // One file's patch, in the form git writes it. `context: 'full'` asks git for
@@ -239,7 +284,7 @@ async function status(root) {
 // it happens rather than as three lines floating on their own. Untracked files
 // have no patch to ask for, so one is written here that says the same thing:
 // every line is new.
-async function patch(root, rel, { context = 'full' } = {}) {
+async function patch(root, rel, { context = 'full', since } = {}) {
   if (!root || !rel) return { error: 'nothing to show' };
   const repo = repoOf(await reposIn(root), rel);
   if (!repo) return { error: 'that file is not in a git repository' };
@@ -276,11 +321,12 @@ async function patch(root, rel, { context = 'full' } = {}) {
     return { path: rel, kind: 'new', context: 'full', patch: `@@ -0,0 +1,${rows.length} @@\n${body}` };
   }
 
-  const head = await git(['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
+  const ref = since === 'base' && repo.dir === '' ? await forkPoint(root, await baseOf(root)) : null;
+  const head = ref ? { code: 0 } : await git(['rev-parse', '--verify', '--quiet', 'HEAD'], cwd);
   // A context of a hundred thousand lines is git's own idiom for "the whole
   // file". There is no flag that says it.
   const args = ['diff', '--no-color', '--no-ext-diff', context === 'full' ? '-U100000' : '-U3'];
-  if (head.code === 0) args.push('HEAD');
+  if (head.code === 0) args.push(ref || 'HEAD');
   args.push('--', gitPath);
 
   const res = await git(args, cwd);
