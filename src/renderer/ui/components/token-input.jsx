@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
 
-import { hoistSkill, leadsWithSkill, parse, pendingToken } from '@/lib/tokens';
+import { parse, pendingToken } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { tokenElement } from '@/components/token-badge';
 import { matches } from '@/lib/keys';
@@ -138,7 +138,7 @@ function pendingAt(root) {
   const node = sel.anchorNode;
   if (!root.contains(node) || node.nodeType !== 3) return null;
   const atStart = !node.previousSibling && node.parentNode === root;
-  return pendingToken(node.nodeValue.slice(0, sel.anchorOffset), atStart, leadsWithSkill(valueOf(root)));
+  return pendingToken(node.nodeValue.slice(0, sel.anchorOffset), atStart);
 }
 
 // The token the caret is sitting immediately before or after, if it is sitting
@@ -264,12 +264,6 @@ export const TokenInput = forwardRef(function TokenInput({
       const offset = caretOffset(box) ?? text.length;
       const typing = pendingAt(box);
       const start = offset - (typing?.length ?? 0);
-      if (token.kind === 'skill' && typing?.head === false) {
-        const moved = hoistSkill(text, start, offset, token.raw);
-        apply(moved.text, moved.caret);
-        box.focus();
-        return;
-      }
       const after = text.slice(offset);
       // A space after the badge, unless the sentence already has one there.
       const body = token.raw + (/^\s/.test(after) ? '' : ' ');

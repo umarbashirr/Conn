@@ -265,9 +265,13 @@ const pickable = (models) => (models || []).filter((m) => m && m.value && m.valu
 // context · Best for…"), so the name comes from there when it can.
 const versioned = (m) => /^(.+?)(?: with 1M context)?\s+·/.exec(m.description || '')?.[1] || null;
 
+// "Opus 5.5 with 1M context · Best for complex work" -> "Best for complex work".
+const blurb = (m) => /·\s*([^·]+)/.exec(m.description || '')?.[1].trim() || null;
+
 const clean = (models) => pickable(models).map((m) => ({
   value: m.value,
   displayName: versioned(m) || m.displayName || m.value,
+  ...(blurb(m) ? { blurb: blurb(m) } : {}),
   ...(m.resolvedModel ? { resolved: withoutLong(m.resolvedModel) } : {}),
   ...(m.supportsEffort === undefined ? {} : { supportsEffort: !!m.supportsEffort }),
   ...(Array.isArray(m.supportedEffortLevels) ? { effortLevels: m.supportedEffortLevels } : {}),

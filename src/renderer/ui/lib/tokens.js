@@ -16,7 +16,13 @@ const SKILL = /^\/([a-zA-Z0-9][\w:.-]*)/;
 // of a sentence is left alone. For a path the last character cannot be
 // punctuation, or "look at @src/app.js." would swallow the full stop. A $
 // names only a row of MENTIONS, whole, so $5, $HOME and $browserUrl stay text.
-const INLINE = new RegExp(`(^|[\\s([])(?:@([\\w.\\-/]*[\\w\\-/])|\\$(${Object.keys(MENTIONS).join('|')})(?![\\w-]))`);
+// A skill mid-sentence is a slash and a name after a space, and the name may
+// not run on into another slash or end on a full stop, so /usr/bin and
+// "see /tmp/x." stay text.
+// A path may not run straight on into an @, another word or a slash, so an
+// npm package such as @posthog/wizard@latest stays text rather than becoming
+// two file badges. A full stop only ends one when a word does not follow it.
+const INLINE = new RegExp(`(^|[\\s([])(?:@([\\w.\\-/]*[\\w\\-/])(?![@\\w/-]|\\.\\w)|\\$(${Object.keys(MENTIONS).join('|')})(?![\\w-])|\\/([a-zA-Z0-9](?:[\\w:.-]*\\w)?)(?![\\w/@-]|[:.]\\w))`, 'g');
 
 const mention = (name) => ({ type: 'token', kind: 'conn', raw: `$${name}`, label: MENTIONS[name].label, title: MENTIONS[name].note, icon: name });
 
@@ -48,17 +54,25 @@ export function parse(input) {
     rest = rest.slice(skill[0].length);
   }
 
+  // One pass over the whole rest, never re-matching a slice: a slice starts a
+  // fresh ^, which let a word glued to a badge (wizard@latest) pass for one
+  // that follows a space.
+  let from = 0;
+  INLINE.lastIndex = 0;
   for (let m; (m = INLINE.exec(rest));) {
     const at = m.index + m[1].length;
-    text(rest.slice(0, at));
+    text(rest.slice(from, at));
     const node = m[2] !== undefined
       ? { type: 'token', kind: 'path', raw: `@${m[2]}`, label: basename(m[2]), title: m[2] }
-      : mention(m[3]);
+      : m[4] !== undefined
+        ? { type: 'token', kind: 'skill', raw: `/${m[4]}`, label: m[4], title: `the ${m[4]} skill` }
+        : mention(m[3]);
     nodes.push(node);
-    rest = rest.slice(at + node.raw.length);
+    from = at + node.raw.length;
+    INLINE.lastIndex = from;
   }
 
-  text(rest);
+  text(rest.slice(from));
   return nodes;
 }
 
@@ -78,14 +92,14 @@ export function tokenFor(kind, raw) {
 // caret parked after an @path badge is sitting next to something already
 // decided, not halfway through typing it.
 //
-// A slash counts anywhere after a space too. The CLI only runs a skill at the
-// head of the message, so one picked mid-sentence is moved there (hoistSkill),
-// and a message that already leads with one does not offer a second.
-export function pendingToken(before, atStart, hasSkill) {
+// A slash counts anywhere after a space too, and as often as you like: a
+// skill stays where it was typed, and a second one is offered beside the
+// first. The agent reads them in place.
+export function pendingToken(before, atStart) {
   const head = /^\/([\w:.-]*)$/.exec(before);
   if (head && atStart) return { kind: 'skill', query: head[1], length: head[0].length, head: true };
   const mid = /[\s([]\/([\w:.-]*)$/.exec(before);
-  if (mid && !hasSkill) return { kind: 'skill', query: mid[1], length: mid[1].length + 1, head: false };
+  if (mid) return { kind: 'skill', query: mid[1], length: mid[1].length + 1, head: false };
 
   const at = /(?:^|[\s([])@([\w.\-/]*)$/.exec(before);
   if (at) return { kind: 'path', query: at[1], length: at[1].length + 1 };
@@ -98,25 +112,3 @@ export function pendingToken(before, atStart, hasSkill) {
 
 // The parts of Conn a message names, typed by hand or picked.
 export const mentionsIn = (text) => new Set(parse(text).filter((n) => n.kind === 'conn').map((n) => n.raw.slice(1)));
-
-// Where a skill goes: after the attachment blocks, which always lead.
-function headEnd(text) {
-  let end = 0;
-  for (let m; (m = ATTACHED.exec(text.slice(end)));) end += m[0].length;
-  return end;
-}
-
-export const leadsWithSkill = (text) => parse(text).some((n) => n.kind === 'skill');
-
-// A skill picked mid-sentence: drop the half-typed /name at [start, end) and
-// put the skill at the head, leaving the caret where the typing was.
-export function hoistSkill(text, start, end, raw) {
-  const at = headEnd(text);
-  const lead = `${raw} `;
-  let before = text.slice(at, start);
-  let after = text.slice(end);
-  if (/\s$/.test(before) && /^\s/.test(after)) after = after.slice(1);
-  if (!after && /\s$/.test(before)) before = before.replace(/\s+$/, ' ');
-  const out = text.slice(0, at) + lead + before + after;
-  return { text: out, caret: at + lead.length + before.length };
-}

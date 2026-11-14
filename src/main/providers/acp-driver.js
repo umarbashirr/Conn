@@ -154,6 +154,7 @@ class AcpDriver {
     const clean = models.map((m) => ({
       value: m.value || m.modelId || m.id,
       displayName: m.displayName || m.name || m.value || m.modelId || m.id,
+      ...(m.description ? { blurb: String(m.description).trim() } : {}),
     })).filter((m) => m.value);
     if (!clean.length) return;
     this.#write({

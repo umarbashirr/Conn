@@ -818,6 +818,18 @@ export function useAgent() {
     [chats, activeKey],
   );
 
+  // The terminal, files, changes and browser belong to the chat on screen. Focus
+  // used to move only when a chat was opened from the rail, so a chat started
+  // from a folder's plus, or switched to any other way, left the panes on the
+  // folder before. The chat's folder is the one answer, whichever way it came.
+  // The folderless chats dir is not an open project, so it moves nothing.
+  const activeProject = active?.project || null;
+  useEffect(() => {
+    if (!activeProject || activeProject === focusedProject.current || activeProject === chatsDir.current) return;
+    focusedProject.current = activeProject;
+    conn().project.focus(activeProject).catch(() => {});
+  }, [activeProject]);
+
   // Back into a tree for drawing. Items keep their arrival order inside each
   // agent, so a nested run reads top to bottom the way it happened, and an
   // agent that spawned its own agents nests again.

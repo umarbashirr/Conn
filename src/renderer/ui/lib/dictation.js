@@ -105,9 +105,12 @@ export function createDictation(deps) {
   };
 }
 
-export function useDictation({ input, chat, command }) {
+export function useDictation({ input, chat, command, model, fix }) {
   const chatRef = useRef(chat);
   chatRef.current = chat;
+  // Read through a ref: the controller is made once, the vocabulary changes.
+  const fixRef = useRef(fix);
+  fixRef.current = fix;
 
   const [controller] = useState(() => createDictation({
     // Main checks the command and, on macOS, the OS permission before the
@@ -117,7 +120,10 @@ export function useDictation({ input, chat, command }) {
       if (!armed?.ok) throw new Error(armed?.reason || 'Dictation is not set up.');
       return openMic();
     },
-    transcribe: (audio) => window.conn.dictation.transcribe(audio),
+    transcribe: async (audio) => {
+      const result = await window.conn.dictation.transcribe(audio);
+      return result?.ok && fixRef.current ? { ...result, text: fixRef.current(result.text) } : result;
+    },
     insert: (target, text) => {
       if (target !== chatRef.current || !input.current) return false;
       input.current.insertText(text);
@@ -133,7 +139,7 @@ export function useDictation({ input, chat, command }) {
       .catch((err) => ({ ok: false, reason: reasonOf(err) }))
       .then((probe) => { if (live) controller.dispatch({ type: 'probed', probe }); });
     return () => { live = false; };
-  }, [controller, command]);
+  }, [controller, command, model]);
 
   // Every render, not only on a chat change: the box can come back without the
   // chat changing (a full page closing), and a parked take should land then.

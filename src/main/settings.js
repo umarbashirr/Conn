@@ -101,6 +101,11 @@ const DEFAULTS = {
   // A command reads a 16 kHz mono WAV at {file} and prints what was said.
   dictation: {
     command: '',
+    // Conn's own model when no command is set: tiny, base or small.
+    // See builtin-speech.js.
+    model: 'base',
+    // Respell project words Whisper gets wrong: skills, folder names, tools.
+    fixWords: true,
   },
   // The last version each notice was dismissed for, the what's new dialog
   // included. A person who waved away the news about 0.6.0 should not be told

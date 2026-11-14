@@ -27,6 +27,7 @@ const canvasIds = require('./canvas-ids');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
+const speech = require('./builtin-speech');
 const projects = require('./projects');
 const mcpRegistry = require('./mcp-registry');
 const { MCP_GALLERY } = require('../shared/mcp-gallery');
@@ -1953,8 +1954,14 @@ function registerIpc() {
   // --- dictation ---
   // The command comes from settings, never from the renderer, so a page cannot
   // name a program for main to run.
-  ipcMain.handle('dictation:arm', () => dictation.arm(settings.all().dictation.command));
-  ipcMain.handle('dictation:transcribe', (_e, { audio } = {}) => dictation.transcribe(settings.all().dictation.command, audio));
+  ipcMain.handle('dictation:arm', () => dictation.arm(settings.all().dictation));
+  ipcMain.handle('dictation:transcribe', (_e, { audio } = {}) => dictation.transcribe(settings.all().dictation, audio));
+  // The model download, for the bar in Settings. Fetching starts on the first
+  // take, or straight away from Settings so the first take does not wait.
+  speech.watch((p) => send('dictation:progress', p));
+  ipcMain.handle('dictation:status', () => speech.status());
+  ipcMain.handle('dictation:download', () => speech.warm(settings.all().dictation.model)
+    .then(() => ({ ok: true }), (e) => ({ ok: false, reason: e.message })));
 
   // --- skills and MCP servers ---
   // Read off disk, so the panel can draw the list before any session exists.

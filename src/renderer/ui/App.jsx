@@ -24,6 +24,9 @@ import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
 import { StarterPrompts } from '@/components/starter-prompts';
+import { NextSteps } from '@/components/next-steps';
+import { nextSteps } from '@/lib/next-steps';
+import { fixWords, vocabulary } from '@/lib/speech-fixes';
 import { TokenText } from '@/components/token-text';
 import { Sources, SourceList } from '@/components/sources';
 import { TurnEdits } from '@/components/turn-edits';
@@ -51,6 +54,7 @@ import { attachPerms, turnEdits } from '@/lib/turns';
 
 import { useAgent } from './useAgent';
 import { useCatalog } from './useCatalog';
+import { useProject } from './useProject';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
@@ -293,6 +297,7 @@ export default function App() {
   const working = useMemo(() => subagents.filter(isLive), [subagents]);
   const sheetItem = sheet ? subagents.find((a) => a.id === sheet.id) || null : null;
   const catalog = useCatalog();
+  const project = useProject();
   const { settings, set, reset } = useSettings();
   const updates = useUpdates();
   const [restartDismissedFor, setRestartDismissedFor] = useState(null);
@@ -383,7 +388,21 @@ export default function App() {
   // Held here rather than in the composer because the dictation chord works
   // from anywhere in the window, and its words go through this box.
   const input = useRef(null);
-  const dictation = useDictation({ input, chat: key, command: settings?.dictation?.command });
+  // Project words Whisper cannot know, respelled after each take: the skills
+  // in the catalog and the names of the open folders.
+  const folderNames = (project.projects || []).map((p) => p.name).join('\n');
+  const vocab = useMemo(
+    () => vocabulary([...(catalog.skills || []).map((s) => s.name), ...folderNames.split('\n').filter(Boolean)]),
+    [catalog.skills, folderNames],
+  );
+  const fixDictated = useCallback((t) => fixWords(t, vocab), [vocab]);
+  const dictation = useDictation({
+    input,
+    chat: key,
+    command: settings?.dictation?.command,
+    model: settings?.dictation?.model,
+    fix: settings?.dictation?.fixWords === false ? null : fixDictated,
+  });
 
   const editDraft = useCallback((field, next) => {
     const k = keyRef.current;
@@ -621,6 +640,20 @@ export default function App() {
   }, [text, attachments, agent, setAttachments]);
 
   const empty = agent.items.length === 0;
+  // Offered once the turn has ended and the box is empty: typing anything means
+  // the person already knows what comes next.
+  const steps = useMemo(
+    () => (empty || agent.busy || agent.queued.length ? [] : nextSteps(agent.items, { mode: agent.mode })),
+    [empty, agent.busy, agent.queued.length, agent.items, agent.mode],
+  );
+  const shownSteps = text.trim() ? [] : steps;
+  const takeStep = (step) => {
+    if (!step) return false;
+    if (step.mode && step.mode !== agent.mode) agent.changeMode(step.mode);
+    input.current?.insertText(step.text);
+    input.current?.focus();
+    return true;
+  };
   // A gap the transcript is not already explaining, once it has lasted long
   // enough to be a gap rather than the wire.
   const thinkingSince = useSettled(agent.busy && stalled(agent.items), 400);
@@ -727,7 +760,10 @@ export default function App() {
         shells={agent.running.filter((a) => a.kind !== 'agent')}
         onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
 
+      <NextSteps steps={shownSteps} onPick={takeStep} />
+
       <Composer
+        onSuggest={() => takeStep(shownSteps[0])}
         agent={agent}
         settings={settings}
         catalog={catalog}

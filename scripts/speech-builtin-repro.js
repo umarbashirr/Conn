@@ -59,9 +59,18 @@ app.whenReady().then(async () => {
     if (!res.ok) throw new Error(`sample download ${res.status}`);
     fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
   }
-  const text = await builtin.transcribe(samplesFromWav(fs.readFileSync(file)));
-  const ok = /country/i.test(text);
-  console.log(JSON.stringify({ ok, text }));
+  // MODEL picks the model (tiny, base, small). REPEAT plays the
+  // 11-second clip several times over: 4 makes a 44-second take, which only
+  // comes back whole if long takes are cut into 30-second windows.
+  const clip = samplesFromWav(fs.readFileSync(file));
+  const repeat = Math.max(1, Number(process.env.REPEAT) || 1);
+  const take = new Int16Array(clip.length * repeat);
+  for (let i = 0; i < repeat; i += 1) take.set(clip, i * clip.length);
+  const started = Date.now();
+  const text = await builtin.transcribe(take, process.env.MODEL);
+  const heard = (text.match(/country/gi) || []).length;
+  const ok = heard >= repeat * 2; // the clip says "country" twice
+  console.log(JSON.stringify({ ok, model: process.env.MODEL || builtin.DEFAULT, seconds: take.length / 16000, heard, ms: Date.now() - started, text }));
   app.exit(ok ? 0 : 1);
 }).catch((err) => {
   console.error(err);

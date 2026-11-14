@@ -333,8 +333,8 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
             {/* A chat in this folder, started from the folder. It sits beside
                 the name rather than inside it: the name is the fold's trigger,
                 and a button inside a button is neither valid nor clickable. The
-                window stays where it is, because asking for a chat in another
-                folder is not asking to be moved to it. */}
+                window goes with it, because asking for a chat in another
+                folder is asking for that folder: the panes follow the chat. */}
             <button
               type="button"
               title={`New chat in ${folder.name}`}

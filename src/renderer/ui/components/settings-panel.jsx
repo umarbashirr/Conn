@@ -639,6 +639,107 @@ function ChatPrefs({ settings, set }) {
   );
 }
 
+// Accuracy against download, smallest first. Sizes are the 8-bit builds main
+// downloads; see builtin-speech.js.
+const SPEECH_MODELS = [
+  ['tiny', 'Tiny', '40 MB', 'Fastest, and the least accurate'],
+  ['base', 'Base', '76 MB', 'A good balance'],
+  ['small', 'Small', '248 MB', 'Most accurate, a second or two slower'],
+];
+
+function useSpeechDownload() {
+  const [p, setP] = useState(null);
+  useEffect(() => {
+    let live = true;
+    window.conn.dictation.status?.().then((s) => { if (live) setP(s); }).catch(() => {});
+    const off = window.conn.dictation.onProgress?.((s) => { if (live) setP(s); });
+    return () => { live = false; off?.(); };
+  }, []);
+  return p;
+}
+
+function DictationPrefs({ settings, set }) {
+  const d = settings.dictation || {};
+  const model = d.model || 'base';
+  const custom = !!String(d.command || '').trim();
+  const progress = useSpeechDownload();
+  const [asked, setAsked] = useState(null);
+  const [draft, setDraft] = useState(d.command || '');
+  useEffect(() => { setDraft(d.command || ''); }, [d.command]);
+
+  const busy = progress && !progress.done && progress.model === model;
+  const ready = progress?.done && progress.model === model && progress.total > 0;
+  const download = () => {
+    setAsked(model);
+    window.conn.dictation.download().catch(() => {});
+  };
+
+  return (
+    <Section
+      title="Dictation"
+      note="The mic in the chat box. Speech is turned into text on this machine; nothing is sent anywhere.">
+      <Row
+        label="Speech model"
+        hint={custom
+          ? 'Not used while a custom command is set below.'
+          : 'Downloaded once, the first time it is used. A bigger model hears technical words and fast speech far better.'}>
+        <Select value={model} disabled={custom} onValueChange={(v) => set({ dictation: { model: v } })}>
+          <SelectTrigger className="w-64">
+            {/* The closed box names the model and its size; the note under
+                each one is for choosing, in the open list. */}
+            <SelectValue>
+              {(([, label, size] = []) => `${label} · ${size}`)(SPEECH_MODELS.find(([id]) => id === model))}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {SPEECH_MODELS.map(([id, label, size, note]) => (
+                <SelectItem key={id} value={id}>
+                  <span className="flex flex-col">
+                    <span>{label} <span className="text-muted-foreground">· {size}</span></span>
+                    <span className="text-muted-foreground text-xs">{note}</span>
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </Row>
+      {!custom && (
+        <Row
+          label="Model download"
+          hint={ready ? 'Downloaded and loaded.' : 'Fetch it now so the first take does not wait for it.'}>
+          {busy
+            ? <Downloading received={progress.received} total={progress.total} />
+            : (
+              <Button variant="outline" size="sm" disabled={ready || asked === model} onClick={download}>
+                {ready ? 'Ready' : asked === model ? 'Loading…' : 'Download now'}
+              </Button>
+            )}
+        </Row>
+      )}
+      <Row
+        label="Fix project words"
+        hint="Respells what the model mishears: tool names such as TypeScript or GitHub, your skills, and your folder names.">
+        <Switch
+          checked={d.fixWords !== false}
+          onCheckedChange={(fixWords) => set({ dictation: { fixWords } })} />
+      </Row>
+      <Row
+        label="Custom command"
+        hint="Optional. Replaces the model above, for example whisper.cpp with a large model. It reads a 16 kHz WAV at {file} and prints the words.">
+        <Input
+          value={draft}
+          placeholder="whisper-cli -m ~/models/ggml-large-v3-turbo.bin -nt -f {file}"
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { if (draft !== (d.command || '')) set({ dictation: { command: draft.trim() } }); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          className="w-80 font-mono text-xs" />
+      </Row>
+    </Section>
+  );
+}
+
 function TerminalPrefs({ settings, set }) {
   const t = settings.terminal;
   const fonts = useMemo(() => installed(MONO), []);
@@ -998,6 +1099,7 @@ export function SettingsPanel({ section, ...props }) {
         <AgentPage key={section} provider={section.slice(6)} {...props} />
       )}
       {section === 'chat' && <ChatPrefs {...props} />}
+      {section === 'chat' && <DictationPrefs {...props} />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
       {section === 'keyboard' && <KeyboardPage {...props} />}
       {section === 'updates' && <Updates {...props} />}

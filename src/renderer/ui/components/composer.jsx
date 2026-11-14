@@ -11,7 +11,7 @@ import {
 } from '@/components/ai-elements/prompt-input';
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuLabel, DropdownMenuSeparator,
   DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import { isHidden, VISIBILITY } from '@/lib/model-visibility';
@@ -59,7 +59,9 @@ const shortOf = (value) => (value?.endsWith(LONG) ? value.slice(0, -LONG.length)
 
 function oncePerModel(rows) {
   const values = new Set(rows.map((m) => m.value));
-  return rows.filter((m) => !(m.value.endsWith(LONG) && values.has(shortOf(m.value))));
+  return rows.filter((m) =>
+    !(m.value.endsWith(LONG) && values.has(shortOf(m.value))) &&
+    listedValue(rows, m.value) === m.value);
 }
 
 // Both CLIs are in one menu, so the top level is who makes the model rather
@@ -110,33 +112,134 @@ function byProvider(models, providers, settings, current) {
   return out;
 }
 
+// No CLI says which of its models are old, so a row is legacy when main flagged
+// it or when the same line has a newer version listed: "GPT-5.4" beside
+// "GPT-5.5", "Grok 4.6" beside "Grok 4.7", "Opus 4.8" beside "Opus 5.5". The
+// line is the name with its version number taken out, so "GPT-5.5 Mini" and
+// "Grok 4.7 Fast" are lines of their own. Rows arrive one provider at a time.
+const VERSION = /(\d+)(?:\.(\d+))?/;
+function lineOf(m) {
+  // "GPT-5.6-Terra" and "GPT-6.1 Terra" are one line written two ways.
+  const name = cleanModelName(m).toLowerCase().replace(/[\s_-]+/g, ' ');
+  const v = VERSION.exec(name);
+  if (!v) return null;
+  return { key: name.replace(VERSION, '#'), version: [Number(v[1]), Number(v[2] || 0)] };
+}
+const SAYS_OLD = /^(legacy|older|previous|deprecated)\b/i;
+const older = (a, b) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+
+function splitLegacy(rows) {
+  const newest = {};
+  for (const m of rows) {
+    const l = lineOf(m);
+    if (l && !m.legacy && (!newest[l.key] || older(newest[l.key], l.version))) newest[l.key] = l.version;
+  }
+  const isLegacy = (m) => {
+    // Codex says so itself: "Legacy coding model", "Older balanced model".
+    if (m.legacy || SAYS_OLD.test(m.blurb || '')) return true;
+    const l = lineOf(m);
+    return !!l && !!newest[l.key] && older(l.version, newest[l.key]);
+  };
+  return { latest: rows.filter((m) => !isLegacy(m)), legacy: rows.filter(isLegacy) };
+}
+
+const SectionLabel = ({ children }) => (
+  <DropdownMenuLabel className="px-2 pt-1.5 pb-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
+    {children}
+  </DropdownMenuLabel>
+);
+
 function ModelItems({ rows, current, onPick }) {
   const all = new Set(rows.map((m) => m.value));
   const long = current?.endsWith(LONG);
   const pick = (value) => onPick(long && all.has(value + LONG) ? value + LONG : value);
-  const shown = oncePerModel(rows);
+  const { latest, legacy } = splitLegacy(oncePerModel(rows));
+  const selected = (m) => m.value === shortOf(current);
   const item = (m) => (
-    <DropdownMenuItem key={m.value} onSelect={() => pick(m.value)}>
-      {cleanModelName(m)}
-      {m.value === shortOf(current) && <CheckIcon className="ml-auto size-3.5" />}
+    <DropdownMenuItem
+      key={m.value}
+      onSelect={() => pick(m.value)}
+      title={m.blurb || undefined}
+      className={cn('items-start gap-2 py-1.5', selected(m) && 'bg-accent/50')}>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className={cn('truncate', selected(m) && 'font-medium')}>{cleanModelName(m)}</span>
+        {m.blurb && <span className="truncate text-[11px] text-muted-foreground leading-tight">{m.blurb}</span>}
+      </div>
+      {selected(m) && <CheckIcon className="mt-0.5 size-3.5 shrink-0" />}
     </DropdownMenuItem>
   );
-  const legacy = shown.filter((m) => m.legacy);
+  // The current model stays in sight even when it is an old one.
+  const legacyOpen = legacy.some(selected);
   return (
     <>
-      {shown.filter((m) => !m.legacy).map(item)}
+      {legacy.length > 0 && <SectionLabel>Latest</SectionLabel>}
+      {latest.map(item)}
       {legacy.length > 0 && (
         <>
           <DropdownMenuSeparator />
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>More Models</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-40">{legacy.map(item)}</DropdownMenuSubContent>
-          </DropdownMenuSub>
+          {legacyOpen ? (
+            <>
+              <SectionLabel>Legacy</SectionLabel>
+              {legacy.map(item)}
+            </>
+          ) : (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="[&>svg:last-child]:ml-0">
+                Legacy Models
+                <span className="ml-auto pl-4 text-muted-foreground text-xs">{legacy.length}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-72 max-w-none">
+                <SectionLabel>Older versions</SectionLabel>
+                {legacy.map(item)}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
         </>
       )}
     </>
   );
 }
+
+// A row of buttons inside the menu: one click sets it and the menu stays open,
+// so model, effort and window can be set in a single visit.
+function Segmented({ label, value, options, onChange, hint }) {
+  return (
+    <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
+      <div className="mb-1 flex items-baseline justify-between text-xs">
+        <span className="font-medium text-muted-foreground">{label}</span>
+        {hint && <span className="truncate pl-3 text-[11px] text-muted-foreground/80">{hint}</span>}
+      </div>
+      <div role="radiogroup" aria-label={label} className="flex gap-0.5 rounded-md bg-muted p-0.5">
+        {options.map(([v, text, title]) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={value === v}
+            title={title}
+            onClick={() => { if (v !== value) onChange(v); }}
+            className={cn(
+              'min-w-0 flex-1 rounded-[5px] px-0.5 py-1 text-[11px] transition-colors',
+              value === v
+                ? 'bg-background font-medium text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}>
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const EFFORT_HINT = {
+  low: 'Fastest, least thinking',
+  medium: 'Balanced speed and depth',
+  high: 'Thinks harder on tricky work',
+  xhigh: 'Deeper reasoning, slower',
+  max: 'Most thorough, slowest',
+};
+const EFFORT_SHORT = { medium: 'Med', xhigh: 'XHigh' };
 
 const chooseModels = (id) => window.connChat?.settings(`agent-${id}`);
 
@@ -178,8 +281,6 @@ function prettyModelId(id) {
 }
 
 function ModelPicker({ agent, settings }) {
-  const [typing, setTyping] = useState(false);
-  const [draft, setDraft] = useState('');
   const current = useMemo(() => listedValue(agent.models, agent.model), [agent.models, agent.model]);
   const groups = useMemo(
     () => byProvider(agent.models, agent.providers, settings, current),
@@ -189,30 +290,6 @@ function ModelPicker({ agent, settings }) {
   // stays: flattening would put the models and the locked row side by side.
   const nested = groups.length > 1;
   const { on: long, capable } = agent.longContext || {};
-
-  const done = (value) => {
-    setTyping(false);
-    setDraft('');
-    if (value) agent.changeModel(value);
-  };
-
-  if (typing) {
-    return (
-      <Input
-        autoFocus
-        value={draft}
-        placeholder="model name, then Enter"
-        onChange={(e) => setDraft(e.target.value)}
-        // Clicking away is not a decision. Nothing switches until Enter, so a
-        // half-typed name cannot become the model every chat runs on.
-        onBlur={() => { setTyping(false); setDraft(''); }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); done(draft.trim()); }
-          if (e.key === 'Escape') { e.preventDefault(); setTyping(false); setDraft(''); }
-        }}
-        className="ml-auto h-7 w-56 min-w-0 shrink px-2 text-xs" />
-    );
-  }
 
   // A model the list has not heard of still has to name itself on the trigger:
   // a proxy routes names no probe here can see, and a chat resumed on one would
@@ -234,7 +311,7 @@ function ModelPicker({ agent, settings }) {
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Pill>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
+      <DropdownMenuContent align="end" className="w-72 max-w-none">
         {/* One CLI installed means one submenu, and a submenu you have to open
             to reach the only thing inside it is a click charged for nothing. */}
         {groups.map((g) => {
@@ -278,7 +355,7 @@ function ModelPicker({ agent, settings }) {
           return (
             <DropdownMenuSub key={g.id}>
               <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="min-w-44">
+              <DropdownMenuSubContent className="w-72 max-w-none">
                 <ModelItems rows={g.rows} current={current} onPick={agent.changeModel} />
                 {VISIBILITY[g.id] && (
                   <>
@@ -295,44 +372,24 @@ function ModelPicker({ agent, settings }) {
         })}
         <DropdownMenuSeparator />
         {agent.efforts?.length > 0 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              Effort
-              <span className="ml-auto pl-4 text-muted-foreground text-xs">
-                {agent.effort ? effortLabel(agent.effort) : 'Default'}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-36">
-              <DropdownMenuRadioGroup
-                value={agent.effort || 'default'}
-                onValueChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}>
-                <DropdownMenuRadioItem value="default">Default Effort</DropdownMenuRadioItem>
-                {agent.efforts.map((level) => (
-                  <DropdownMenuRadioItem key={level} value={level}>{effortLabel(level)}</DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <Segmented
+            label="Effort"
+            value={agent.effort || 'default'}
+            hint={agent.effort ? EFFORT_HINT[agent.effort] : 'Model decides'}
+            onChange={(v) => agent.changeEffort(v === 'default' ? '' : v)}
+            options={[
+              ['default', 'Auto', 'Let the model pick'],
+              ...agent.efforts.map((l) => [l, EFFORT_SHORT[l] || effortLabel(l), EFFORT_HINT[l] || effortLabel(l)]),
+            ]} />
         )}
         {capable && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              Context Window
-              <span className="ml-auto pl-4 text-muted-foreground text-xs">{long ? '1M' : '200K'}</span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="min-w-36">
-              <DropdownMenuRadioGroup
-                value={long ? '1M' : '200K'}
-                onValueChange={(v) => { if ((v === '1M') !== !!long) agent.changeLongContext(v === '1M'); }}>
-                <DropdownMenuRadioItem value="200K">200K</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="1M">1M</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
+          <Segmented
+            label="Context Window"
+            value={long ? '1M' : '200K'}
+            hint={long ? 'Long sessions, large codebases' : 'Standard'}
+            onChange={(v) => agent.changeLongContext(v === '1M')}
+            options={[['200K', '200K', '200K tokens'], ['1M', '1M', '1 million tokens']]} />
         )}
-        {/* A proxy routes whatever names its owner configured, and no probe
-            here can be sure it has seen all of them. */}
-        <DropdownMenuItem onSelect={() => setTyping(true)}>Type a Model Name…</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -915,7 +972,7 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
 
 export function Composer({
   agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit, inputRef: input, dictation,
-  roomy = false,
+  roomy = false, onSuggest,
 }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
@@ -1027,6 +1084,23 @@ export function Composer({
     agent.changeMode(MODES[(i + 1) % MODES.length][0]);
   }, [agent]);
 
+  // The chord used to live only in the box's own keydown, so it did nothing
+  // until you clicked into the chat. It works from anywhere in the window now,
+  // except where Shift+Tab already means something: a text field, the
+  // terminal, or a dialog or menu that moves focus backwards with it. The box
+  // handles its own presses first and marks them, so none counts twice.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.defaultPrevented || !matches(e, 'cycleMode')) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t?.closest('input, textarea, select, [contenteditable="true"], .xterm, [role="dialog"], [role="menu"], [role="listbox"]')) return;
+      e.preventDefault();
+      cycleMode();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cycleMode]);
+
   const queueState = queueStateOf(agent);
   const next = nextOf(agent.queued);
   const recall = useRef(NOT_BROWSING);
@@ -1080,8 +1154,13 @@ export function Composer({
       return;
     }
     if (matches(e, 'stopTurn') && agent.busy) { e.preventDefault(); return agent.interrupt(); }
-    if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); }
-  }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation]);
+    if (matches(e, 'cycleMode')) { e.preventDefault(); cycleMode(); return; }
+    // Tab in an empty box takes the first suggested next step. With words in
+    // the box, or nothing suggested, Tab keeps its ordinary meaning.
+    if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !text.trim() && onSuggest?.()) {
+      e.preventDefault();
+    }
+  }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
   return (
     <div className="mx-auto w-full max-w-3xl flex-none px-4 pb-4">

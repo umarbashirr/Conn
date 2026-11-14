@@ -116,6 +116,7 @@ async function probeModels(bin) {
         return {
           value: m.id || m.model,
           displayName: m.displayName || m.id || m.model,
+          ...(m.description ? { blurb: String(m.description).trim() } : {}),
           supportsEffort: efforts.length > 0,
           ...(efforts.length ? { effortLevels: efforts } : {}),
           ...(m.defaultReasoningEffort ? { defaultEffort: m.defaultReasoningEffort } : {}),

@@ -95,9 +95,9 @@ async function macMic() {
 // Ready to listen. An empty command is Conn's own model, which starts loading
 // now so the first take is not waiting on a download. A command is checked
 // before anyone speaks. On macOS the OS permission is asked here too.
-async function arm(command) {
+async function arm({ command, model } = {}) {
   if (!String(command || '').trim()) {
-    builtin.warm().catch(() => {});
+    builtin.warm(model).catch(() => {});
     return macMic();
   }
   const parsed = parse(command);
@@ -180,12 +180,12 @@ function run(program, args) {
 
 let takes = 0;
 
-async function transcribe(command, audio) {
+async function transcribe({ command, model } = {}, audio) {
   const samples = samplesOf(audio);
   if (!samples) return { ok: false, reason: `The recording was empty or longer than ${MAX_SECONDS / 60} minutes.` };
   if (!String(command || '').trim()) {
     try {
-      return { ok: true, text: await builtin.transcribe(samples) };
+      return { ok: true, text: await builtin.transcribe(samples, model) };
     } catch (e) {
       return { ok: false, reason: `Couldn't run Conn's speech model: ${e.message}` };
     }

@@ -229,6 +229,9 @@ contextBridge.exposeInMainWorld('conn', {
   dictation: {
     arm: () => ipcRenderer.invoke('dictation:arm'),
     transcribe: (audio) => ipcRenderer.invoke('dictation:transcribe', { audio }),
+    status: () => ipcRenderer.invoke('dictation:status'),
+    download: () => ipcRenderer.invoke('dictation:download'),
+    onProgress: on('dictation:progress'),
   },
 
   // Skills and MCP servers, read off disk so the lists draw without a session.
