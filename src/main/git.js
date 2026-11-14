@@ -117,15 +117,49 @@ const WORKTREES = path.join('.claude', 'worktrees');
 
 // Keep the worktree folders out of the main checkout's git status without
 // touching a tracked .gitignore.
-function excludeWorktrees(common) {
+function excludeWorktrees(common, line = `/${WORKTREES.split(path.sep).join('/')}/`) {
   const file = path.join(common, '.git', 'info', 'exclude');
-  const line = `/${WORKTREES.split(path.sep).join('/')}/`;
   try {
     const text = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
     if (text.split('\n').some((l) => l.trim() === line)) return;
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, `${text && !text.endsWith('\n') ? '\n' : ''}${line}\n`);
   } catch { /* a read-only .git still gets its worktree, just a noisier status */ }
+}
+
+const LOCKFILES = ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lockb', 'bun.lock'];
+
+const sameFile = (a, b) => {
+  try { return fs.readFileSync(a).equals(fs.readFileSync(b)); } catch { return false; }
+};
+
+// A fresh worktree has no node_modules, so its dev server and its tests fail
+// until someone installs. Where the main checkout has one installed against
+// the very same lockfile, the worktree borrows it through a link. A lockfile
+// that differs gets nothing: a link to the wrong install fails in ways that are
+// harder to read than a missing one. The root and one level down, which covers
+// a mobile/ or site/ beside the app; deeper monorepos install for themselves.
+function linkDependencies(main, tree) {
+  const linked = [];
+  const places = [''];
+  try {
+    for (const ent of fs.readdirSync(tree, { withFileTypes: true })) {
+      if (ent.isDirectory() && !ent.name.startsWith('.') && ent.name !== 'node_modules') places.push(ent.name);
+    }
+  } catch { return linked; }
+  for (const rel of places) {
+    const from = path.join(main, rel, 'node_modules');
+    const to = path.join(tree, rel, 'node_modules');
+    const lock = LOCKFILES.find((f) => fs.existsSync(path.join(tree, rel, f)));
+    if (!lock || !sameFile(path.join(main, rel, lock), path.join(tree, rel, lock))) continue;
+    try {
+      if (!fs.statSync(from).isDirectory() || fs.existsSync(to)) continue;
+      // A junction on Windows needs no admin rights and no developer mode.
+      fs.symlinkSync(from, to, process.platform === 'win32' ? 'junction' : 'dir');
+      linked.push(rel || '.');
+    } catch { /* nothing installed there, or no right to link: install by hand */ }
+  }
+  return linked;
 }
 
 // A new branch from what `dir` has checked out, in its own folder. The folder
@@ -145,7 +179,11 @@ async function addWorktree(dir, name) {
   const res = await gitRun(['worktree', 'add', '-b', next, target, 'HEAD'], dir);
   if (res.missing) return { ok: false, error: 'git is not installed.' };
   if (res.code !== 0) return { ok: false, error: said(res.stderr) };
-  return { ok: true, dir: target, branch: next };
+  const linked = linkDependencies(common, target);
+  // A .gitignore's `node_modules/` matches folders only, and a link is not one,
+  // so it would show as a new file in the worktree's changes.
+  if (linked.length) excludeWorktrees(common, 'node_modules');
+  return { ok: true, dir: target, branch: next, linked };
 }
 
 function gitOut(args, cwd) {
@@ -204,4 +242,68 @@ async function removeWorktree(dir, target, force) {
   return { ok: true, branch: w.branch };
 }
 
-module.exports = { addWorktree, branch, branches, gitDir, listWorktrees, removeWorktree, useBranch };
+// Run with the person's login shell environment, so a push finds their SSH
+// agent or credential helper and gh finds its sign-in, as in a terminal.
+function run(bin, args, cwd) {
+  const env = require('./shell-env').env();
+  return new Promise((resolve) => {
+    execFile(bin, args, { cwd, env, timeout: 120000, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+      resolve({ code: err ? (err.code ?? 1) : 0, missing: err?.code === 'ENOENT', stdout: stdout || '', stderr: `${stderr || ''}\n${stdout || ''}`.trim() });
+    });
+  });
+}
+
+// The linked worktree `target` and the main checkout it belongs to, or why not.
+async function pair(dir, target) {
+  const { worktrees, base } = await listWorktrees(dir);
+  const w = worktrees.find((x) => x.dir === path.resolve(target || ''));
+  if (!w) return { error: 'That is not a worktree of this repository.' };
+  if (w.main) return { error: 'That is the main checkout.' };
+  if (!w.branch) return { error: 'That worktree is not on a branch.' };
+  if (!base) return { error: 'The main checkout is not on a branch to merge into.' };
+  return { w, main: worktrees[0], base };
+}
+
+// Merges the worktree's branch into the branch the main checkout is on, in the
+// main checkout. Uncommitted work on either side stops it, because a merge
+// would leave the worktree's behind and could trip over the main one's. A
+// conflict is backed out, so the main checkout is never left mid-merge.
+async function mergeWorktree(dir, target) {
+  const p = await pair(dir, target);
+  if (p.error) return { ok: false, error: p.error };
+  const { w, main, base } = p;
+  if (w.dirty) return { ok: false, error: `${w.dirty} uncommitted file${w.dirty === 1 ? '' : 's'} in the worktree. Commit or discard them first.` };
+  const mainDirty = await gitOut(['status', '--porcelain', '--untracked-files=no'], main.dir);
+  if (mainDirty == null) return { ok: false, error: 'Could not read the main checkout.' };
+  if (mainDirty.trim()) return { ok: false, error: `The main checkout (${base}) has uncommitted changes.` };
+  if (!w.ahead) return { ok: false, error: `Nothing to merge: ${w.branch} has no commits that ${base} lacks.` };
+  const res = await run('git', ['merge', '--no-edit', w.branch], main.dir);
+  if (res.code !== 0) {
+    const conflict = /CONFLICT|Automatic merge failed/.test(res.stderr);
+    if (conflict) await run('git', ['merge', '--abort'], main.dir);
+    return { ok: false, conflict, error: conflict ? `${w.branch} conflicts with ${base}. Nothing was merged.` : said(res.stderr) };
+  }
+  return { ok: true, branch: w.branch, base, commits: w.ahead };
+}
+
+// Pushes the worktree's branch and opens a pull request into the base branch,
+// or finds the one already open. gh signs in as whoever the terminal does.
+async function openPr(dir, target) {
+  const p = await pair(dir, target);
+  if (p.error) return { ok: false, error: p.error };
+  const { w, base } = p;
+  if (!w.ahead) return { ok: false, error: `${w.branch} has no commits that ${base} lacks.` };
+  const push = await run('git', ['push', '-u', 'origin', w.branch], w.dir);
+  if (push.missing) return { ok: false, error: 'git is not installed.' };
+  if (push.code !== 0) return { ok: false, error: said(push.stderr) };
+  const existing = await run('gh', ['pr', 'view', w.branch, '--json', 'url,state', '-q', 'select(.state=="OPEN") | .url'], w.dir);
+  if (existing.missing) return { ok: false, error: 'The branch is pushed, but the GitHub CLI (gh) is not installed.' };
+  const url = existing.code === 0 && /https:\/\/\S+/.exec(existing.stdout)?.[0];
+  if (url) return { ok: true, url, existed: true };
+  const made = await run('gh', ['pr', 'create', '--fill', '--base', base, '--head', w.branch], w.dir);
+  if (made.code !== 0) return { ok: false, error: said(made.stderr) };
+  const link = /https:\/\/\S+/.exec(made.stdout)?.[0];
+  return link ? { ok: true, url: link } : { ok: false, error: 'gh did not say where the pull request is.' };
+}
+
+module.exports = { addWorktree, mergeWorktree, openPr, branch, branches, gitDir, listWorktrees, removeWorktree, useBranch };

@@ -1584,6 +1584,21 @@ function registerIpc() {
     return res;
   });
 
+  ipcMain.handle('project:worktree-merge', async (_e, { dir, target } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const res = await git.mergeWorktree(root, target);
+    if (res.ok) announce();
+    return res;
+  });
+  ipcMain.handle('project:worktree-pr', async (_e, { dir, target } = {}) => {
+    const root = openDir(dir);
+    if (!root) return { ok: false, error: 'That folder is not open.' };
+    const res = await git.openPr(root, target);
+    if (res.ok && /^https:\/\//.test(res.url)) shell.openExternal(res.url);
+    return res;
+  });
+
   // --- terminal ---
   ipcMain.handle('term:create', (_e, { cwd, cols, rows, shell: sh, project } = {}) => {
     const id = 't' + (terms.size + 1) + '-' + Date.now().toString(36);
@@ -2353,9 +2368,9 @@ function registerIpc() {
   // --- uncommitted changes ---
   // The list is cheap enough to ask for on a timer while the pane is showing;
   // the patch for one file is only fetched when that file is opened.
-  ipcMain.handle('changes:list', (_e, { project } = {}) => diff.status(treeCwd(project)));
-  ipcMain.handle('changes:patch', (_e, { path: rel, context, project } = {}) =>
-    diff.patch(treeCwd(project), rel, { context }));
+  ipcMain.handle('changes:list', (_e, { project, since } = {}) => diff.status(treeCwd(project), { since }));
+  ipcMain.handle('changes:patch', (_e, { path: rel, context, project, since } = {}) =>
+    diff.patch(treeCwd(project), rel, { context, since }));
 
   // --- editors ---
   // What is installed, and handing the project folder to one of them.

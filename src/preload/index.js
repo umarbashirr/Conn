@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('conn', {
     worktree: (dir, name) => ipcRenderer.invoke('project:worktree', { dir, name }),
     worktrees: (dir) => ipcRenderer.invoke('project:worktrees', { dir }),
     removeWorktree: (dir, target, force) => ipcRenderer.invoke('project:worktree-remove', { dir, target, force: !!force }),
+    mergeWorktree: (dir, target) => ipcRenderer.invoke('project:worktree-merge', { dir, target }),
+    worktreePr: (dir, target) => ipcRenderer.invoke('project:worktree-pr', { dir, target }),
     onChanged: on('project:changed'),
   },
 
@@ -138,10 +140,11 @@ contextBridge.exposeInMainWorld('conn', {
   // one call, each file's patch is another, because a repo mid-refactor holds
   // more diff than is worth sending at once.
   changes: {
-    list: (project) => ipcRenderer.invoke('changes:list', { project }),
+    list: (project, since) => ipcRenderer.invoke('changes:list', { project, since }),
     // context: 'full' for the whole file with the changes in place, 'hunks' for
     // the few lines around each one.
-    patch: (path, context, project) => ipcRenderer.invoke('changes:patch', { path, context, project }),
+    // since: 'base' compares a worktree with where its branch left the base.
+    patch: (path, context, project, since) => ipcRenderer.invoke('changes:patch', { path, context, project, since }),
   },
 
   // Everything that drives one conversation takes the panel's key for it, so

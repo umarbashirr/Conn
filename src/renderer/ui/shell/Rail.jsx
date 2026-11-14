@@ -9,7 +9,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { RENAME_MAX } from '../../../shared/chat-title';
 import { useCommandState } from 'cmdk';
 import {
-  BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon,
+  BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon, GitForkIcon,
   FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -65,6 +65,14 @@ const focusComposer = () =>
 /* Starting a chat in a folder by name rather than in whichever one the window
    is looking at. The folder is unfolded on the way: a chat whose row lands in a
    shut group is a chat that looks like it was never made. */
+/* The repository a worktree folder belongs to, by where Conn and Claude Code
+   put them (<repo>/.claude/worktrees/<name>), so the rail can say "of shop"
+   rather than show the worktree as a project of its own. */
+function worktreeOf(dir) {
+  const m = /[\\/]([^\\/]+)[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]?$/.exec(dir || '');
+  return m ? `of ${m[1]}` : null;
+}
+
 function startChatIn(dir) {
   if (!dir) return;
   setProjectOpen(dir, true);
@@ -317,8 +325,11 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
               'flex h-full min-w-0 flex-1 cursor-pointer items-center gap-2 text-[13px] [&>svg]:size-3.5 [&>svg]:shrink-0',
               current ? 'text-sidebar-foreground' : 'text-sidebar-foreground/80',
             )}>
-            {open ? <FolderOpenIcon /> : <FolderIcon />}
+            {worktreeOf(folder.dir) ? <GitForkIcon /> : open ? <FolderOpenIcon /> : <FolderIcon />}
             <span className="truncate">{folder.name}</span>
+            {worktreeOf(folder.dir) && (
+              <span className="min-w-0 shrink truncate text-[11px] text-muted-foreground">{worktreeOf(folder.dir)}</span>
+            )}
           </CollapsibleTrigger>
 
           {/* The newest chat's age, where the actions go on hover. Both share

@@ -37,6 +37,10 @@ function blankState(dir) {
     blockAt: 0,
     loadingList: false,
     loadingPatch: false,
+    // 'head' for uncommitted work; 'base' in a worktree for everything since
+    // its branch left `base`, the main checkout's branch. Kept per folder.
+    since: 'head',
+    base: null,
     // The counters that drop an answer a newer read has overtaken. They sit on
     // the project rather than on the module, so one project's slow reply cannot
     // be measured against another's clock, and it has nowhere to land but the
@@ -106,7 +110,7 @@ async function readList(st, { quiet = false } = {}) {
   // The folder goes with the question. Letting main fall back to whatever has
   // focus means a reply that raced a focus change arrives as one project's diff
   // under another project's heading.
-  const res = await window.conn.changes.list(st.dir);
+  const res = await window.conn.changes.list(st.dir, st.since);
   if (!live(st, seq, 'listSeq')) return;
 
   st.loadingList = false;
@@ -115,6 +119,9 @@ async function readList(st, { quiet = false } = {}) {
   st.error = res?.error || null;
   st.files = res?.files || [];
   st.capped = res?.capped || 0;
+  st.base = res?.base || null;
+  // A folder that stopped being a worktree has no base to compare with.
+  if (!st.base) st.since = 'head';
 
   // A file that stopped being changed takes the diff pane with it. One that is
   // still changed keeps its place, so a refresh under your cursor does not move
@@ -138,7 +145,7 @@ async function readPatch(st, rel, { quiet = false } = {}) {
   const seq = ++st.patchSeq;
   if (!quiet) { st.loadingPatch = true; changedIf(st); }
 
-  const res = await window.conn.changes.patch(rel, mode, st.dir);
+  const res = await window.conn.changes.patch(rel, mode, st.dir, st.since);
   if (!live(st, seq, 'patchSeq')) return;
 
   st.loadingPatch = false;
@@ -173,6 +180,16 @@ export function selectFile(rel) {
 // pane shows the whole file with its changed lines marked. "changes only" is
 // still there for a small edit in a very long file, where the rest is just
 // scrolling.
+export function setSince(next) {
+  const st = changesState;
+  if (!next || next === st.since) return;
+  st.since = next;
+  st.patch = null;
+  st.blockAt = 0;
+  changed();
+  readList(st);
+}
+
 export function setMode(next) {
   // A ToggleGroup hands back an empty string when you click the item that is
   // already on, and there is no third state to fall into.

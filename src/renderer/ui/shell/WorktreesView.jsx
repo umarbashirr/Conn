@@ -10,7 +10,7 @@
    Buttons say what they do with `title` rather than a Tooltip, for the reason
    ChangesView gives: the preview is a native view over this document. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { FolderOpenIcon, GitForkIcon, MessageSquarePlusIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react';
+import { FolderOpenIcon, GitForkIcon, GitMergeIcon, GitPullRequestIcon, MessageSquarePlusIcon, PlusIcon, RotateCwIcon, Trash2Icon } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,10 +48,36 @@ function Counts({ w, base }) {
   return <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">{parts}</span>;
 }
 
-function Row({ w, base, here, onRemove }) {
+function Row({ dir, w, base, here, onRemove }) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [merging, setMerging] = useState(false);
+  const [note, setNote] = useState('');
+
+  // Both act on the branch, so both want something on it the base lacks.
+  const ready = !w.main && !!w.branch && w.ahead > 0;
+  const blocked = w.dirty ? 'Commit or discard the uncommitted files first' : '';
+
+  const merge = async () => {
+    setBusy(true);
+    setError('');
+    const res = await window.conn.project.mergeWorktree(dir, w.dir).catch(() => null);
+    setBusy(false);
+    setMerging(false);
+    if (res?.ok) setNote(`Merged ${res.commits} commit${res.commits === 1 ? '' : 's'} into ${res.base}.`);
+    else setError(res?.error || 'Could not merge.');
+  };
+
+  const pr = async () => {
+    setBusy(true);
+    setError('');
+    setNote('Pushing and opening a pull request…');
+    const res = await window.conn.project.worktreePr(dir, w.dir).catch(() => null);
+    setBusy(false);
+    if (res?.ok) setNote(res.existed ? 'A pull request was already open; opened it.' : 'Pull request opened in your browser.');
+    else { setNote(''); setError(res?.error || 'Could not open a pull request.'); }
+  };
 
   const remove = async () => {
     setBusy(true);
@@ -80,6 +106,28 @@ function Row({ w, base, here, onRemove }) {
             <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Start a chat in this worktree" onClick={() => startChatIn(w.dir)}>
               <MessageSquarePlusIcon className="size-3.5" />
             </Button>
+            {ready && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={ICON_BUTTON}
+                  disabled={busy || !!blocked}
+                  title={blocked || `Merge ${w.branch} into ${base}`}
+                  onClick={() => { setNote(''); setError(''); setMerging(true); }}>
+                  <GitMergeIcon className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={ICON_BUTTON}
+                  disabled={busy}
+                  title={`Push ${w.branch} and open a pull request into ${base}`}
+                  onClick={pr}>
+                  <GitPullRequestIcon className="size-3.5" />
+                </Button>
+              </>
+            )}
             {!w.main && !confirm && (
               <Button variant="ghost" size="icon" className={ICON_BUTTON} title="Remove this worktree (the branch is kept)" onClick={() => setConfirm(true)}>
                 <Trash2Icon className="size-3.5" />
@@ -103,6 +151,24 @@ function Row({ w, base, here, onRemove }) {
           <Button variant="destructive" size="xs" disabled={busy} onClick={remove}>
             {confirm === 'force' ? 'Remove anyway' : 'Remove'}
           </Button>
+        </div>
+      )}
+      {merging && (
+        <div className="flex items-center gap-2 pl-5.5 text-xs">
+          <span className="min-w-0 flex-1 text-muted-foreground">
+            Merge {w.ahead} commit{w.ahead === 1 ? '' : 's'} from {w.branch} into {base}?
+          </span>
+          <Button variant="ghost" size="xs" disabled={busy} onClick={() => setMerging(false)}>Cancel</Button>
+          <Button size="xs" disabled={busy} onClick={merge}>Merge</Button>
+        </div>
+      )}
+      {note && (
+        <div className="flex items-center gap-2 pl-5.5 text-xs">
+          <span className="min-w-0 flex-1 text-emerald-600 dark:text-emerald-400">{note}</span>
+          {/* Merged is the usual moment to be done with the folder. */}
+          {note.startsWith('Merged') && !confirm && (
+            <Button variant="ghost" size="xs" onClick={() => { setNote(''); setConfirm(true); }}>Remove worktree</Button>
+          )}
         </div>
       )}
       {error && <p className="pl-5.5 text-destructive text-xs">{error}</p>}
@@ -194,7 +260,7 @@ export default function WorktreesView() {
       {repo ? (
         <ul className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {worktrees.map((w) => (
-            <Row key={w.dir} w={w} base={base} here={w.dir === dir} onRemove={remove} />
+            <Row key={w.dir} dir={dir} w={w} base={base} here={w.dir === dir} onRemove={remove} />
           ))}
         </ul>
       ) : (
