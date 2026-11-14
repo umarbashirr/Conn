@@ -120,3 +120,21 @@
     document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
   }
 })();
+
+(() => {
+  const badges = document.querySelectorAll('[data-stars]');
+  if (!badges.length) return;
+  fetch('https://api.github.com/repos/umarbashirr/Conn')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((repo) => {
+      const n = repo?.stargazers_count;
+      if (typeof n !== 'number' || n < 1) return;
+      const text = n >= 1000 ? `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : String(n);
+      for (const badge of badges) {
+        badge.querySelector('[data-stars-count]').textContent = text;
+        badge.setAttribute('aria-label', `${n} stars`);
+        badge.hidden = false;
+      }
+    })
+    .catch(() => {});
+})();
