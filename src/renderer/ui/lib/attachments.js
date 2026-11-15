@@ -108,3 +108,59 @@ export const sizeLabel = (n) => {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 };
+
+// Marks drawn on a picture before it goes, to point the agent at one part of a
+// big screenshot. They are kept in the picture's own pixels, so the dialog can
+// draw them at any size and the flattened copy matches what was drawn.
+export const MARK_COLOR = '#ef4444';
+export const markWidth = (w, h) => Math.max(3, Math.round(Math.max(w, h) / 250));
+
+export function drawMarks(ctx, marks, w, h) {
+  ctx.strokeStyle = MARK_COLOR;
+  ctx.lineWidth = markWidth(w, h);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const m of marks) {
+    ctx.beginPath();
+    if (m.tool === 'box') {
+      const [x0, y0] = m.from;
+      const [x1, y1] = m.to;
+      ctx.rect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0));
+    } else {
+      m.points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      if (m.points.length === 1) ctx.lineTo(m.points[0][0] + 0.1, m.points[0][1]);
+    }
+    ctx.stroke();
+  }
+}
+
+// The picture with its marks burnt in, written to disk so the path the agent is
+// given shows them too. The unmarked picture is kept as `base`, so the marks
+// stay editable and clearing them all gives the original back.
+export async function markUp(item, marks) {
+  const base = item.base || {
+    preview: item.preview, data: item.data, media: item.media, path: item.path, size: item.size,
+  };
+  if (!marks.length) return { ...base, base: null, marks: [] };
+
+  const img = await loadImage(base.preview);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  drawMarks(ctx, marks, img.width, img.height);
+
+  const { dataUrl } = await shrink(canvas.toDataURL('image/png'));
+  const saved = await window.conn.attach.paste(dataUrl, item.name);
+  return {
+    base,
+    marks,
+    preview: dataUrl,
+    data: base64Of(dataUrl),
+    media: mediaOf(dataUrl),
+    // Should the write fail, the pixels still go; only the path lags behind.
+    path: saved?.path || base.path,
+    size: saved?.size ?? base.size,
+  };
+}

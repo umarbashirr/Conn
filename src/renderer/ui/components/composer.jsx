@@ -991,7 +991,7 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
 }
 
 export function Composer({
-  agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onSubmit, inputRef: input, dictation,
+  agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onMarks, onSubmit, inputRef: input, dictation,
   roomy = false, onSuggest,
 }) {
   const window_ = useProject();
@@ -1183,13 +1183,14 @@ export function Composer({
   }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
   return (
-    <div className="conn-seat mx-auto w-full max-w-[min(100%,880px)] flex-none px-4 pb-4">
+    <div className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}
       <AttachmentPreview
         item={attachments.find((a) => a.id === previewing) || null}
         onNote={onNote}
+        onMarks={onMarks}
         onOpenChange={(open) => { if (!open) setPreviewing(null); }} />
 
       {agent.queued.length > 0 && (

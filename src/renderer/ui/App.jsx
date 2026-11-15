@@ -63,6 +63,7 @@ import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
 import { mentionsIn } from './lib/tokens.js';
 import { imageHead, plainText } from '../../shared/attachments.js';
+import { markUp } from '@/lib/attachments';
 import { withAnswers } from '../../shared/ask-answers.js';
 import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
 
@@ -417,6 +418,11 @@ export default function App() {
     (id, note) => setAttachments((list) => list.map((a) => (a.id === id ? { ...a, note } : a))),
     [setAttachments],
   );
+  // The marks drawn on a picture, burnt into the copy the agent gets.
+  const setMarks = useCallback(async (item, marks) => {
+    const next = await markUp(item, marks);
+    setAttachments((list) => list.map((a) => (a.id === item.id ? { ...a, ...next } : a)));
+  }, [setAttachments]);
 
   // The frames selected on the canvas ride along as one chip, so "make this
   // darker" reaches the agent with the files it means.
@@ -720,7 +726,7 @@ export default function App() {
       </div>
 
       <Conversation className={empty ? 'mt-auto flex-none' : 'min-h-0 flex-1'}>
-        <ConversationContent data-chat-column className="conn-seat mx-auto w-full max-w-[min(100%,880px)] gap-2.5">
+        <ConversationContent data-chat-column className="conn-seat mx-auto w-full max-w-3xl gap-2.5">
           {empty ? (
             <>
               <h1 className="pt-6 pb-3 text-center font-medium text-2xl tracking-tight">
@@ -773,6 +779,7 @@ export default function App() {
         attachments={attachments}
         setAttachments={setAttachments}
         onNote={setNote}
+        onMarks={setMarks}
         onSubmit={submit}
         inputRef={input}
         dictation={dictation}
