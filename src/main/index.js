@@ -882,7 +882,10 @@ const hostsWorktree = (dir) => openDirs().some((d) => d.startsWith(dir + WORKTRE
 // or { error } when every open folder has to stay.
 function roomFor() {
   if (open.size < projects.MAX_OPEN) return null;
-  const spare = openDirs().find((d) => d !== focused && !folderBusy(d) && !hostsWorktree(d));
+  // A pinned folder is one the person asked to keep; close it only when every
+  // other candidate is in use.
+  const spares = openDirs().filter((d) => d !== focused && !folderBusy(d) && !hostsWorktree(d));
+  const spare = spares.find((d) => !pinned.isProjectPinned(d)) || spares[0];
   if (spare) return { evict: spare };
   return { error: `${projects.MAX_OPEN} folders are open and each is in use: a chat is working, it is on screen, or a worktree is open from it. Close a folder first.` };
 }
@@ -2221,6 +2224,7 @@ function registerIpc() {
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
     pinned: pinned.all(),
+    pinnedProjects: pinned.allProjects(),
   }));
   ipcMain.handle('agent:search', createAgentSearch({
     rows: () => (registry?.all() || []).filter((row) => row.hasHistory && row.has()),
@@ -2237,6 +2241,13 @@ function registerIpc() {
   ipcMain.handle('agent:pin', (_e, { id, pinned: on } = {}) => {
     try {
       return { ok: pinned.setPinned(id, on !== false) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('agent:pinProject', (_e, { dir, pinned: on } = {}) => {
+    try {
+      return { ok: pinned.setProjectPinned(dir, on !== false) };
     } catch (e) {
       return { error: e.message };
     }
