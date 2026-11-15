@@ -22,7 +22,8 @@
    Empty and error Stages paint inside the hole. The guest is hidden for those
    states (see guestWanted in browser-store), otherwise Chromium's blank page
    would cover this chrome. */
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AppWindowIcon,
   ArrowLeftIcon,
@@ -42,6 +43,7 @@ import {
   RotateCcwSquareIcon,
   RotateCwIcon,
   ScanIcon,
+  SearchIcon,
   SmartphoneIcon,
   SparklesIcon,
   StarIcon,
@@ -57,7 +59,12 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
@@ -105,6 +112,7 @@ import {
   VIEWPORTS,
 } from './browser-store';
 import { warmPane } from './pane-cover';
+import { DEFAULT_ENGINE, SEARCH_ENGINES, displayUrl, engineLabel, searchUrl, inlineCompletion, matchPlaces, places, worthSuggesting } from './address-suggest';
 import { useLayout, usePaneCover } from './Shell';
 import { useSettings } from '../useSettings';
 
@@ -165,51 +173,245 @@ function fullAddress(s) {
   return `${s.scheme || 'https://'}${s.url}`;
 }
 
+const SUGGEST_DEBOUNCE_MS = 120;
+
 function AddressBar({ tab, showing }) {
   const s = useBrowser(tab);
   const shown = fullAddress(s);
+  const { settings } = useSettings();
+  const engine = settings?.browser?.searchEngine;
   const [draft, setDraft] = useState(shown);
   const [focused, setFocused] = useState(false);
+  // What the person actually typed; the draft may carry an inline completion
+  // past it, selected so the next keystroke replaces it.
+  const [typed, setTyped] = useState('');
+  const [completion, setCompletion] = useState(null);
+  const [remote, setRemote] = useState([]);
+  const [active, setActive] = useState(-1);
+  // Escape closes the list without throwing away what was typed.
+  const [dismissed, setDismissed] = useState(false);
+  const [box, setBox] = useState(null);
   const input = useRef(null);
+  const frame = useRef(null);
+  const asked = useRef(0);
 
   useEffect(() => { if (!focused) setDraft(shown); }, [shown, focused]);
+  // A page that finishes loading under a focused bar shows its address, unless
+  // the person has started typing. Read through a ref: clearing the field is
+  // not a reason to put the address back.
+  const typing = useRef(false);
+  typing.current = !!typed;
   useEffect(() => {
-    if (focused && !s.loading) setDraft(shown);
+    if (focused && !s.loading && !typing.current) setDraft(shown);
   }, [shown, s.loading, focused]);
 
-  const submit = () => {
-    const typed = draft.trim();
-    if (!typed) return;
-    navigateTab(typed, tab);
+  // Per keystroke, not per render: a loading page re-renders the bar many
+  // times a second while what was typed stays the same.
+  const rows = useMemo(() => suggestionRows(typed, remote, engine), [typed, remote, engine]);
+  const open = focused && !!typed && !dismissed && rows.length > 0;
+  usePaneCover(open);
+
+  useEffect(() => {
+    if (!open || !frame.current) return undefined;
+    // The bar moves without the window resizing when the rail or a divider
+    // does, so watch the bar itself as well.
+    const measure = () => setBox(frame.current?.getBoundingClientRect() || null);
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(frame.current);
+    window.addEventListener('resize', measure);
+    return () => { watch.disconnect(); window.removeEventListener('resize', measure); };
+  }, [open]);
+
+  // Ask the search engine once typing pauses. A reply to an older question
+  // than the one on screen is dropped.
+  useEffect(() => {
+    const ticket = ++asked.current;
+    if (!focused || !worthSuggesting(typed) || settings?.browser?.searchSuggestions === false) {
+      setRemote([]);
+      return undefined;
+    }
+    const t = setTimeout(async () => {
+      const list = await window.conn.browser.action('suggest', typed, tab).catch(() => []);
+      if (ticket === asked.current) setRemote(Array.isArray(list) ? list : []);
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [typed, focused, tab, settings?.browser?.searchSuggestions]);
+
+  // Select the completed tail after React has written it into the field.
+  useEffect(() => {
+    const el = input.current;
+    if (el && completion && document.activeElement === el && el.value === completion.text) {
+      el.setSelectionRange(typed.length, completion.text.length);
+    }
+  }, [completion, typed]);
+
+  const reset = () => {
+    setTyped('');
+    setCompletion(null);
+    setRemote([]);
+    setActive(-1);
+    setDismissed(false);
+  };
+
+  const openTarget = (target) => {
+    const where = String(target || '').trim();
+    if (!where) return;
+    navigateTab(where, tab);
+    reset();
     input.current?.blur();
   };
 
+  const submit = () => {
+    const row = rows[active];
+    if (row) return openTarget(row.value);
+    if (completion && draft === completion.text) return openTarget(completion.url);
+    openTarget(draft);
+  };
+
+  const onChange = (e) => {
+    const value = e.target.value;
+    const el = e.target;
+    // Plain typing only: completing mid-composition breaks an IME, and a paste
+    // is meant as pasted.
+    const adding = e.nativeEvent?.inputType === 'insertText' && !e.nativeEvent?.isComposing
+      && el.selectionEnd === value.length;
+    const done = adding ? inlineCompletion(value, places(recentUrls(), bookmarksOf())) : null;
+    setTyped(value);
+    setCompletion(done);
+    setActive(-1);
+    setDismissed(false);
+    setDraft(done ? done.text : value);
+  };
+
+  const pick = (i) => {
+    setActive(i);
+    setCompletion(null);
+    setDraft(i < 0 ? typed : rows[i].fill);
+  };
+
   const onKeyDown = (e) => {
-    if (e.key === 'Enter') submit();
+    if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
+    if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      e.preventDefault();
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      const next = active + step;
+      pick(next >= rows.length ? -1 : next < -1 ? rows.length - 1 : next);
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
+      // First press drops the list and the completion; the second gives the
+      // field back to the page's address.
+      if (open || completion) {
+        setDraft(typed);
+        setCompletion(null);
+        setActive(-1);
+        setDismissed(true);
+        return;
+      }
       setDraft(shown);
       input.current?.blur();
     }
   };
 
   return (
-    <div className="flex h-7 min-w-0 flex-1 items-center rounded-full bg-muted/70 px-3">
+    <div ref={frame} className="flex h-7 min-w-0 flex-1 items-center rounded-full bg-muted/70 px-3">
       <input
         id={showing ? 'url' : undefined}
         ref={input}
         spellCheck={false}
-        placeholder="Search or enter URL"
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={open}
+        aria-autocomplete="both"
+        aria-controls={open ? `address-list-${tab}` : undefined}
+        placeholder={`Search ${engineLabel(engine)} or enter URL`}
         className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
         value={focused ? draft : shown}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={onChange}
         onFocus={() => {
           setDraft(shown);
+          reset();
           setFocused(true);
           queueMicrotask(() => input.current?.select());
         }}
-        onBlur={() => setFocused(false)}
+        onBlur={() => { setFocused(false); reset(); }}
         onKeyDown={onKeyDown} />
+      {open && box && createPortal(
+        <SuggestionList
+          id={`address-list-${tab}`}
+          box={box}
+          rows={rows}
+          active={active}
+          onHover={setActive}
+          onPick={(row) => openTarget(row.value)} />,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+/* History and bookmarks that match, then what the engine suggests, then the
+   plain search for exactly what was typed when nothing else says it. */
+function suggestionRows(typed, remote, engine) {
+  const q = typed.trim();
+  if (!q) return [];
+  const local = matchPlaces(q, places(recentUrls(), bookmarksOf())).map((e) => ({
+    kind: e.kind,
+    label: e.title || displayUrl(e.url),
+    detail: displayUrl(e.url),
+    value: e.url,
+    fill: e.url,
+  }));
+  const seen = new Set([q.toLowerCase()]);
+  const searches = [];
+  if (worthSuggesting(q)) {
+    searches.push({ kind: 'search', label: q, detail: `${engineLabel(engine)} Search`, value: searchUrl(q, engine), fill: q });
+  }
+  for (const phrase of remote) {
+    if (seen.has(phrase.toLowerCase())) continue;
+    seen.add(phrase.toLowerCase());
+    searches.push({ kind: 'search', label: phrase, detail: '', value: searchUrl(phrase, engine), fill: phrase });
+  }
+  return [...local, ...searches].slice(0, 10);
+}
+
+const ROW_ICON = { history: HistoryIcon, bookmark: StarIcon, search: SearchIcon };
+
+// Portalled, and tagged as a popover, so the pane cover sees it: the page is a
+// native view that would otherwise paint straight over the list.
+function SuggestionList({ id, box, rows, active, onHover, onPick }) {
+  return (
+    <div
+      id={id}
+      role="listbox"
+      data-slot="popover-content"
+      data-state="open"
+      className="fixed z-50 overflow-hidden rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+      style={{ top: box.bottom + 4, left: box.left, width: box.width }}>
+      {rows.map((row, i) => {
+        const Icon = ROW_ICON[row.kind] || GlobeIcon;
+        return (
+          <div
+            key={`${row.kind}:${row.value}`}
+            role="option"
+            aria-selected={i === active}
+            data-active={i === active ? '' : undefined}
+            className="flex h-8 cursor-default items-center gap-2.5 rounded-md px-2 text-[13px] data-[active]:bg-accent data-[active]:text-accent-foreground"
+            onMouseEnter={() => onHover(i)}
+            // Keep focus in the field, or its blur closes the list first.
+            onMouseDown={(e) => { e.preventDefault(); onPick(row); }}>
+            <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 shrink truncate">{row.label}</span>
+            {row.detail && row.detail !== row.label && (
+              <span className="min-w-0 shrink-[3] truncate text-muted-foreground">
+                <span className="px-1">&ndash;</span>{row.detail}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -356,6 +558,7 @@ function PaneMenu({ tab }) {
   const [open, setOpen] = useState(false);
   usePaneCover(open);
   const devtoolsDetached = !!settings?.browser?.devtoolsDetached;
+  const suggestionsOn = settings?.browser?.searchSuggestions !== false;
   const popped = poppedTab() === tab;
 
   return (
@@ -392,6 +595,31 @@ function PaneMenu({ tab }) {
             className="ml-auto"
             checked={bookmarkBarOn()}
             onCheckedChange={setBookmarkBar}
+            onClick={(e) => e.stopPropagation()} />
+        </DropdownMenuItem>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            Search Engine
+            <span className="ml-auto text-xs text-muted-foreground">{engineLabel(settings?.browser?.searchEngine)}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuRadioGroup
+              value={settings?.browser?.searchEngine || DEFAULT_ENGINE}
+              onValueChange={(id) => set({ browser: { searchEngine: id } })}>
+              {Object.entries(SEARCH_ENGINES).map(([id, { label }]) => (
+                <DropdownMenuRadioItem key={id} value={id}>{label}</DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuItem
+          onSelect={(e) => { e.preventDefault(); set({ browser: { searchSuggestions: !suggestionsOn } }); }}>
+          Search Suggestions
+          <Switch
+            className="ml-auto"
+            checked={suggestionsOn}
+            onCheckedChange={(on) => set({ browser: { searchSuggestions: on } })}
             onClick={(e) => e.stopPropagation()} />
         </DropdownMenuItem>
 

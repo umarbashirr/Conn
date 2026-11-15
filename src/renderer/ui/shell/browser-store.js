@@ -474,7 +474,8 @@ export function askAboutError(tab = current) {
 // --------------------------------------------------------------- recents
 
 const RECENTS_KEY = 'conn.browser.recents';
-const MAX_RECENTS = 12;
+// The start page shows the newest few; the address bar completes from all of them.
+const MAX_RECENTS = 200;
 
 function loadRecents() {
   try {

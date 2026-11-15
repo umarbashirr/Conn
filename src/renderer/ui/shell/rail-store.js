@@ -28,6 +28,8 @@ const state = {
   completed: {},
   // session id, or a live chat's own key before it has one -> when it was pinned.
   pinned: {},
+  // folder path -> when it was pinned to the top of the rail. Main owns it.
+  pinnedProjects: {},
 };
 
 const listeners = new Set();
@@ -246,14 +248,34 @@ export function grouped(filter = '') {
   }
 
   // Folders stay in the order they were added. Sorting by the newest chat made
-  // them jump around every time an agent wrote to one.
-  return out;
+  // them jump around every time an agent wrote to one. A pinned folder goes
+  // above them, the one pinned last first, the same way a pinned chat does.
+  // The sort is stable, so the unpinned ones keep their order.
+  const pinAt = (f) => state.pinnedProjects[f.dir] || 0;
+  return out.sort((a, b) => pinAt(b) - pinAt(a));
 }
 
 // Whether a row is one the person has put away. Keyed on the session id, which
 // is the only name a chat keeps across restarts.
 export const isDone = (row) => !!row?.id && Object.hasOwn(state.completed, row.id);
 export const isPinned = (row) => !!row?.id && Object.hasOwn(state.pinned, row.id);
+export const isProjectPinned = (dir) => !!dir && Object.hasOwn(state.pinnedProjects, dir);
+
+// Moves at once and puts it back if main could not save it.
+export async function pinProject(dir, on = true) {
+  if (!dir) return { error: 'no folder' };
+  const prev = state.pinnedProjects[dir];
+  if (on) state.pinnedProjects[dir] = Date.now();
+  else delete state.pinnedProjects[dir];
+  changed();
+  const res = await window.conn.agent.pinProject(dir, on).catch((e) => ({ error: e.message }));
+  if (res?.error) {
+    if (prev) state.pinnedProjects[dir] = prev;
+    else delete state.pinnedProjects[dir];
+    changed();
+  }
+  return res || {};
+}
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PIN_KEY = 'conn.rail.pins';
@@ -366,6 +388,7 @@ export async function refreshRail() {
     state.projects = data.projects || [];
     state.completed = data.completed || {};
     state.pinned = { ...localPins(), ...(data.pinned || {}) };
+    state.pinnedProjects = data.pinnedProjects || {};
     adoptPins();
   } catch {
     state.projects = [];

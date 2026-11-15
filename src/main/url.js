@@ -2,6 +2,8 @@
 // Turn whatever the human or the agent typed into something loadable.
 const ALLOWED = new Set(['http:', 'https:']);
 
+const { SEARCH_ENGINES, DEFAULT_ENGINE, engineOf } = require('../shared/search-engines');
+
 function schemeOf(url) {
   try {
     return new URL(url).protocol.toLowerCase();
@@ -28,14 +30,14 @@ function assertAllowed(url) {
 
 // A dotless single label followed by a port or a path reads as an internal
 // host ("devbox:8080", "myinternalhost/admin"), not a search term, so it must
-// not fall into the DuckDuckGo branch below. A bare label with neither
+// not fall into the search branch below. A bare label with neither
 // ("myinternalhost") stays ambiguous and is still treated as a search, same
 // as before this fix. The regex only anchors the start, so on its own it also
 // matches the first slash of a search phrase like "c/c++ tutorial"; the
 // no-whitespace guard below is what keeps that a search.
 const HOST_WITH_PORT_OR_PATH = /^[a-z][a-z0-9-]*(:\d+)?\/|^[a-z][a-z0-9-]*:\d+$/i;
 
-function normalizeUrl(url) {
+function normalizeUrl(url, { engine } = {}) {
   const s = String(url).trim();
   let out;
   // Check host-ish shapes before scheme, or "localhost:3000" reads as a scheme.
@@ -45,9 +47,9 @@ function normalizeUrl(url) {
   else if (/^:\d+/.test(s)) out = 'http://localhost' + s;
   else if (/^\d{2,5}$/.test(s)) out = 'http://localhost:' + s;
   else if (/^[a-z][a-z0-9+.-]*:/i.test(s)) out = s;
-  else if (/\s/.test(s) || !s.includes('.')) out = 'https://duckduckgo.com/?q=' + encodeURIComponent(s);
+  else if (/\s/.test(s) || !s.includes('.')) out = engineOf(engine).search(s);
   else out = 'https://' + s;
   return assertAllowed(out);
 }
 
-module.exports = { normalizeUrl, isAllowedUrl, assertAllowed };
+module.exports = { normalizeUrl, isAllowedUrl, assertAllowed, SEARCH_ENGINES, DEFAULT_ENGINE, engineOf };

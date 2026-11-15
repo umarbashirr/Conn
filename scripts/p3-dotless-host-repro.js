@@ -13,7 +13,7 @@ const fail = (name, detail) => { console.log(`FAIL ${name}: ${detail}`); failure
 function check(name, input, want) {
   let got;
   try {
-    got = normalizeUrl(input);
+    got = normalizeUrl(input, { engine: 'duckduckgo' });
   } catch (e) {
     got = `ERROR:${e.message}`;
   }

@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeImage, Menu, Notification } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
-const { BrowserPane, normalizeUrl } = require('./browser');
+const { BrowserPane, normalizeUrl, searchSuggestions } = require('./browser');
 const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
@@ -535,7 +535,7 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   if (held) return held.pane;
   if (!create || !tab || !win || win.isDestroyed()) return null;
 
-  const made = new BrowserPane(win, HOME_URL, { project });
+  const made = new BrowserPane(win, HOME_URL, { project, searchEngine: () => settings.get('browser').searchEngine });
   made.on('state', (st) => {
     send('browser:state', { ...st, tab, project });
     if (tab === poppedTab && popout && !popout.isDestroyed()) popout.setTitle(popoutTitle(st));
@@ -882,7 +882,10 @@ const hostsWorktree = (dir) => openDirs().some((d) => d.startsWith(dir + WORKTRE
 // or { error } when every open folder has to stay.
 function roomFor() {
   if (open.size < projects.MAX_OPEN) return null;
-  const spare = openDirs().find((d) => d !== focused && !folderBusy(d) && !hostsWorktree(d));
+  // A pinned folder is one the person asked to keep; close it only when every
+  // other candidate is in use.
+  const spares = openDirs().filter((d) => d !== focused && !folderBusy(d) && !hostsWorktree(d));
+  const spare = spares.find((d) => !pinned.isProjectPinned(d)) || spares[0];
   if (spare) return { evict: spare };
   return { error: `${projects.MAX_OPEN} folders are open and each is in use: a chat is working, it is on screen, or a worktree is open from it. Close a folder first.` };
 }
@@ -2221,6 +2224,7 @@ function registerIpc() {
     // Which of those the person has marked done, so the rail can fold them away.
     completed: completed.all(),
     pinned: pinned.all(),
+    pinnedProjects: pinned.allProjects(),
   }));
   ipcMain.handle('agent:search', createAgentSearch({
     rows: () => (registry?.all() || []).filter((row) => row.hasHistory && row.has()),
@@ -2237,6 +2241,13 @@ function registerIpc() {
   ipcMain.handle('agent:pin', (_e, { id, pinned: on } = {}) => {
     try {
       return { ok: pinned.setPinned(id, on !== false) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+  ipcMain.handle('agent:pinProject', (_e, { dir, pinned: on } = {}) => {
+    try {
+      return { ok: pinned.setProjectPinned(dir, on !== false) };
     } catch (e) {
       return { error: e.message };
     }
@@ -2469,6 +2480,11 @@ function registerIpc() {
   });
   ipcMain.on('browser:closeTab', (_e, { tab } = {}) => { if (tab) dropPane(tab); });
   ipcMain.handle('browser:action', async (_e, { action, arg, tab, project }) => {
+    // Needs no page, and must not make one just to ask.
+    if (action === 'suggest') {
+      const { searchEngine, searchSuggestions: on } = settings.get('browser');
+      return on ? searchSuggestions(arg, searchEngine) : [];
+    }
     // No tab named means the one in the box, and failing that the focused
     // folder's, which is what a bare `conn go` from a shell means.
     const pane = tab
@@ -2501,7 +2517,7 @@ function registerIpc() {
       // this is the only way to tell a parked pane from a visible one.
       case 'bounds': return pane.view.getBounds();
       case 'normalize':
-        try { return normalizeUrl(arg); }
+        try { return normalizeUrl(arg, { engine: settings.get('browser').searchEngine }); }
         catch (e) { return { error: e.message }; }
       default: return { error: 'unknown action ' + action };
     }

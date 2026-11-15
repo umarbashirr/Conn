@@ -10,7 +10,7 @@ import { RENAME_MAX } from '../../../shared/chat-title';
 import { useCommandState } from 'cmdk';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon, GitForkIcon,
-  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PinOffIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -50,8 +50,8 @@ import {
 import { closeProject, needsFolder, openFolder, project } from '../../project.js';
 import { shortPath, useProject } from '../useProject.js';
 import {
-  activeKey, activeProject, canMarkDone, doneOpen, forgetPin, getRailVersion, grouped, isDone, isPinned, isSaved, markAllDone, markDone,
-  pinChat, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
+  activeKey, activeProject, canMarkDone, doneOpen, forgetPin, getRailVersion, grouped, isDone, isPinned, isProjectPinned, isSaved, markAllDone, markDone,
+  pinChat, pinProject, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
 import { useUpdates } from '../useSettings';
@@ -295,6 +295,11 @@ function Completed({ folder, active, onDelete, onRename }) {
    menu-button peer, and the sub variants carry neither. */
 function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
   const open = projectOpen(folder.dir);
+  const pinned = isProjectPinned(folder.dir);
+  const togglePin = async () => {
+    const res = await pinProject(folder.dir, !pinned);
+    if (res?.error) toast(`Could not ${pinned ? 'unpin' : 'pin'} ${folder.name}`, res.error, [{ label: 'OK' }]);
+  };
   const count = folder.rows.length + folder.done.length;
   const finishable = folder.rows.filter(canMarkDone);
 
@@ -327,6 +332,7 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
             )}>
             {worktreeOf(folder.dir) ? <GitForkIcon /> : open ? <FolderOpenIcon /> : <FolderIcon />}
             <span className="truncate">{folder.name}</span>
+            {pinned && <PinIcon aria-label="Pinned" className="!size-3 text-muted-foreground" />}
             {worktreeOf(folder.dir) && (
               <span className="min-w-0 shrink truncate text-[11px] text-muted-foreground">{worktreeOf(folder.dir)}</span>
             )}
@@ -369,6 +375,10 @@ function Folder({ folder, active, current, onDelete, onRename, onRemove }) {
                 <DropdownMenuItem onSelect={() => startChatIn(folder.dir)}>
                   <PlusIcon />
                   New chat here
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={togglePin}>
+                  {pinned ? <PinOffIcon /> : <PinIcon />}
+                  {pinned ? 'Unpin project' : 'Pin project'}
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled={!finishable.length} onSelect={markAll}>
                   <CheckCheckIcon />
