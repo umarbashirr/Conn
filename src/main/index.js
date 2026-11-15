@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, webContents, Tray, nativeImage, Menu, Notification } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
-const { BrowserPane, normalizeUrl } = require('./browser');
+const { BrowserPane, normalizeUrl, searchSuggestions } = require('./browser');
 const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
@@ -535,7 +535,7 @@ function paneOf(tab, { create = true, project = focused, chat = null } = {}) {
   if (held) return held.pane;
   if (!create || !tab || !win || win.isDestroyed()) return null;
 
-  const made = new BrowserPane(win, HOME_URL, { project });
+  const made = new BrowserPane(win, HOME_URL, { project, searchEngine: () => settings.get('browser').searchEngine });
   made.on('state', (st) => {
     send('browser:state', { ...st, tab, project });
     if (tab === poppedTab && popout && !popout.isDestroyed()) popout.setTitle(popoutTitle(st));
@@ -2469,6 +2469,11 @@ function registerIpc() {
   });
   ipcMain.on('browser:closeTab', (_e, { tab } = {}) => { if (tab) dropPane(tab); });
   ipcMain.handle('browser:action', async (_e, { action, arg, tab, project }) => {
+    // Needs no page, and must not make one just to ask.
+    if (action === 'suggest') {
+      const { searchEngine, searchSuggestions: on } = settings.get('browser');
+      return on ? searchSuggestions(arg, searchEngine) : [];
+    }
     // No tab named means the one in the box, and failing that the focused
     // folder's, which is what a bare `conn go` from a shell means.
     const pane = tab
@@ -2501,7 +2506,7 @@ function registerIpc() {
       // this is the only way to tell a parked pane from a visible one.
       case 'bounds': return pane.view.getBounds();
       case 'normalize':
-        try { return normalizeUrl(arg); }
+        try { return normalizeUrl(arg, { engine: settings.get('browser').searchEngine }); }
         catch (e) { return { error: e.message }; }
       default: return { error: 'unknown action ' + action };
     }

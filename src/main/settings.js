@@ -11,6 +11,7 @@ const { EventEmitter } = require('events');
 
 const { DIR } = require('./projects');
 const { defaultKeybindings } = require('../shared/keybindings');
+const { DEFAULT_ENGINE } = require('../shared/search-engines');
 
 const FILE = path.join(DIR, 'settings.json');
 
@@ -55,6 +56,11 @@ const DEFAULTS = {
   browser: {
     // DevTools opens in a window of its own rather than docked under the page.
     devtoolsDetached: false,
+    // What a typed phrase searches with. See shared/search-engines.js.
+    searchEngine: DEFAULT_ENGINE,
+    // Ask that engine for suggestions while you type in the address bar. Off
+    // sends nothing anywhere; history and bookmarks still complete locally.
+    searchSuggestions: true,
   },
   startup: {
     reopenProject: true,

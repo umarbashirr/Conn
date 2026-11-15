@@ -1,13 +1,25 @@
 'use strict';
-const { WebContentsView, nativeImage, app } = require('electron');
+const { WebContentsView, nativeImage, app, net } = require('electron');
 const { EventEmitter } = require('events');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { normalizeUrl, isAllowedUrl } = require('./url');
+const { normalizeUrl, isAllowedUrl, engineOf } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
 const { Recorder } = require('./recorder');
+
+// Electron's default user agent names the app and Electron, and Google's
+// sign-in refuses any browser that says so ("This browser or app may not be
+// secure"). Strip those tokens and the pane reads as the Chromium it is.
+function chromeUserAgent(ua) {
+  return String(ua).replace(/\s(conn|Electron)\/\S+/gi, '');
+}
+
+// Set app-wide so sign-in popups, which the pane does not create, get it too.
+app.userAgentFallback = chromeUserAgent(app.userAgentFallback);
+
+const PANE_PREFS = { sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true };
 
 function partitionFor(project) {
   const key = crypto.createHash('sha256').update(String(project || '')).digest('hex').slice(0, 16);
@@ -34,9 +46,11 @@ const KEY_ALIASES = {
 };
 
 class BrowserPane extends EventEmitter {
-  constructor(win, homeUrl, { project } = {}) {
+  constructor(win, homeUrl, { project, searchEngine } = {}) {
     super();
     this.win = win;
+    this.searchEngine = searchEngine || (() => undefined);
+    this.popups = new Set();
     this.project = project || '';
     this.partition = partitionFor(this.project);
     this.console = [];
@@ -62,13 +76,7 @@ class BrowserPane extends EventEmitter {
     });
 
     this.view = new WebContentsView({
-      webPreferences: {
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webSecurity: true,
-        partition: this.partition,
-      },
+      webPreferences: { ...PANE_PREFS, partition: this.partition },
     });
     this.wc = this.view.webContents;
     this.wc.setBackgroundThrottling(false); // it runs parked offscreen when the pane is closed
@@ -119,13 +127,42 @@ class BrowserPane extends EventEmitter {
       if (this.console.length > RING) this.console.shift();
       this.emit('console', this.console[this.console.length - 1]);
     });
-    // Open target=_blank in the same pane rather than a detached window.
-    wc.setWindowOpenHandler(({ url }) => {
+    this.#guardOpens(wc);
+    wc.on('will-navigate', (e, url) => {
+      if (!isAllowedUrl(url)) e.preventDefault();
+    });
+  }
+
+  /* How the pane and every window it opens handle window.open. A scripted
+     popup (window.open with features) is a sign-in flow: Google, GitHub and
+     the rest report back through window.opener, so it has to be a real window
+     that keeps its opener. That holds for a popup's own popups too, so a 2FA
+     helper opened from the sign-in window does not replace it. Plain
+     target=_blank links open in the pane rather than in a detached window. */
+  #guardOpens(wc) {
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      if (!isAllowedUrl(url)) return { action: 'deny' };
+      if (disposition === 'new-window') {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            // Read now, not when the pane was made: a popped-out pane lives in
+            // another window, and its popups belong in front of that one.
+            parent: this.win,
+            autoHideMenuBar: true,
+            webPreferences: { ...PANE_PREFS, partition: this.partition },
+          },
+        };
+      }
       this.navigate(url).catch(() => {});
       return { action: 'deny' };
     });
-    wc.on('will-navigate', (e, url) => {
-      if (!isAllowedUrl(url)) e.preventDefault();
+    wc.on('did-create-window', (child) => {
+      // A sign-in window belongs to its pane and goes when the pane does.
+      this.popups.add(child);
+      child.once('closed', () => this.popups.delete(child));
+      child.webContents.on('will-navigate', (e, url) => { if (!isAllowedUrl(url)) e.preventDefault(); });
+      this.#guardOpens(child.webContents);
     });
   }
 
@@ -214,6 +251,8 @@ class BrowserPane extends EventEmitter {
     this.debuggerAttached = false;
     try { this.win.contentView.removeChildView(this.view); } catch {}
     try { this.wc.close(); } catch {}
+    for (const w of this.popups) { try { if (!w.isDestroyed()) w.destroy(); } catch {} }
+    this.popups.clear();
     this.removeAllListeners();
   }
 
@@ -251,7 +290,7 @@ class BrowserPane extends EventEmitter {
   async navigate(url, { timeout = 30000 } = {}) {
     let target;
     try {
-      target = normalizeUrl(url);
+      target = normalizeUrl(url, { engine: this.searchEngine() });
     } catch (e) {
       const err = e.message || String(e);
       this.emit('state', { ...this.state(), error: err, failedUrl: String(url) });
@@ -627,6 +666,9 @@ class BrowserPane extends EventEmitter {
     try { this.win.contentView.removeChildView(this.view); } catch {}
     this.win = win;
     win.contentView.addChildView(this.view);
+    // Open sign-in windows follow the pane, or they sit behind the window it
+    // moved to.
+    for (const w of this.popups) { try { if (!w.isDestroyed()) w.setParentWindow(win); } catch {} }
   }
 }
 
@@ -657,4 +699,29 @@ const settle = (wc) => new Promise((res) => {
   wc.once('did-stop-loading', () => { clearTimeout(t); res(); });
 });
 
-module.exports = { BrowserPane, normalizeUrl, isAllowedUrl, partitionFor, wrapEvaluate };
+// What the address bar shows under a half-typed phrase. Fetched here rather
+// than in the window, whose content policy keeps it off the network, and on
+// the default session so a search engine never sees the pane's cookies. Any
+// failure is an empty list: suggestions are a nicety, never an error.
+const SUGGEST_MAX = 6;
+const SUGGEST_TIMEOUT_MS = 1500;
+
+async function searchSuggestions(query, engine) {
+  const q = String(query || '').trim();
+  if (!q || q.length > 200) return [];
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), SUGGEST_TIMEOUT_MS);
+  try {
+    const { suggest, parse } = engineOf(engine);
+    const res = await net.fetch(suggest(q), { signal: ctrl.signal, credentials: 'omit' });
+    if (!res.ok || res.status === 204) return [];
+    const list = parse(JSON.parse(await res.text()));
+    return list.filter((v) => typeof v === 'string' && v).slice(0, SUGGEST_MAX);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+module.exports = { searchSuggestions, BrowserPane, normalizeUrl, isAllowedUrl, partitionFor, wrapEvaluate, chromeUserAgent };
