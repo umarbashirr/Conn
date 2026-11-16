@@ -8,7 +8,7 @@
    an organisation's account, so `--cli` leaves them out, and what is
    expected of them is what the CLI's own code says. Plain node sends reads of
    /etc/claude-code to a temporary folder. Linux only. */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -58,10 +58,10 @@ function watchIn(t) {
   return hookWatch(t.project);
 }
 
-/* What the CLI ran, keyed `<label> <tool>`. The stand-in API calls each tool
-   once, in order, and every tool answers `ok`. */
+/* What the CLI ran, keyed `<label> <tool>`. The stand-in API takes each step
+   in order, by default a call of each tool, and every tool answers `ok`. */
 const { serve } = CLI ? await import(pathToFileURL(path.join(ROOT, '.claude/skills/verify/claude-api.mjs')).href) : {};
-async function cliRan(t, tools) {
+async function cliRan(t, tools, steps = tools.map((x) => `tool ${x} {}`)) {
   const server = path.join(t.home, 'tools.cjs');
   fs.writeFileSync(server, `const { McpServer } = require(${J(require.resolve('@modelcontextprotocol/sdk/server/mcp.js'))});
 const { StdioServerTransport } = require(${J(require.resolve('@modelcontextprotocol/sdk/server/stdio.js'))});
@@ -77,7 +77,7 @@ s.connect(new StdioServerTransport());`);
     HOME: t.home, CLAUDE_CONFIG_DIR: t.config, ANTHROPIC_BASE_URL: `http://127.0.0.1:${api.port}`,
     ANTHROPIC_API_KEY: 'sk-ant-conn-verify', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
   });
-  const prompt = [...tools.map((x) => `tool ${x} {}`), 'say: ran'].join('\n');
+  const prompt = [...steps, 'say: ran'].join('\n');
   const said = await new Promise((done) => {
     const c = spawn('claude', ['-p', prompt, '--mcp-config', path.join(t.home, 'mcp.json'), '--strict-mcp-config', '--dangerously-skip-permissions'], { cwd: t.project, env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
@@ -86,7 +86,7 @@ s.connect(new StdioServerTransport());`);
     c.on('exit', () => done(out.trim()));
   });
   api.server.close();
-  if (!/ran$/.test(said)) throw new Error(`claude did not finish its tools: ${said}`);
+  if (!/^ran$/m.test(said)) throw new Error(`claude did not finish its tools: ${said}`);
   return new Set((fs.existsSync(RAN) ? fs.readFileSync(RAN, 'utf8') : '').split('\n').filter(Boolean));
 }
 
@@ -212,6 +212,98 @@ for (const [name, extra, want] of LAYOUTS) {
   const watch = watchIn(t);
   check('a settings hook is named by its file', watch(tool('user')) === path.join(t.config, 'settings.json'), watch(tool('user')));
   check('a plugin hook is named by its plugin', watch(tool('hooks-json')) === 'plugin hooks-json@mkg', watch(tool('hooks-json')));
+}
+
+/* Skills, commands and agents declare hooks in their frontmatter, which the
+   CLI runs while that skill or agent is at work. Conn cannot tell when that
+   is, so each counts as always on, and `--cli` puts each to work before the
+   call its hook watches: a skill or command through the Skill tool, an agent
+   as the subagent that makes the call. Each is [label, file, kind, the name
+   the CLI knows it by]. A plugin's agents and commands, and a skill shelved
+   one folder deeper, are ones the CLI was seen to run no hooks for. */
+const PLUGIN = 'declares';
+const pluginRoot = (t) => path.join(t.home, 'mkf', PLUGIN);
+const DECLARED = [
+  ['project-skill', (t) => path.join(t.project, '.claude/skills/project-skill/SKILL.md'), 'skill'],
+  ['parent-skill', (t) => path.join(t.project, '..', '.claude/skills/parent-skill/SKILL.md'), 'skill'],
+  ['user-skill', (t) => path.join(t.config, 'skills/user-skill/SKILL.md'), 'skill'],
+  ['colon-skill', (t) => path.join(t.project, '.claude/skills/colon-skill/SKILL.md'), 'skill'],
+  ['project-command', (t) => path.join(t.project, '.claude/commands/project-command.md'), 'skill'],
+  ['nested-command', (t) => path.join(t.project, '.claude/commands/team/nested-command.md'), 'skill', 'team:nested-command'],
+  ['user-command', (t) => path.join(t.config, 'commands/user-command.md'), 'skill'],
+  ['project-agent', (t) => path.join(t.project, '.claude/agents/project-agent.md'), 'agent'],
+  ['nested-agent', (t) => path.join(t.project, '.claude/agents/team/nested-agent.md'), 'agent'],
+  ['parent-agent', (t) => path.join(t.project, '..', '.claude/agents/parent-agent.md'), 'agent'],
+  ['user-agent', (t) => path.join(t.config, 'agents/user-agent.md'), 'agent'],
+  ['plugin-skill', (t) => path.join(pluginRoot(t), 'skills/plugin-skill/SKILL.md'), 'skill', `${PLUGIN}:plugin-skill`],
+  ['listed-skill', (t) => path.join(pluginRoot(t), 'more/listed-skill/SKILL.md'), 'skill', `${PLUGIN}:listed-skill`],
+  ['plugin-agent', (t) => path.join(pluginRoot(t), 'agents/plugin-agent.md'), 'agent', `${PLUGIN}:plugin-agent`],
+  ['plugin-command', (t) => path.join(pluginRoot(t), 'commands/plugin-command.md'), 'skill', `${PLUGIN}:plugin-command`],
+  ['shelved-skill', (t) => path.join(t.project, '.claude/skills/shelf/shelved-skill/SKILL.md'), 'skill'],
+];
+const IGNORED = ['plugin-agent', 'plugin-command', 'shelved-skill'];
+// An unquoted ": " in a value is not YAML; the CLI quotes such a value and
+// reads the frontmatter again.
+const declares = (label) => `---\nname: ${label}\ndescription: ${label === 'colon-skill' ? 'Watches: the browser' : 'Watches the browser'} for hook-watch-check.
+hooks:\n  PreToolUse:\n    - matcher: "${tool(label)}"\n      hooks:\n        - type: command\n          command: '${hook(label).hooks[0].command}'\n---\nCall the tool you are asked to.\n`;
+
+function declaredEverywhere(t, user = {}) {
+  for (const [label, file] of DECLARED) {
+    fs.mkdirSync(path.dirname(file(t)), { recursive: true });
+    fs.writeFileSync(file(t), declares(label));
+  }
+  const folder = path.dirname(pluginRoot(t));
+  write(path.join(pluginRoot(t), '.claude-plugin', 'plugin.json'), { name: PLUGIN, version: '1.0.0', skills: ['./more/listed-skill'] });
+  write(path.join(folder, '.claude-plugin', 'marketplace.json'), { name: 'mkf', owner: { name: 'conn' }, plugins: [{ name: PLUGIN, source: `./${PLUGIN}`, version: '1.0.0' }] });
+  write(path.join(t.config, 'plugins', 'known_marketplaces.json'), {
+    mkf: { source: { source: 'directory', path: folder }, installLocation: folder, lastUpdated: '2026-01-01T00:00:00.000Z' },
+  });
+  write(path.join(t.config, 'settings.json'), { enabledPlugins: { [`${PLUGIN}@mkf`]: true }, ...user });
+  // A project's agents run their hooks only once the person has trusted the
+  // folder they come from.
+  write(path.join(t.config, '.claude.json'), { projects: Object.fromEntries([t.project, path.dirname(t.project)].map((d) => [d, { hasTrustDialogAccepted: true }])) });
+}
+const putToWork = DECLARED.flatMap(([label, , kind, name = label]) => (kind === 'agent'
+  ? [`tool Agent ${J({ subagent_type: name, description: label, prompt: `tool ${tool(label)} {}\nsay: done` })}`]
+  : [`tool Skill ${J({ skill: name })}`, `tool ${tool(label)} {}`]));
+
+const LABELLED = DECLARED.map(([l]) => l);
+const SEEN = LABELLED.filter((l) => !IGNORED.includes(l));
+for (const [name, setup, want] of [
+  ['declared-everywhere', (t) => declaredEverywhere(t), SEEN],
+  ['declared-above-the-repository', (t) => { declaredEverywhere(t); spawnSync('git', ['init', '-q'], { cwd: t.project }); }, SEEN.filter((l) => !l.startsWith('parent-'))],
+  ['declared-user-disables', (t) => declaredEverywhere(t, { disableAllHooks: true }), []],
+]) {
+  const t = layout(name);
+  setup(t);
+  const watch = watchIn(t);
+  const got = LABELLED.filter((l) => watch(tool(l)));
+  check(`${name} watches ${want.join(', ') || 'nothing'}`, J(got) === J(want), J(got));
+  if (CLI) {
+    const ran = await cliRan(t, LABELLED.map(tool), putToWork);
+    const cli = LABELLED.filter((l) => ran.has(`${l} ${tool(l)}`));
+    check(`claude in ${name} runs ${want.join(', ') || 'nothing'}`, J(cli) === J(want), J(cli));
+  }
+}
+
+{
+  const t = layout('declared-sources');
+  declaredEverywhere(t);
+  const watch = watchIn(t);
+  const [, file] = DECLARED.find(([l]) => l === 'project-skill');
+  check('a skill\'s hook is named by the skill and its file', watch(tool('project-skill')) === `skill project-skill (${file(t)})`, watch(tool('project-skill')));
+  const [, agent] = DECLARED.find(([l]) => l === 'user-agent');
+  check('an agent\'s hook is named by the agent and its file', watch(tool('user-agent')) === `agent user-agent (${agent(t)})`, watch(tool('user-agent')));
+
+  // Rewritten where it stands, as an editor saving in place does, which
+  // leaves its folder's mtime alone.
+  const late = path.join(t.project, '.claude/skills/late-skill/SKILL.md');
+  fs.mkdirSync(path.dirname(late), { recursive: true });
+  fs.writeFileSync(late, '---\nname: late-skill\ndescription: Watches nothing yet.\n---\n');
+  check('a skill that declares no hook watches nothing', !watchIn(t)(tool('late-skill')));
+  const folder = fs.statSync(path.dirname(late)).mtimeMs;
+  fs.writeFileSync(late, declares('late-skill'));
+  check('a hook added to a skill in place is seen by the next batch', !!watchIn(t)(tool('late-skill')) && fs.statSync(path.dirname(late)).mtimeMs === folder);
 }
 
 fs.rmSync(tmp, { recursive: true, force: true });

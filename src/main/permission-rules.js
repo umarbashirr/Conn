@@ -6,6 +6,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const yaml = require('js-yaml');
 const shellEnv = require('./shell-env');
 
 const KINDS = ['allow', 'ask', 'deny'];
@@ -132,12 +133,11 @@ const preToolUse = (hooks, source) => (Array.isArray(hooks?.PreToolUse) ? hooks.
   .filter((e) => e?.hooks?.length)
   .map((e) => ({ source, matcher: e.matcher }));
 
-/* The PreToolUse hooks of the plugins `enabled` turns on, which names each
-   `<plugin>@<marketplace>`. A plugin from a marketplace kept in a local folder
-   loads from that folder, any other from the copy installed_plugins.json
-   names. Its hooks are hooks/hooks.json's, and those its plugin.json names:
-   files of the same shape, or the hooks themselves. */
-function pluginHooks(enabled) {
+/* The plugins `enabled` turns on, which names each `<plugin>@<marketplace>`,
+   with the folder each loads from and its plugin.json. A plugin from a
+   marketplace kept in a local folder loads from that folder, any other from
+   the copy installed_plugins.json names. */
+function pluginRoots(enabled) {
   const dir = path.join(configDir(), 'plugins');
   const installed = read(path.join(dir, 'installed_plugins.json')).json?.plugins || {};
   const markets = read(path.join(dir, 'known_marketplaces.json')).json || {};
@@ -149,13 +149,95 @@ function pluginHooks(enabled) {
       : null;
     const roots = typeof folder === 'string' ? [path.resolve(market.installLocation, folder)]
       : [installed[id] ?? []].flat().map((e) => e?.installPath).filter(Boolean);
-    return roots.flatMap((root) => {
-      const named = read(path.join(root, '.claude-plugin', 'plugin.json')).json?.hooks ?? [];
-      const sets = [read(path.join(root, 'hooks', 'hooks.json')).json?.hooks,
-        ...[named].flat().map((h) => (typeof h === 'string' ? read(path.resolve(root, h)).json?.hooks : h))];
-      return sets.flatMap((hooks) => preToolUse(hooks, `plugin ${id}`));
-    });
+    return roots.map((root) => ({ id, root, manifest: read(path.join(root, '.claude-plugin', 'plugin.json')).json || {} }));
   });
+}
+
+// A plugin's hooks are hooks/hooks.json's, and those its plugin.json names:
+// files of the same shape, or the hooks themselves.
+function pluginHooks({ id, root, manifest }) {
+  const sets = [read(path.join(root, 'hooks', 'hooks.json')).json?.hooks,
+    ...[manifest.hooks ?? []].flat().map((h) => (typeof h === 'string' ? read(path.resolve(root, h)).json?.hooks : h))];
+  return sets.flatMap((hooks) => preToolUse(hooks, `plugin ${id}`));
+}
+
+const below = (dir) => {
+  try { return fs.readdirSync(dir).filter((n) => !n.startsWith('.')).map((n) => path.join(dir, n)); } catch { return []; }
+};
+const skillFiles = (dir) => below(dir).map((d) => path.join(d, 'SKILL.md'));
+// Stops three folders down, so a link back up cannot loop it.
+const markdown = (dir, depth = 0) => below(dir).flatMap((p) => (p.endsWith('.md') ? [p] : depth < 3 ? markdown(p, depth + 1) : []));
+// A plugin's skills are in skills/, and where its plugin.json lists them: a
+// skill's own folder, or a folder of them.
+const pluginSkills = ({ root, manifest }) => [
+  ...skillFiles(path.join(root, 'skills')),
+  ...[manifest.skills ?? []].flat().filter((s) => typeof s === 'string').map((s) => path.resolve(root, s))
+    .flatMap((dir) => [path.join(dir, 'SKILL.md'), ...skillFiles(dir)]),
+];
+
+// The folder and each one above it up to the repository's root.
+function upToRoot(dir) {
+  const dirs = [dir];
+  while (!fs.existsSync(path.join(dir, '.git')) && path.dirname(dir) !== dir) {
+    dir = path.dirname(dir);
+    dirs.push(dir);
+  }
+  return dirs;
+}
+
+/* The files whose frontmatter can declare hooks the CLI runs while that
+   skill, command or agent is at work, as tried against the CLI's own runs:
+   skills/<name>/SKILL.md, commands/**.md and agents/**.md in each of
+   `folders`, and an enabled plugin's skills. The CLI ignores what a plugin's
+   agents and commands declare. The .claude folders the CLI finds deeper in
+   the project as it works are not looked for. */
+function declarers(folders, plugins) {
+  return [
+    ...folders.flatMap((dir) => [
+      ...skillFiles(path.join(dir, 'skills')).map((file) => ({ kind: 'skill', file })),
+      ...markdown(path.join(dir, 'commands')).map((file) => ({ kind: 'command', file })),
+      ...markdown(path.join(dir, 'agents')).map((file) => ({ kind: 'agent', file })),
+    ]),
+    ...plugins.flatMap(pluginSkills).map((file) => ({ kind: 'skill', file })),
+  ];
+}
+
+/* A frontmatter as the CLI reads it: the text between the first two ---
+   lines as YAML, and when that does not parse, again with each top-level
+   value that holds YAML's special characters quoted and leading tabs made
+   spaces. An unquoted "description: Use when: ..." parses only the second
+   time. */
+const FENCE = /^---\s*\n([\s\S]*?)---\s*\n?/;
+function frontmatter(block) {
+  const load = (text) => {
+    const v = yaml.load(text);
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  };
+  try { return load(block); } catch {}
+  const quoted = block.split('\n').map((line) => {
+    const m = /^([a-zA-Z_-]+):\s+(\S.*)$/.exec(line);
+    if (!m || /^(".*"|'.*')$/.test(m[2]) || !/[{}[\]*&#!|>%@`]|: /.test(m[2])) return line;
+    if (/^\[.*\]$/.test(m[2])) { try { if (Array.isArray(yaml.load(m[2]))) return line; } catch {} }
+    return `${m[1]}: "${m[2].replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+  }).join('\n').replace(/^\t+/gm, (tabs) => '  '.repeat(tabs.length));
+  try { return load(quoted); } catch { return {}; }
+}
+
+// What each file declares, kept by its mtime and size so a batch reads again
+// only a file that changed. Its folder's mtime would miss an edit made in place.
+const declared = new Map();
+function declaredHooks({ kind, file }) {
+  let stat;
+  try { stat = fs.statSync(file); } catch { return []; }
+  const stamp = `${stat.mtimeMs}:${stat.size}`;
+  if (declared.get(file)?.stamp !== stamp) {
+    let block;
+    try { block = FENCE.exec(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))?.[1]; } catch {}
+    const meta = block?.includes('PreToolUse') ? frontmatter(block) : {};
+    const name = meta.name || (kind === 'skill' ? path.basename(path.dirname(file)) : path.basename(file, '.md'));
+    declared.set(file, { stamp, watches: preToolUse(meta.hooks, `${kind} ${name} (${file})`) });
+  }
+  return declared.get(file).watches;
 }
 
 /**
@@ -164,10 +246,14 @@ function pluginHooks(enabled) {
  * runs a hook against the call it sees, which for a browser batch is the
  * batch, so a step a hook watches has to be called alone. Read when a batch
  * is planned, so a hook added mid-session counts.
+ * A hook a skill, command or agent declares runs only while that one is at
+ * work, which Conn cannot tell, so it counts as always on. The .claude folders
+ * they are read from are the project's, each one above it up to the
+ * repository's root, and the user's config folder.
  * A managed disableAllHooks turns every hook off. Elsewhere disableAllHooks
  * takes the value of the last file that sets it, and true there, or a managed
  * allowManagedHooksOnly, leaves only what the managed settings bring: their
- * own hooks and those of the plugins they turn on.
+ * own hooks and those of the plugins they turn on, skills included.
  */
 function hookWatch(project) {
   const sources = settings(project).map((s) => ({ ...s, json: read(s.file).json || {} }));
@@ -175,9 +261,12 @@ function hookWatch(project) {
   if (policy.some((s) => s.json.disableAllHooks === true)) return () => null;
   const off = sources.map((s) => s.json.disableAllHooks).filter((v) => v !== undefined).at(-1) === true;
   const kept = off || policy.some((s) => s.json.allowManagedHooksOnly === true) ? policy : sources;
+  const plugins = pluginRoots(Object.assign({}, ...kept.map((s) => s.json.enabledPlugins)));
+  const folders = kept === sources ? [...(project ? upToRoot(project).map((d) => path.join(d, '.claude')) : []), configDir()] : [];
   const watches = [
     ...kept.flatMap((s) => preToolUse(s.json.hooks, s.file)),
-    ...pluginHooks(Object.assign({}, ...kept.map((s) => s.json.enabledPlugins))),
+    ...plugins.flatMap(pluginHooks),
+    ...declarers(folders, plugins).flatMap(declaredHooks),
   ];
   return (tool) => watches.find((w) => matches(w.matcher, tool))?.source ?? null;
 }
