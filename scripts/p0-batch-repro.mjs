@@ -2,7 +2,7 @@
    handlers, the conn MCP server that Codex, the ACP agents and claude in the
    terminal use, and `conn batch` through the bridge. Boots the app on the shop
    fixture. Needs a built renderer: `npx vite build`. */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -210,6 +210,30 @@ try {
     check('bridge-ask-rule-shows-a-card', card, J(r));
     check('bridge-ask-rule-card-answers-the-step', /^2\. click was refused: .*not approved/m.test(r.text) && /Step 3 did not run/.test(r.text), J(r.text));
     fs.rmSync(settings);
+  }
+
+  {
+    // A step's args are checked strictly, so a misnamed one is refused with
+    // the names that step takes rather than dropped: `for` would otherwise
+    // turn into a wait for the network, and `y` into a scroll by the default.
+    const conn = (actions) => {
+      const r = spawnSync(process.execPath, [path.join(ROOT, 'cli/conn.js'), 'batch', J(actions)], {
+        cwd: s.project, env: { ...process.env, HOME: s.home, CONN_CWD: s.project }, encoding: 'utf8', timeout: 20000,
+      });
+      return { isError: r.status !== 0, text: `${r.stdout}${r.stderr}` };
+    };
+    const wrong = [
+      ['wait', [{ tool: 'wait', for: '#x' }], /step 1 \(wait\): .*"for".*\. wait takes selector, ms, timeout\. Nothing ran\./],
+      ['scroll', [{ tool: 'scroll', y: 500 }], /step 1 \(scroll\): .*"y".*\. scroll takes dy, target\. Nothing ran\./],
+    ];
+    for (const [tool, actions, says] of wrong) {
+      const inside = await inProcess('auto', `return text(await call('browser_batch', { actions: ${J(actions)} }));`);
+      check(`in-process-${tool}-misnamed-arg-refused`, inside.isError && says.test(inside.text), J(inside));
+      const viaServer = await viaMcp('browser_batch', { actions });
+      check(`mcp-${tool}-misnamed-arg-refused`, viaServer.isError && says.test(viaServer.text), J(viaServer));
+      const viaCli = conn(actions);
+      check(`conn-batch-${tool}-misnamed-arg-refused`, viaCli.isError && says.test(viaCli.text), J(viaCli));
+    }
   }
 } finally {
   await mcp?.close().catch(() => {});
