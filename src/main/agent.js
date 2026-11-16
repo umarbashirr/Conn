@@ -6,16 +6,10 @@ const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
-const { browserTools, keyframeBlocks, INSTRUCTIONS } = require('../shared/browser-tools');
+const { browserTools, toolContent, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const shellEnv = require('./shell-env');
-
-// How a screenshot tool result announces where the file landed. index.js reads
-// it back to strip the base64 copy before the message reaches the renderer, so
-// the two have to agree.
-const shotNote = (r) => `${r.width}x${r.height} saved to ${r.path}`;
-const SHOT_NOTE = /^(\d+)x(\d+) saved to (.+)$/;
 
 // How long a browser tool waits to learn which agent called it. The CLI
 // announces the tool_use a beat after it starts running the tool, so the first
@@ -91,21 +85,7 @@ class AgentSession extends EventEmitter {
         const route = t.route ? t.route(args) : t.bridgeTool;
         const mapped = t.map ? t.map(args) : args;
         const result = await this.invoke(route, mapped, await this.#actorFor(extra));
-
-        if (t.format === 'image' && result?.path) {
-          const data = fs.readFileSync(result.path).toString('base64');
-          return {
-            content: [
-              { type: 'image', data, mimeType: 'image/png' },
-              { type: 'text', text: shotNote(result) },
-            ],
-          };
-        }
-        const text = t.render ? t.render(result)
-          : typeof result === 'string' ? result
-            : JSON.stringify(result, null, 2);
-        const stills = t.format === 'recording' && result?.keyframes ? keyframeBlocks(result, fs.readFileSync) : [];
-        return { content: [{ type: 'text', text }, ...stills] };
+        return toolContent(t, result, fs.readFileSync, { args });
       }, { alwaysLoad: CORE.has(t.name) }),
     );
 
@@ -576,4 +556,4 @@ function blocks({ text, images }) {
   ];
 }
 
-module.exports = { AgentSession, SHOT_NOTE };
+module.exports = { AgentSession };

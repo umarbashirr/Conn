@@ -9,7 +9,8 @@ const { Bridge } = require('./bridge');
 const { startMobileGate } = require('./mobile-gate');
 const { runTool, TAB_TOOLS } = require('./tools');
 const { createTabRouter } = require('./tab-router');
-const { AgentSession, SHOT_NOTE } = require('./agent');
+const { AgentSession } = require('./agent');
+const { SHOT_NOTE } = require('../shared/browser-tools');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
@@ -1022,11 +1023,15 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
+// The pictures in a result, in order. A batch can hold several screenshots,
+// each announced on its own line, so every note counts, not just the first.
+// The path is the full file, which is what the transcript shows.
 function imagePaths(content) {
+  const paths = [];
   for (const b of content) {
     const text = typeof b?.text === 'string' ? b.text : '';
-    const shot = SHOT_NOTE.exec(text);
-    if (shot) return [shot[3]];
+    for (const shot of text.matchAll(SHOT_NOTE)) paths.push(shot[5]);
+    if (paths.length) continue;
     if (text.startsWith('{')) {
       try {
         const { keyframes } = JSON.parse(text);
@@ -1034,7 +1039,7 @@ function imagePaths(content) {
       } catch {}
     }
   }
-  return [];
+  return paths;
 }
 
 function lighten(msg) {

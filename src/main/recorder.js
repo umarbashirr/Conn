@@ -7,6 +7,7 @@ const { nativeImage } = require('electron');
 const { EncoderWindow } = require('./encoder-window');
 const { safeFilePath } = require('./screenshot-path');
 const { STILLS, stillPath, pruneRecordings } = require('./recording-files');
+const { modelFit } = require('../shared/browser-tools');
 
 const FPS = 10;
 const DEFAULT_SECONDS = 60;
@@ -25,6 +26,16 @@ const SETTLE_MS = 1500;
 const PICKS = 48;
 
 const SCREENCAST = { format: 'jpeg', quality: 80, everyNthFrame: 1 };
+
+// The stills are handed to the agent as they are, so they keep to the same
+// size a screenshot is sent at. A frame already inside it is written untouched.
+function fitStill(jpeg) {
+  const img = nativeImage.createFromBuffer(jpeg);
+  const { width, height } = img.getSize();
+  const fit = modelFit(width, height);
+  if (!width || fit.width === width) return jpeg;
+  return img.resize({ width: fit.width, height: fit.height, quality: 'good' }).toJPEG(SCREENCAST.quality);
+}
 
 const NEXT = { idle: ['recording'], recording: ['stopping', 'idle'], stopping: ['idle'] };
 
@@ -248,7 +259,7 @@ class Recorder {
     const frames = [rec.picks[0].buf, middle.buf, rec.latest];
     return STILLS.map((which, i) => {
       const file = stillPath(video, which);
-      fs.writeFileSync(file, frames[i], { mode: 0o600 });
+      fs.writeFileSync(file, fitStill(frames[i]), { mode: 0o600 });
       return file;
     });
   }

@@ -8,6 +8,7 @@ const { normalizeUrl, isAllowedUrl, engineOf } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
 const { Recorder } = require('./recorder');
+const { modelFit } = require('../shared/browser-tools');
 
 // Electron's default user agent names the app and Electron, and Google's
 // sign-in refuses any browser that says so ("This browser or app may not be
@@ -530,7 +531,9 @@ class BrowserPane extends EventEmitter {
   }
 
   // `clip` is a box in the viewport, { x, y, w, h }, for an area picked by hand.
-  async screenshot({ fullPage = false, target, clip, name } = {}) {
+  // The PNG is the whole capture, for people and the screenshot library;
+  // `model` is the small JPEG beside it that the agent is actually sent.
+  async screenshot({ fullPage = false, target, clip, name, detail } = {}) {
     // The pointer the last action left on the page is for the human watching
     // the pane, not for whoever reads this file.
     await this.#js('window.__conn.cursorHide()').catch(() => {});
@@ -561,10 +564,12 @@ class BrowserPane extends EventEmitter {
       return this.#grab(undefined, woken);
     });
     const file = screenshotFilePath(this.shotDir, name);
-    fs.writeFileSync(file, image.toPNG(), { mode: 0o600 });
+    const png = image.toPNG();
+    fs.writeFileSync(file, png, { mode: 0o600 });
+    const model = modelCopy(png, file, { high: detail === 'high', fullPage: fullPage && !clip && !target });
     this.#pruneShots();
     const size = image.getSize();
-    return { path: file, width: size.width, height: size.height };
+    return { path: file, width: size.width, height: size.height, model };
   }
 
   async record({ action, name, maxSeconds } = {}, { library = false } = {}) {
@@ -581,6 +586,7 @@ class BrowserPane extends EventEmitter {
 
   // Oldest first, by mtime. Cheap enough to run after each capture: the cap is
   // small and readdir on a flat temp folder is not worth scheduling around.
+  // A shot's model copy goes with it.
   #pruneShots() {
     try {
       const files = fs.readdirSync(this.shotDir)
@@ -594,6 +600,7 @@ class BrowserPane extends EventEmitter {
       files.sort((a, b) => a.at - b.at);
       for (const { full } of files.slice(0, files.length - MAX_SHOTS)) {
         try { fs.unlinkSync(full); } catch {}
+        try { fs.unlinkSync(modelPath(full)); } catch {}
       }
     } catch {}
   }
@@ -691,6 +698,24 @@ function wrapEvaluate(code) {
   } catch {
     return `(async () => { ${code}\n})()`;
   }
+}
+
+// The copy of a screenshot the agent is sent, encoded once here so the stdio
+// MCP server, which has no nativeImage, only has to read a file. Decoded from
+// the PNG rather than resized off the capture, so the sizes are the file's own
+// pixels whatever the display's scale factor.
+const SHOT_QUALITY = 78;
+const modelPath = (png) => png.replace(/\.png$/, '.sent.jpg');
+
+function modelCopy(png, file, opts) {
+  const flat = nativeImage.createFromBuffer(png);
+  const { width, height } = flat.getSize();
+  const fit = modelFit(width, height, opts);
+  let img = fit.cropped ? flat.crop({ x: 0, y: 0, width, height: fit.cropHeight }) : flat;
+  if (fit.width !== width) img = img.resize({ width: fit.width, height: fit.height, quality: 'good' });
+  const out = modelPath(file);
+  fs.writeFileSync(out, img.toJPEG(SHOT_QUALITY), { mode: 0o600 });
+  return { path: out, width: fit.width, height: fit.height, mime: 'image/jpeg', ...(fit.cropped ? { cropped: true } : {}) };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

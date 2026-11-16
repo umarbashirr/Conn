@@ -9,7 +9,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 
 const state = require('../cli/state');
-const { browserTools, keyframeBlocks } = require('../src/shared/browser-tools');
+const { browserTools, toolContent } = require('../src/shared/browser-tools');
 
 // Which project the agent is working in. The window may have several open, so
 // the request has to say. The terminal that started this server exports
@@ -40,15 +40,6 @@ async function call(tool, args = {}) {
   return body.result;
 }
 
-const text = (v) => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
-
-const image = (shot) => ({
-  content: [
-    { type: 'image', data: fs.readFileSync(shot.path).toString('base64'), mimeType: 'image/png' },
-    { type: 'text', text: `${shot.width}x${shot.height} saved to ${shot.path}` },
-  ],
-});
-
 const server = new McpServer(
   { name: 'conn', version: '0.1.0' },
   { instructions: 'Controls the preview browser pane sitting next to this terminal. Call browser_snapshot first: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept. Use browser_console and browser_network to see what the page reported after an action.' },
@@ -62,10 +53,7 @@ const wrap = (fn) => async (args) => {
 for (const t of browserTools(z)) {
   server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a) => {
     const result = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a);
-    if (t.format === 'image') return image(result);
-    const out = text(t.render ? t.render(result) : result);
-    if (t.format === 'recording' && result?.keyframes) out.content.push(...keyframeBlocks(result, fs.readFileSync));
-    return out;
+    return toolContent(t, result, fs.readFileSync, { args: a });
   }));
 }
 

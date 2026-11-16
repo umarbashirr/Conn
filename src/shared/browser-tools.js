@@ -72,8 +72,8 @@ function browserTools(z) {
     },
     {
       name: 'browser_screenshot', bridgeTool: 'screenshot', label: 'Screenshot', title: 'Screenshot',
-      description: 'Capture the page as an image. Use it to check layout, spacing and visual regressions.',
-      schema: { fullPage: z.boolean().optional(), target: z.string().optional() },
+      description: 'Capture the page as an image, for visual checks. It is sent small; detail "high" sends more pixels.',
+      schema: { fullPage: z.boolean().optional(), target: z.string().optional(), detail: z.enum(['high']).optional() },
       format: 'image',
     },
     {
@@ -153,6 +153,63 @@ const keyframeBlocks = (result, read) => (result.keyframes || []).map((file) => 
   type: 'image', data: read(file).toString('base64'), mimeType: 'image/jpeg',
 }));
 
+/* The size of the picture the model is sent, which is not the file a person
+   keeps. A model reads an image as roughly w*h/750 tokens and reads it again on
+   every later turn, so a full-size pane cost three times what the same look
+   costs through Claude's own browser. 800 wide keeps text legible; `high` is
+   for when the detail matters, up to the 1568 px the model reads at most. A
+   full page keeps its width and loses its bottom instead, since shrinking a
+   tall page to fit makes all of it unreadable. Never scaled up. */
+const SHOT_WIDTH = 800;
+const SHOT_LONG = 1568;
+
+function modelFit(width, height, { high = false, fullPage = false } = {}) {
+  const across = high ? SHOT_LONG : SHOT_WIDTH;
+  const scale = fullPage
+    ? Math.min(1, across / width)
+    : Math.min(1, across / width, SHOT_LONG / Math.max(width, height));
+  const keep = Math.min(height, Math.floor(SHOT_LONG / scale));
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(keep * scale)),
+    cropHeight: keep,
+    cropped: keep < height,
+  };
+}
+
+// How a screenshot result announces itself: what was sent, and where the full
+// file landed. index.js reads the path back to show the picture in the
+// transcript without carrying its bytes over IPC, so the two have to agree.
+// The older "WxH saved to path" form still matches, for transcripts made
+// before the model copy existed.
+const shotNote = (r) => {
+  const m = r.model || r;
+  const note = `${m.width}x${m.height} sent, ${r.width}x${r.height} saved to ${r.path}`;
+  return m.cropped ? `${note}\nThe picture is the top of the page; the file has all of it.` : note;
+};
+const SHOT_NOTE = /(?:(\d+)x(\d+) sent, )?(\d+)x(\d+) saved to (.+)$/gm;
+
+const shotImage = (r, read) => {
+  const m = r.model || { path: r.path, mime: 'image/png' };
+  return { type: 'image', data: read(m.path).toString('base64'), mimeType: m.mime };
+};
+
+const textOf = (t, result, args) => (t.render ? t.render(result, args || {})
+  : typeof result === 'string' ? result
+    : JSON.stringify(result, null, 2));
+
+/**
+ * What the model is handed for one call, the same over every transport.
+ * `read` loads a file the result names; both callers pass fs.readFileSync.
+ */
+function toolContent(t, result, read, { args } = {}) {
+  if (t.format === 'image' && result?.path) {
+    return { content: [{ type: 'text', text: shotNote(result) }, shotImage(result, read)] };
+  }
+  const stills = t.format === 'recording' && result?.keyframes ? keyframeBlocks(result, read) : [];
+  return { content: [{ type: 'text', text: textOf(t, result, args) }, ...stills] };
+}
+
 const INSTRUCTIONS = [
   'You are working next to a live preview browser. It is a real Chromium view the human can see.',
   'Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000).',
@@ -190,4 +247,7 @@ const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.route
    list under their bare names. */
 const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '', copilot: '' };
 
-module.exports = { browserTools, keyframeBlocks, INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX };
+module.exports = {
+  browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE,
+  INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
+};
