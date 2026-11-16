@@ -68,6 +68,8 @@ class BrowserPane extends EventEmitter {
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
     this.visible = false;           // born parked; the window says when it is in the box
+    this.box = { x: 4000, y: 40, width: 900, height: 760 }; // where the window wants the view
+    this.borrowed = false;          // #awake has the view; the window's moves wait for it
     this.favicon = '';
     this.shotDir = ensurePrivateDir('conn-shots');
     this.#pruneShots();
@@ -91,7 +93,7 @@ class BrowserPane extends EventEmitter {
     win.contentView.addChildView(this.view);
     // Parked offscreen at a real size: the renderer refines this once it has
     // measured, but the page always has a viewport to lay out in.
-    this.view.setBounds({ x: 4000, y: 40, width: 900, height: 760 });
+    this.view.setBounds(this.box);
 
     this.#wireEvents();
     this.#attachDebugger();
@@ -238,16 +240,18 @@ class BrowserPane extends EventEmitter {
 
   setBounds(b) {
     this.bounds = b;
-    this.view.setBounds({
+    this.box = {
       x: Math.round(b.x), y: Math.round(b.y),
       width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)),
-    });
+    };
+    if (this.borrowed) return;
+    this.view.setBounds(this.box);
     if (this.viewport) this.#emulate().catch(() => {});
   }
 
   setVisible(v) {
     this.visible = v;
-    this.view.setVisible(v);
+    if (!this.borrowed) this.view.setVisible(v);
   }
 
   // The project this pane belonged to has closed. A WebContentsView left in the
@@ -370,12 +374,8 @@ class BrowserPane extends EventEmitter {
   }
   async stop() { this.wc.stop(); return this.state(); }
 
-  // A pane brought into the box by the navigate just before can have no size
-  // for a moment, and a page with no viewport reports every element hidden.
-  // Calls a model round trip apart never saw that; a batch's next step does.
   async snapshot(opts = {}) {
-    await this.#js(`new Promise((r) => { const end = Date.now() + 2000;
-      (function check() { if (innerWidth && innerHeight || Date.now() > end) r(); else setTimeout(check, 50); })(); })`);
+    await this.#settled();
     return this.#js(`window.__conn.snapshot(${JSON.stringify(opts)})`);
   }
 
@@ -412,6 +412,29 @@ class BrowserPane extends EventEmitter {
       if (!await this.#drawn()) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
       return this.#press(target, opts);
     });
+  }
+
+  /* The window brings a view into the box over several frames: shown off
+     the window's edge, then at no size, then grown to the column, and the
+     page inside still reports its old size until it lays out again. A view
+     with no size or off the window has no surface to copy ("Current display
+     surface not available for capture"), and a page laid out at no size has
+     a 1x1 viewport in which every element looks hidden. Calls a model round
+     trip apart never met that; a batch's next step does. So a read waits for
+     the window to finish: the view parked, or in the box at a real size and
+     drawn there once. A parked view draws nothing until #awake shows it. */
+  async #settled() {
+    const until = Date.now() + 2000;
+    while (this.#moving() && Date.now() < until) await sleep(16);
+    if (this.visible) await this.#drawn();
+  }
+
+  #moving() {
+    const b = this.box;
+    if (!b.width || !b.height) return true;
+    if (!this.visible) return false;
+    const [w, h] = this.win.getContentSize();
+    return b.x >= w || b.y >= h || b.x + b.width <= 0 || b.y + b.height <= 0;
   }
 
   #drawn() {
@@ -518,28 +541,30 @@ class BrowserPane extends EventEmitter {
      in the window's corner, laid out at its own size, so the renderer draws it
      and nobody sees it. Shown under the pane in the box
      instead, it drew one frame and then stopped as occluded; off the window it
-     never drew at all. */
+     never drew at all.
+
+     The window can move the tab into the box mid-capture. A size it gave the
+     view while the override held was lost when the override went, and the
+     page stayed laid out at one pixel. So while the view is borrowed the
+     window's moves are only noted, and land once the override is gone. */
   async #awake(fn) {
     if (this.visible || !this.debuggerAttached) return fn(false);
     // A screencast keeps the view drawing at its own size. Shrinking it to one
     // pixel for the capture would put that size in the video.
     if (this.recorder.recording) return fn(true);
-    const parked = this.view.getBounds();
-    const { width, height } = this.viewport || parked;
+    const { width, height } = this.viewport || this.box;
+    this.borrowed = true;
     this.view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
     this.view.setVisible(true);
     try {
       await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 0, mobile: false });
       return await fn(true);
     } finally {
-      // The window may have put this tab in the box mid-capture, and has
-      // already shown it where it belongs.
-      if (!this.visible) {
-        this.view.setVisible(false);
-        this.view.setBounds(parked);
-      }
       if (this.viewport) await this.#emulate().catch(() => {});
       else await this.wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      this.borrowed = false;
+      this.view.setBounds(this.box);
+      this.view.setVisible(this.visible);
     }
   }
 
@@ -561,6 +586,7 @@ class BrowserPane extends EventEmitter {
     // The pointer the last action left on the page is for the human watching
     // the pane, not for whoever reads this file.
     await this.#js('window.__conn.cursorHide()').catch(() => {});
+    await this.#settled();
     const image = await this.#awake(async (woken) => {
       if (clip) {
         return this.#grab({
