@@ -1199,9 +1199,10 @@ function tabOps(cwd, actor) {
     open: async (url) => {
       const tab = router.open(actor, cwd);
       // The load is an ordinary navigate on the tab just pinned: leased,
-      // announced and brought forward the same way.
-      if (url) await driveTool('navigate', { url }, { cwd, actor });
-      return page(tab);
+      // announced and brought forward the same way. A load that failed says
+      // so, as navigate's own answer does.
+      const loaded = url ? await driveTool('navigate', { url }, { cwd, actor }) : null;
+      return loaded?.error ? { ...page(tab), error: loaded.error } : page(tab);
     },
     select: (tab) => page(router.select(actor, tab)),
     close: (tab) => {
