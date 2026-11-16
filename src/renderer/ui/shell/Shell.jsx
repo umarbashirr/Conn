@@ -184,7 +184,7 @@ function TabStrip() {
       onValueChange={(id) => activateTab(dir, id)}
       className="shrink-0 gap-0 border-b border-[var(--line)]">
       <TabsList
-        variant="line"
+        variant="card"
         className="h-auto w-full justify-start! gap-1 overflow-x-auto rounded-none p-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab) => {
           const { icon: Icon } = VIEW_KINDS[tab.kind];
@@ -193,7 +193,7 @@ function TabStrip() {
           const faviconOk = favicon && !favicon.startsWith('data:,');
           const recording = tab.kind === 'browser' && previewOf(tab.id).recording;
           return (
-            <TabsTrigger key={tab.id} value={tab.id} title={label} className="group flex-none gap-1.5 text-xs">
+            <TabsTrigger key={tab.id} value={tab.id} title={label} className="group h-7 flex-none gap-1.5 px-2.5 text-xs">
               {faviconOk ? (
                 <img src={favicon} alt="" className="size-3.5 shrink-0 rounded-sm object-contain" />
               ) : (
