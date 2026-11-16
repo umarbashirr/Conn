@@ -38,6 +38,9 @@ const STOPPED = /Stopped: the turn was interrupted\. Steps 3-4 did not run\./;
 // An in-process call first waits up to 400 ms to learn which agent made it,
 // so its Stop comes later to land in the wait.
 const IN_THE_WAIT = { inProcess: 1000, bridge: 600 };
+// Deny on the bridge's own card. In-process cards answered in main still
+// draw as open here, since the stand-in agent never tells the window.
+const BRIDGE_DENY = 'css=[data-perm-card^="b"] [aria-label="Deny"]';
 
 const s = await drive.boot({ root: ROOT, xvfb: true });
 let server;
@@ -205,7 +208,7 @@ try {
 
     fs.writeFileSync(settings, J({ permissions: { ask: ['mcp__conn__browser_click'] } }));
     const asked = viaMcp('browser_batch', { actions: [{ tool: 'state' }, { tool: 'click', target: '#apply' }, { tool: 'text' }] });
-    const card = await drive.click(s, 'Deny').then(() => true, () => false);
+    const card = await drive.click(s, BRIDGE_DENY).then(() => true, () => false);
     const r = await asked;
     check('bridge-ask-rule-shows-a-card', card, J(r));
     check('bridge-ask-rule-card-answers-the-step', /^2\. click was refused: .*not approved/m.test(r.text) && /Step 3 did not run/.test(r.text), J(r.text));
@@ -278,6 +281,44 @@ try {
     const afterRule = await cardsFor('');
     check('rule-removal-forgets-always', removed?.ok && afterRule.includes(CLICK), J({ removed, afterRule }));
     fs.rmSync(local);
+  }
+
+  {
+    // A step's card says which batch it belongs to, so the transcript can put
+    // its answer on the batch's row rather than on some call of the same tool.
+    const recording = (on) => drive.evaluate(s, `(() => {
+      const win = electron.BrowserWindow.getAllWindows().find((w) => /index\\.html/.test(w.webContents.getURL()));
+      if (${on}) {
+        globalThis.__cards = [];
+        globalThis.__send = win.webContents.send;
+        win.webContents.send = function (channel, payload) { if (channel === 'agent:permission') globalThis.__cards.push(payload); return globalThis.__send.apply(this, arguments); };
+        return [];
+      }
+      win.webContents.send = globalThis.__send;
+      return globalThis.__cards.map(({ tool, forId, batch }) => ({ tool, forId, batch }));
+    })()`, { main: true });
+
+    const settings = path.join(s.project, '.claude', 'settings.json');
+    fs.writeFileSync(settings, J({ permissions: { ask: ['mcp__conn__browser_click'] } }));
+    await inProcess('auto', 'return 1;');
+    await recording(true);
+    const asked = viaMcp('browser_batch', { actions: [{ tool: 'state' }, { tool: 'click', target: '#apply' }] });
+    await drive.click(s, BRIDGE_DENY).catch(() => {});
+    await asked;
+    const [bridged] = await recording(false);
+    fs.rmSync(settings);
+    check('bridge-step-card-names-its-batch', bridged?.tool === 'browser_click' && typeof bridged.batch?.id === 'string' && bridged.batch.step === 2 && bridged.batch.total === 2, J(bridged));
+
+    await recording(true);
+    await inProcess('ask', `
+      const answer = (c) => { const e = a.pending.get(c.id); a.pending.delete(c.id); e.resolve({ behavior: 'deny', message: 'declined' }); };
+      a.on('permission', answer);
+      try { await call('browser_batch', { actions: [{ tool: 'state' }, { tool: 'click', target: '#apply' }] }, { _meta: { 'claudecode/toolUseId': 'cards-1' } }); }
+      finally { a.off('permission', answer); }
+      return 1;
+    `);
+    const [inside] = await recording(false);
+    check('in-process-step-card-names-its-batch', inside?.forId === 'cards-1' && inside.batch?.id === 'cards-1' && inside.batch.step === 2 && inside.batch.total === 2, J(inside));
   }
 } finally {
   await mcp?.close().catch(() => {});
