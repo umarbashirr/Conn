@@ -21,8 +21,13 @@ export function plan(text, project) {
     else if ((m = /^read (.+)$/.exec(line))) push('Read', { file_path: at(m[1]) });
     else if ((m = /^bash: (.+)$/.exec(line))) push('Bash', { command: m[1], description: 'Run a shell command' });
     // Any tool by its full name, such as an MCP tool: `tool mcp__preview__browser_batch {"actions":[...]}`.
-    else if ((m = /^tool (\S+) (\{.*\})$/.exec(line))) push(m[1], JSON.parse(m[2]));
-    else if ((m = /^wait (\d+(?:\.\d+)?)$/.exec(line))) delay += Number(m[1]) * 1000;
+    // A line that does not parse ends the script there, with a reply saying so.
+    else if ((m = /^tool (\S+) (.*)$/.exec(line))) {
+      try { push(m[1], JSON.parse(m[2])); } catch (e) {
+        said = `the JSON on this line does not parse (${e.message}): ${line}`;
+        break;
+      }
+    } else if ((m = /^wait (\d+(?:\.\d+)?)$/.exec(line))) delay += Number(m[1]) * 1000;
     else if ((m = /^say: (.+)$/.exec(line))) said = m[1];
   }
   if (!steps.length && said === null && !delay) return null;
