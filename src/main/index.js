@@ -1352,7 +1352,7 @@ function askBridge(chat, tool, args, { reason, signal, batch }) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch } = {}) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch, claudeCode = false } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
@@ -1360,10 +1360,13 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   // The CLI weighed its settings rules against the batch and never sees a
   // step, so they are weighed here: a deny refuses the step, an ask forces
   // its card. An allow changes nothing, as for a call made alone, which the
-  // window asks about by its mode whatever the CLI allowed.
+  // window asks about by its mode whatever the CLI allowed. When Claude Code
+  // is the caller, a step one of its PreToolUse hooks watches refuses the
+  // whole batch. Other agents run no Claude hooks.
   if (tool === 'batch') {
-    const steps = planBatch(args?.actions, require('zod').z);
     const project = from || cwdOfChat(chat);
+    const watch = claudeCode ? permissionRules.hookWatch(project) : null;
+    const steps = planBatch(args?.actions, require('zod').z, watch ? (name) => watch(`mcp__conn__${name}`) : undefined);
     const id = `bb${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const halt = new AbortController();
     bridgeBatches.set(halt, chat);

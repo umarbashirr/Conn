@@ -375,10 +375,12 @@ const NOT_IN_BATCH = new Set(['browser_batch', 'browser_record']);
  * five steps done and the agent unsure where it stands. Each step's args are
  * checked against its tool's own schema, strictly: a single call's schema
  * is shown to the model, a step's is not, so a misnamed arg is refused with
- * the names the step takes rather than dropped.
+ * the names the step takes rather than dropped. `watched` takes a step's tool
+ * name and answers where a PreToolUse hook that watches it is set, or null,
+ * and a step it names is refused: see hookWatch in permission-rules.js.
  * @returns {Array<{name: string, args: object, route: string, mapped: object}>}
  */
-function planBatch(actions, z) {
+function planBatch(actions, z, watched = () => null) {
   if (!Array.isArray(actions) || !actions.length) throw new Error('actions must be a list of at least one step');
   if (actions.length > BATCH_MAX) throw new Error(`a batch runs at most ${BATCH_MAX} steps; this one has ${actions.length}`);
   const table = browserTools(z);
@@ -397,6 +399,8 @@ function planBatch(actions, z) {
       const takes = Object.keys(t.schema);
       throw new Error(`step ${i + 1} (${short}): ${why}. ${short} takes ${takes.length ? takes.join(', ') : 'no args'}. Nothing ran.`);
     }
+    const hook = watched(t.name);
+    if (hook) throw new Error(`step ${i + 1} (${shortName(t.name)}): a PreToolUse hook in ${hook} watches ${t.name} and cannot see a batch's steps. Call ${t.name} on its own so your hook can see it. Nothing ran.`);
     const args = parsed.data;
     return { name: t.name, args, route: t.route ? t.route(args) : t.bridgeTool, mapped: t.map ? t.map(args) : args };
   });

@@ -38,6 +38,11 @@ async function call(tool, args = {}, signal) {
   // falls back to the chat on screen. Chat keys built from folder names are
   // not header-safe as they are.
   if (process.env.CONN_CHAT) headers['x-conn-chat'] = encodeURIComponent(process.env.CONN_CHAT);
+  // The window holds a batch's steps to Claude Code's PreToolUse hooks when it
+  // is the client, which it says by name when it connects. CLAUDECODE in the
+  // environment would not do: it is inherited, so Codex started from a shell
+  // inside a Claude session has it too.
+  if (server.server.getClientVersion()?.name === 'claude-code') headers['x-conn-claude-code'] = '1';
   const res = await fetch(`${url}/tool/${tool}`, { method: 'POST', headers, body: JSON.stringify(args), signal });
   const body = await res.json().catch(() => ({ error: `bad response (${res.status})` }));
   if (!res.ok || body.error) throw new Error(body.error || `request failed (${res.status})`);
