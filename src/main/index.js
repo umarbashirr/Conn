@@ -1328,18 +1328,28 @@ function askBridge(chat, tool, args, reason, signal) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null } = {}) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
   // asked about and leased exactly as the same call made alone would be.
+  // The CLI weighed its settings rules against the batch and never sees a
+  // step, so they are weighed here: a deny refuses the step, an ask forces
+  // its card. An allow changes nothing, as for a call made alone, which the
+  // window asks about by its mode whatever the CLI allowed.
   if (tool === 'batch') {
     const steps = planBatch(args?.actions);
+    const project = from || cwdOfChat(chat);
     const halt = new AbortController();
     bridgeBatches.set(halt, chat);
     const stop = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
     try {
-      const out = await runBatch(steps, (step) => runBridgeTool(step.route, step.mapped, from, named, { report: true, signal: stop }), stop);
+      const out = await runBatch(steps, (step) => {
+        const name = `mcp__conn__${step.name}`;
+        const rule = permissionRules.ruleFor(project, name);
+        if (rule === 'deny') throw refusal(step.route, { reason: `a permission rule in your settings denies ${name}.` });
+        return runBridgeTool(step.route, step.mapped, from, named, { report: true, signal: stop, ask: rule === 'ask' });
+      }, stop);
       return report ? { result: out, caused: [] } : out;
     } finally {
       bridgeBatches.delete(halt);
@@ -1348,7 +1358,7 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
-  if (verdict.action === 'ask' && !pageGrants.has(chat)) {
+  if (ask || (verdict.action === 'ask' && !pageGrants.has(chat))) {
     const ok = await askBridge(chat, tool, args, verdict.reason, signal);
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
