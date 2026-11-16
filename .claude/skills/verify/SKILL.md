@@ -93,7 +93,7 @@ The first `say`, `perm` or `invoke` has no chat to talk to, so it types `Hello` 
 | `waitFor` | `{"selector"?: "#message.ok", "ms"?, "networkIdle"?: true, "timeout"?: 3000}` | Waits for a selector, a delay, or a quiet network. |
 | `text`, `html` | `{"max"?: 300}` | The visible text, or the raw HTML. |
 | `evaluate` | `{"code": "document.title"}` | Runs JavaScript in the page inside the pane. `js` runs in Conn's own window instead. |
-| `screenshot` | `{"fullPage"?, "target"?, "name"?}` | Saves a PNG of the page and returns its path. |
+| `screenshot` | `{"fullPage"?, "target"?, "name"?, "detail"?: "high"}` | Saves a PNG of the page and returns its path, and `model`, the smaller JPEG the agent is sent. |
 | `hover`, `scrollTo`, `highlight` | `{"target": "e3"}` | Acts on one element. |
 | `select` | `{"target": "e4", "value": "red"}` | Picks an option in a `<select>`. |
 | `scroll` | `{"dy"?: 400, "dx"?}` | Scrolls by pixels. |
@@ -173,11 +173,12 @@ edit index.html: <h1>Your cart</h1> => <h1>Your basket</h1>
 write notes.txt: first line\nsecond line
 read index.html
 bash: printf hi > notes.txt
+tool mcp__preview__browser_batch {"actions":[{"tool":"snapshot"}]}
 wait 20
 say: All done.
 ```
 
-Typed into the composer, the steps go on one line separated by ` ;; `, because `type` cannot put a newline in the composer: `edit index.html: <h1>Your cart</h1> => <h1>Your bag</h1> ;; wait 20`. `edit` reads the file first, because the CLI refuses to edit a file it has not read. `wait 20` holds the next reply 20 seconds, which keeps the turn running so you can press Stop. Paths are relative to the `shop` project the instance booted with, even when the chat runs in another folder such as a worktree. Use absolute paths there, and a `bash:` step (which runs in the CLI's real working directory) to prove where the chat runs. The turn ends with the `say` text, or `Done.`. A prompt with no steps gets `heard: <its last line>` back.
+Typed into the composer, the steps go on one line separated by ` ;; `, because `type` cannot put a newline in the composer: `edit index.html: <h1>Your cart</h1> => <h1>Your bag</h1> ;; wait 20`. `edit` reads the file first, because the CLI refuses to edit a file it has not read. `tool <name> <json>` calls any tool by its full name with that input, such as Conn's own browser tools. Its JSON cannot hold ` ;; `, which splits the line there, and a line whose JSON does not parse ends the script with a reply that names the line. `wait 20` holds the next reply 20 seconds, which keeps the turn running so you can press Stop. Paths are relative to the `shop` project the instance booted with, even when the chat runs in another folder such as a worktree. Use absolute paths there, and a `bash:` step (which runs in the CLI's real working directory) to prove where the chat runs. The turn ends with the `say` text, or `Done.`. A prompt with no steps gets `heard: <its last line>` back.
 
 ```
 node .claude/skills/verify/drive.mjs boot --xvfb --claude

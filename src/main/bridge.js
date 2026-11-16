@@ -198,8 +198,19 @@ class Bridge {
       try { args = JSON.parse(body); } catch (e) { return send(400, { error: 'invalid JSON body: ' + e.message }); }
     }
 
+    // The MCP server asks for what a page-changing call caused, to put in the
+    // agent's copy of the result. The CLI does not, and gets the result alone.
+    const report = req.headers['x-conn-report'] === '1';
+    // The MCP server says when Claude Code is its client, whose hooks a
+    // batch's steps answer to.
+    const claudeCode = req.headers['x-conn-claude-code'] === '1';
+    // A caller that hangs up before the answer, an MCP call cancelled or a
+    // `conn batch` stopped with Ctrl-C, has given up on it.
+    const gone = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) gone.abort(); });
     try {
-      send(200, { ok: true, result: await this.run(name, args, from, callerChat(req)) });
+      const out = await this.run(name, args, from, callerChat(req), { report, claudeCode, signal: gone.signal });
+      send(200, report ? { ok: true, ...out } : { ok: true, result: out });
     } catch (err) {
       send(500, { ok: false, error: err?.message || String(err) });
     }

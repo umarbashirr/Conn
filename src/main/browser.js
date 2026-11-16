@@ -8,6 +8,7 @@ const { normalizeUrl, isAllowedUrl, engineOf } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
 const { Recorder } = require('./recorder');
+const { modelFit, cut } = require('../shared/browser-tools');
 
 // Electron's default user agent names the app and Electron, and Google's
 // sign-in refuses any browser that says so ("This browser or app may not be
@@ -34,6 +35,22 @@ const MAX_INFLIGHT = 500;
 // Every screenshot the agent takes lands on disk and nothing ever collected
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
+// How long an action's result waits on the requests it started.
+const SETTLE_MS = 1000;
+// A page's handlers have run by the time an action returns, but what they set
+// off can start a frame later: a framework's effect runs after its render.
+// Measured in the pane, a request a fill starts itself reaches main within
+// 1 ms of the fill returning, and one started on the next frame within 19 ms.
+// 80 ms, the beat press and hover already take after their input, is about
+// four frames.
+const BEAT_MS = 80;
+// A stream stays open for as long as the page wants it, so an action's
+// result does not wait for one to finish: an EventSource or WebSocket from
+// the start, a fetch once its answer says text/event-stream.
+const STREAM_TYPES = new Set(['EventSource', 'WebSocket']);
+// Electron's own notices land in the page's console from its bundled scripts.
+// They are about the app, never the page, so they are not the page's errors.
+const ELECTRON_SOURCE = /^(?:electron\/|node:electron\/|sandbox_bundle|renderer_init)/;
 const MAX_RECORDINGS = 20;
 
 const ERR_ABORTED = -3;
@@ -55,11 +72,16 @@ class BrowserPane extends EventEmitter {
     this.partition = partitionFor(this.project);
     this.console = [];
     this.network = [];
+    this.seq = 0;                   // numbers every console and network row
+    this.reported = null;           // the last row an action's result told
+    this.reportedAt = 0;            // and when
     this.pending = new Set();
     this.reqs = new Map();          // requestId -> the bits needed to log a failure
     this.lastActivity = Date.now();
     this.debuggerAttached = false;
     this.visible = false;           // born parked; the window says when it is in the box
+    this.box = { x: 4000, y: 40, width: 900, height: 760 }; // where the window wants the view
+    this.borrowed = false;          // #awake has the view; the window's moves wait for it
     this.favicon = '';
     this.shotDir = ensurePrivateDir('conn-shots');
     this.#pruneShots();
@@ -83,7 +105,7 @@ class BrowserPane extends EventEmitter {
     win.contentView.addChildView(this.view);
     // Parked offscreen at a real size: the renderer refines this once it has
     // measured, but the page always has a viewport to lay out in.
-    this.view.setBounds({ x: 4000, y: 40, width: 900, height: 760 });
+    this.view.setBounds(this.box);
 
     this.#wireEvents();
     this.#attachDebugger();
@@ -115,7 +137,7 @@ class BrowserPane extends EventEmitter {
     });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrameNavFail(isMainFrame, code)) {
-        this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
+        this.#log(this.network, { kind: 'navigation-failed', url, code, desc });
         // failedUrl matters: after a failed load getURL() can still report the
         // previous page, and the error card needs the address that broke.
         this.emit('state', { ...this.state(), error: `${desc} (${code})`, failedUrl: url });
@@ -123,9 +145,7 @@ class BrowserPane extends EventEmitter {
     });
     wc.on('console-message', (_e, level, message, line, sourceId) => {
       const levels = ['debug', 'info', 'warning', 'error'];
-      this.console.push({ t: Date.now(), level: levels[level] || String(level), message, source: `${sourceId}:${line}` });
-      if (this.console.length > RING) this.console.shift();
-      this.emit('console', this.console[this.console.length - 1]);
+      this.emit('console', this.#log(this.console, { level: levels[level] || String(level), message, source: `${sourceId}:${line}` }));
     });
     this.#guardOpens(wc);
     wc.on('will-navigate', (e, url) => {
@@ -189,15 +209,15 @@ class BrowserPane extends EventEmitter {
         this.reqs.delete(oldest);
         this.pending.delete(oldest);
       }
-      this.reqs.set(p.requestId, { url: p.request.url, method: p.request.method, t: Date.now() });
+      this.reqs.set(p.requestId, { url: p.request.url, method: p.request.method, t: Date.now(), ...(STREAM_TYPES.has(p.type) ? { stream: true } : {}) });
     } else if (method === 'Network.responseReceived') {
       const r = this.reqs.get(p.requestId);
       if (r) {
         r.status = p.response.status;
         r.type = p.type;
+        if (p.response.mimeType === 'text/event-stream') r.stream = true;
         if (p.response.status >= 400) {
-          this.network.push({ t: Date.now(), kind: 'http', ...r });
-          if (this.network.length > RING) this.network.shift();
+          this.#log(this.network, { kind: 'http', ...r });
         }
       }
     } else if (method === 'Network.loadingFailed') {
@@ -205,13 +225,21 @@ class BrowserPane extends EventEmitter {
       this.reqs.delete(p.requestId);
       this.pending.delete(p.requestId);
       if (!p.canceled) {
-        this.network.push({ t: Date.now(), kind: 'failed', url: r.url, method: r.method, error: p.errorText });
-        if (this.network.length > RING) this.network.shift();
+        this.#log(this.network, { kind: 'failed', url: r.url, method: r.method, error: p.errorText });
       }
     } else if (method === 'Network.loadingFinished') {
       this.reqs.delete(p.requestId);
       this.pending.delete(p.requestId);
     }
+  }
+
+  // `t` is when the row was logged, even for a request row, which is built
+  // from the request's own entry and its start time.
+  #log(list, row) {
+    const entry = { ...row, t: Date.now(), n: ++this.seq };
+    list.push(entry);
+    if (list.length > RING) list.shift();
+    return entry;
   }
 
   async #inject() {
@@ -230,16 +258,18 @@ class BrowserPane extends EventEmitter {
 
   setBounds(b) {
     this.bounds = b;
-    this.view.setBounds({
+    this.box = {
       x: Math.round(b.x), y: Math.round(b.y),
       width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)),
-    });
+    };
+    if (this.borrowed) return;
+    this.view.setBounds(this.box);
     if (this.viewport) this.#emulate().catch(() => {});
   }
 
   setVisible(v) {
     this.visible = v;
-    this.view.setVisible(v);
+    if (!this.borrowed) this.view.setVisible(v);
   }
 
   // The project this pane belonged to has closed. A WebContentsView left in the
@@ -363,14 +393,27 @@ class BrowserPane extends EventEmitter {
   async stop() { this.wc.stop(); return this.state(); }
 
   async snapshot(opts = {}) {
+    await this.#settled();
     return this.#js(`window.__conn.snapshot(${JSON.stringify(opts)})`);
   }
 
-  async text(max) { return this.#js(`window.__conn.text(${Number(max) || 20000})`); }
+  // The defaults are what the conn CLI prints. An agent's tools ask for less
+  // (READ in shared/browser-tools.js), and a cut says how much there was.
+  async text(max) {
+    const cap = Number(max) || 20000;
+    const t = await this.#js('window.__conn.text()');
+    return t.length > cap ? `${cut(t, cap)}\n… truncated at ${cap} of ${t.length} characters; pass max for more` : t;
+  }
 
-  async html(max = 200000) {
-    const h = await this.#js('document.documentElement.outerHTML');
-    return h.length > max ? h.slice(0, max) + '\n<!-- truncated -->' : h;
+  async html(max) {
+    const cap = Number(max) || 200000;
+    // Without Conn's own pointer, whose reset style alone runs to 5,000
+    // characters and is not the page's. The copy is made in a document of its
+    // own, which loads nothing: a copy made in the page fetches its images again.
+    const h = await this.#js(`(() => { const d = document.implementation.createHTMLDocument('').importNode(document.documentElement, true);
+      d.querySelectorAll('#__conn-cursor, [data-conn-ripple]').forEach((n) => n.remove());
+      return d.outerHTML; })()`);
+    return h.length > cap ? `${cut(h, cap)}\n<!-- truncated at ${cap} of ${h.length} characters; pass max for more -->` : h;
   }
 
   // Until the page has drawn a frame, Chromium has nothing to hit-test a press
@@ -387,6 +430,29 @@ class BrowserPane extends EventEmitter {
       if (!await this.#drawn()) throw new Error('the page has not drawn a frame in 2 s, so the click was not sent');
       return this.#press(target, opts);
     });
+  }
+
+  /* The window brings a view into the box over several frames: shown off
+     the window's edge, then at no size, then grown to the column, and the
+     page inside still reports its old size until it lays out again. A view
+     with no size or off the window has no surface to copy ("Current display
+     surface not available for capture"), and a page laid out at no size has
+     a 1x1 viewport in which every element looks hidden. Calls a model round
+     trip apart never met that; a batch's next step does. So a read waits for
+     the window to finish: the view parked, or in the box at a real size and
+     drawn there once. A parked view draws nothing until #awake shows it. */
+  async #settled() {
+    const until = Date.now() + 2000;
+    while (this.#moving() && Date.now() < until) await sleep(16);
+    if (this.visible) await this.#drawn();
+  }
+
+  #moving() {
+    const b = this.box;
+    if (!b.width || !b.height) return true;
+    if (!this.visible) return false;
+    const [w, h] = this.win.getContentSize();
+    return b.x >= w || b.y >= h || b.x + b.width <= 0 || b.y + b.height <= 0;
   }
 
   #drawn() {
@@ -493,28 +559,30 @@ class BrowserPane extends EventEmitter {
      in the window's corner, laid out at its own size, so the renderer draws it
      and nobody sees it. Shown under the pane in the box
      instead, it drew one frame and then stopped as occluded; off the window it
-     never drew at all. */
+     never drew at all.
+
+     The window can move the tab into the box mid-capture. A size it gave the
+     view while the override held was lost when the override went, and the
+     page stayed laid out at one pixel. So while the view is borrowed the
+     window's moves are only noted, and land once the override is gone. */
   async #awake(fn) {
     if (this.visible || !this.debuggerAttached) return fn(false);
     // A screencast keeps the view drawing at its own size. Shrinking it to one
     // pixel for the capture would put that size in the video.
     if (this.recorder.recording) return fn(true);
-    const parked = this.view.getBounds();
-    const { width, height } = this.viewport || parked;
+    const { width, height } = this.viewport || this.box;
+    this.borrowed = true;
     this.view.setBounds({ x: 0, y: 0, width: 1, height: 1 });
     this.view.setVisible(true);
     try {
       await this.wc.debugger.sendCommand('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 0, mobile: false });
       return await fn(true);
     } finally {
-      // The window may have put this tab in the box mid-capture, and has
-      // already shown it where it belongs.
-      if (!this.visible) {
-        this.view.setVisible(false);
-        this.view.setBounds(parked);
-      }
       if (this.viewport) await this.#emulate().catch(() => {});
       else await this.wc.debugger.sendCommand('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      this.borrowed = false;
+      this.view.setBounds(this.box);
+      this.view.setVisible(this.visible);
     }
   }
 
@@ -530,10 +598,13 @@ class BrowserPane extends EventEmitter {
   }
 
   // `clip` is a box in the viewport, { x, y, w, h }, for an area picked by hand.
-  async screenshot({ fullPage = false, target, clip, name } = {}) {
+  // The PNG is the whole capture, for people and the screenshot library;
+  // `model` is the small JPEG beside it that the agent is actually sent.
+  async screenshot({ fullPage = false, target, clip, name, detail } = {}) {
     // The pointer the last action left on the page is for the human watching
     // the pane, not for whoever reads this file.
     await this.#js('window.__conn.cursorHide()').catch(() => {});
+    await this.#settled();
     const image = await this.#awake(async (woken) => {
       if (clip) {
         return this.#grab({
@@ -561,10 +632,12 @@ class BrowserPane extends EventEmitter {
       return this.#grab(undefined, woken);
     });
     const file = screenshotFilePath(this.shotDir, name);
-    fs.writeFileSync(file, image.toPNG(), { mode: 0o600 });
+    const png = image.toPNG();
+    fs.writeFileSync(file, png, { mode: 0o600 });
+    const model = modelCopy(png, file, { high: detail === 'high', fullPage: fullPage && !clip && !target });
     this.#pruneShots();
     const size = image.getSize();
-    return { path: file, width: size.width, height: size.height };
+    return { path: file, width: size.width, height: size.height, model };
   }
 
   async record({ action, name, maxSeconds } = {}, { library = false } = {}) {
@@ -572,7 +645,7 @@ class BrowserPane extends EventEmitter {
       if (library && !name) name = `conn-recording-${new Date().toLocaleString('sv').replace(/[: ]/g, '-')}`;
       const where = library
         ? { dir: path.join(app.getPath('videos'), 'Conn'), keep: null }
-        : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS };
+        : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS, forModel: true };
       return this.recorder.start({ ...where, name, maxSeconds, announce: library });
     }
     if (action === 'stop') return this.recorder.stop();
@@ -581,6 +654,7 @@ class BrowserPane extends EventEmitter {
 
   // Oldest first, by mtime. Cheap enough to run after each capture: the cap is
   // small and readdir on a flat temp folder is not worth scheduling around.
+  // A shot's model copy goes with it.
   #pruneShots() {
     try {
       const files = fs.readdirSync(this.shotDir)
@@ -594,6 +668,7 @@ class BrowserPane extends EventEmitter {
       files.sort((a, b) => a.at - b.at);
       for (const { full } of files.slice(0, files.length - MAX_SHOTS)) {
         try { fs.unlinkSync(full); } catch {}
+        try { fs.unlinkSync(modelPath(full)); } catch {}
       }
     } catch {}
   }
@@ -634,6 +709,37 @@ class BrowserPane extends EventEmitter {
   }
 
   networkLog({ limit = 50 } = {}) { return this.network.slice(-limit); }
+
+  /* An action's report: the console errors and warnings and the failed
+     requests the page logged in its window, as rows, for the action's own
+     result. The window opens where the last report closed, so each row is
+     told once, and one that came between two actions is told by the second,
+     its time saying it came before that action began (`since`). The first
+     report on a pane starts at its action. After the beat, requests the
+     action set off get up to SETTLE_MS to finish, so a click whose fetch
+     fails says so; with none in flight it returns then. */
+  async caused(since) {
+    await sleep(BEAT_MS);
+    const until = Date.now() + SETTLE_MS;
+    const busy = () => [...this.reqs.values()].some((r) => r.t >= since && !r.stream);
+    if (busy()) {
+      while (busy() && Date.now() < until) await sleep(50);
+      await sleep(50); // a page's own catch logs a beat after the failure
+    }
+    const told = this.reported;
+    const fresh = (r) => (told === null ? r.t >= since : r.n > told);
+    const rows = [
+      ...this.console.filter((c) => fresh(c) && (c.level === 'error' || c.level === 'warning') && !ELECTRON_SOURCE.test(String(c.source || '')))
+        .map((c) => ({ kind: 'console', level: c.level, text: c.message, source: c.source, t: c.t, n: c.n })),
+      ...this.network.filter(fresh).map((r) => (r.kind === 'navigation-failed'
+        ? { kind: 'request', page: true, status: `${r.desc} (${r.code})`, text: r.url, t: r.t, n: r.n }
+        : { kind: 'request', status: r.status || r.error, method: r.method, text: r.url, t: r.t, n: r.n })),
+    ].sort((a, b) => a.n - b.n);
+    const from = told === null ? since : this.reportedAt;
+    this.reported = this.seq;
+    this.reportedAt = Date.now();
+    return { from, since, until: this.reportedAt, rows };
+  }
 
   // Docked under the page, or in a window of its own.
   toggleDevTools(detached = false) {
@@ -691,6 +797,24 @@ function wrapEvaluate(code) {
   } catch {
     return `(async () => { ${code}\n})()`;
   }
+}
+
+// The copy of a screenshot the agent is sent, encoded once here so the stdio
+// MCP server, which has no nativeImage, only has to read a file. Decoded from
+// the PNG rather than resized off the capture, so the sizes are the file's own
+// pixels whatever the display's scale factor.
+const SHOT_QUALITY = 78;
+const modelPath = (png) => png.replace(/\.png$/, '.sent.jpg');
+
+function modelCopy(png, file, opts) {
+  const flat = nativeImage.createFromBuffer(png);
+  const { width, height } = flat.getSize();
+  const fit = modelFit(width, height, opts);
+  let img = fit.cropped ? flat.crop({ x: 0, y: 0, width, height: fit.cropHeight }) : flat;
+  if (fit.width !== width) img = img.resize({ width: fit.width, height: fit.height, quality: 'good' });
+  const out = modelPath(file);
+  fs.writeFileSync(out, img.toJPEG(SHOT_QUALITY), { mode: 0o600 });
+  return { path: out, width: fit.width, height: fit.height, mime: 'image/jpeg', ...(fit.cropped ? { cropped: true } : {}) };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

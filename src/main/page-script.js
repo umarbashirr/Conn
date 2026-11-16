@@ -85,6 +85,7 @@
   function walk(root, out, depth, opts) {
     const nodes = root.querySelectorAll(INTERACTIVE + ',h1,h2,h3,h4,h5,h6,[role=heading],[role=alert],[role=dialog],iframe');
     for (const el of nodes) {
+      if (opts.cut) return;
       if (!isVisible(el)) continue;
       if (el.tagName === 'IFRAME') {
         let doc = null;
@@ -99,7 +100,7 @@
       const href = el.tagName === 'A' && el.href ? ` href=${JSON.stringify(el.getAttribute('href'))}` : '';
       const line = `${'  '.repeat(depth)}- ${r} ${JSON.stringify(name)} [ref=${ref(el)}]${href}${bits.length ? ' ' + bits.join(' ') : ''}`;
       out.push(line);
-      if (out.length > (opts.max || 600)) { out.push('… truncated'); return; }
+      if (out.length >= opts.max) { opts.cut = true; return; }
     }
   }
 
@@ -215,9 +216,13 @@
   window.__conn = {
     version: 2,
 
+    // Past max lines the reader is told where it stopped and how to ask for
+    // more, rather than handed all of it.
     snapshot(opts = {}) {
       const out = [];
+      opts.max = opts.max || 600;
       walk(document, out, 0, opts);
+      if (opts.cut) out.push(`… stopped at ${opts.max} lines; pass max for more`);
       const head = [
         `url: ${location.href}`,
         `title: ${JSON.stringify(document.title)}`,
@@ -227,9 +232,9 @@
       return head.concat(out.length ? out : ['(no interactive elements found)']).join('\n');
     },
 
-    text(maxChars = 20000) {
-      const t = (document.body?.innerText || '').replace(/\n{3,}/g, '\n\n');
-      return t.length > maxChars ? t.slice(0, maxChars) + '\n… truncated' : t;
+    // All of it: main makes the cut, with the same rule as every other cap.
+    text() {
+      return (document.body?.innerText || '').replace(/\n{3,}/g, '\n\n');
     },
 
     // `show` draws the pointer at the point as well as returning it. The

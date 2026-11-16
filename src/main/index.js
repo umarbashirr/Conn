@@ -7,9 +7,10 @@ const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { startMobileGate } = require('./mobile-gate');
-const { runTool, TAB_TOOLS } = require('./tools');
+const { runTool, TAB_TOOLS, CAUSES } = require('./tools');
 const { createTabRouter } = require('./tab-router');
-const { AgentSession, SHOT_NOTE } = require('./agent');
+const { AgentSession } = require('./agent');
+const { SHOT_NOTE, planBatch, runBatch } = require('../shared/browser-tools');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
@@ -289,9 +290,11 @@ async function transcriptForPhone(dir, id, provider) {
   return { id, messages: phoneMessages(read && read.messages) };
 }
 
+// A pick made in the picker. Claude's is marked as one, so the clearing
+// below can tell it from a model an older release saved by itself.
 const rememberModel = (p, model) => {
   const key = rowOf(p)?.modelKey;
-  if (key) settings.patch({ agent: { [key]: model || '' } });
+  if (key) settings.patch({ agent: { [key]: model || '', ...(p === 'claude' ? { modelPicked: !!model } : {}) } });
 };
 
 function allModels() {
@@ -323,17 +326,30 @@ function providerStates() {
 }
 
 // Nothing picked. Passing no model does not mean "no opinion": the CLI runs
-// whatever the account defaults to, which on most plans is Fable, and the picker
-// meanwhile says "Pick a model". Two different answers to the same question.
-// Land on the first model the driver lists, write it down, and hand it back so
-// the label and the session agree from the first message on.
+// whatever the account defaults to, and the picker meanwhile says "Pick a
+// model". Two different answers to the same question. Land on the first model
+// the driver lists, which is the account's default when the CLI says what that
+// is, so the label and the session agree from the first message on. It is not
+// written down: saved, it would outlive a change of the account's default and
+// read as a pick nobody made.
 function modelFor(p) {
-  if (chosenModels[p]) return chosenModels[p];
-  const first = driverFor(p)?.current({ refresh: false }).models[0]?.value;
-  if (!first) return null;
-  chosenModels[p] = first;
-  rememberModel(p, first);
-  return first;
+  return chosenModels[p] || driverFor(p)?.current({ refresh: false }).models[0]?.value || null;
+}
+
+/* Releases before this one saved the first model listed (opus on today's
+   CLIs) on every launch, so nearly everyone has one saved that they never
+   picked, and it pinned their chats to it rather than to the account's
+   default. Once, a saved Claude model that is exactly what that code would
+   have saved, with no pick behind it, is cleared. At the first launch the
+   driver's cache is still the list that code read, in the order it read it.
+   With no list to compare against, it waits for a launch that has one. */
+function clearAutoModel() {
+  const agent = settings.get('agent');
+  if (agent.modelPicked || agent.autoModelCleared) return;
+  const first = rowOf('claude')?.driver.current({ refresh: false }).models[0]?.value;
+  if (!first) return;
+  if (chosenModels.claude === first) chosenModels.claude = null;
+  settings.patch({ agent: { model: chosenModels.claude || '', autoModelCleared: true } });
 }
 
 // The same question for whichever CLI the picker is pointed at.
@@ -352,7 +368,7 @@ const catalogSessions = (dir) => liveSessions().filter((a) => a instanceof Agent
 
 function stopChat(chat) {
   const a = sessions.get(chat);
-  denyBridgeChat(chat);
+  stopBridgeChat(chat);
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
@@ -1022,19 +1038,23 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
+// The file behind each picture in a result, by the picture's place in it. A
+// screenshot's path is read only from its note, the block right before it,
+// so text a page put in the result cannot name the file. A recording's stills
+// follow its JSON, in order. The path is the full file, which is what the
+// transcript shows.
 function imagePaths(content) {
+  const stills = [];
   for (const b of content) {
-    const text = typeof b?.text === 'string' ? b.text : '';
-    const shot = SHOT_NOTE.exec(text);
-    if (shot) return [shot[3]];
-    if (text.startsWith('{')) {
-      try {
-        const { keyframes } = JSON.parse(text);
-        if (Array.isArray(keyframes)) return keyframes;
-      } catch {}
-    }
+    if (typeof b?.text !== 'string' || !b.text.startsWith('{')) continue;
+    try {
+      const { keyframes } = JSON.parse(b.text);
+      if (Array.isArray(keyframes)) stills.push(...keyframes);
+    } catch {}
   }
-  return [];
+  return content.map((b, at) => (b?.type === 'image'
+    ? SHOT_NOTE.exec(content[at - 1]?.text ?? '')?.[1] ?? stills.shift() ?? null
+    : null));
 }
 
 function lighten(msg) {
@@ -1046,14 +1066,13 @@ function lighten(msg) {
     if (block?.type !== 'tool_result' || !Array.isArray(block.content)) return block;
 
     const paths = imagePaths(block.content);
-    let image = 0;
     let hit = false;
-    const inner = block.content.map((b) => {
+    const inner = block.content.map((b, at) => {
       if (b?.type === 'image') {
         hit = true;
         // No path means no way to show it later, so say that rather than
         // silently dropping the block.
-        const file = paths[image++];
+        const file = paths[at];
         return file ? { type: 'image', path: file } : { type: 'text', text: '[screenshot]' };
       }
       if (typeof b?.text === 'string' && b.text.length > MAX_TOOL_TEXT) {
@@ -1115,7 +1134,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     bridgeEnv: { ...bridge.env(), CONN_CHAT: chat },
     mcp: previewMcp(cwd),
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: (tool, args, actor) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor) }),
+    invoke: (tool, args, actor, opts) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor), ...opts }),
   });
   agent.provider = runs;
   sessions.set(chat, agent);
@@ -1195,9 +1214,10 @@ function tabOps(cwd, actor) {
     open: async (url) => {
       const tab = router.open(actor, cwd);
       // The load is an ordinary navigate on the tab just pinned: leased,
-      // announced and brought forward the same way.
-      if (url) await driveTool('navigate', { url }, { cwd, actor });
-      return page(tab);
+      // announced and brought forward the same way. A load that failed says
+      // so, as navigate's own answer does.
+      const loaded = url ? await driveTool('navigate', { url }, { cwd, actor }) : null;
+      return loaded?.error ? { ...page(tab), error: loaded.error } : page(tab);
     },
     select: (tab) => page(router.select(actor, tab)),
     close: (tab) => {
@@ -1208,11 +1228,20 @@ function tabOps(cwd, actor) {
   };
 }
 
-// Permission is already settled by the caller; this never asks.
-async function driveTool(tool, args, { cwd, actor }) {
+// Permission is already settled by the caller; this never asks. With
+// `report` the answer is { result, caused }: the pane's report of what a
+// page-changing tool left in the console and the network, or null, for the
+// agent's copy of the result. Without it the result is as it always was, for
+// the CLI and anything else reading it.
+async function driveTool(tool, args, { cwd, actor, report = false }) {
   if (TAB_TOOLS.has(tool)) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab: router.current(actor), reveal: false });
-    return runTool(tool, args, { tabs: tabOps(cwd, actor) });
+    const since = Date.now();
+    const result = await runTool(tool, args, { tabs: tabOps(cwd, actor) });
+    if (!report) return result;
+    // A tab opened on a url loaded a page there, which reports like a navigate.
+    const pane = tool === 'tabNew' && args?.url ? panes.get(router.current(actor))?.pane : null;
+    return { result, caused: pane ? await pane.caused(since) : null };
   }
   const pageChange = !READS.has(tool);
   const tab = router.tabFor(actor, tool, cwd, { pageChange });
@@ -1228,10 +1257,14 @@ async function driveTool(tool, args, { cwd, actor }) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab, reveal });
     // The pane is the one leased above, resolved once. Resolving again after
     // the wait could land on a tab this call never leased.
-    return await runTool(tool, args, {
+    const since = Date.now();
+    const result = await runTool(tool, args, {
       getPane: () => panes.get(tab)?.pane || null,
       showPreview: (show) => showPreview(show, cwd, actor.chat, tab),
     });
+    if (!report) return result;
+    const pane = panes.get(tab)?.pane;
+    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : null };
   } finally {
     l.done(tool, actor);
   }
@@ -1247,6 +1280,9 @@ function refusal(tool, verdict) {
 // when the chat changes mode, so a later Plan or Ask starts clean.
 const pageGrants = new Set();
 const bridgePending = new Map();
+// Bridge batches still running, each with its chat, so Stop on the chat ends
+// them between steps: an agent's CLI need not cancel the call it stopped in.
+const bridgeBatches = new Map(); // AbortController -> chat
 
 function modeOfChat(chat) {
   const live = sessions.get(chat);
@@ -1283,17 +1319,22 @@ function settleBridge(id, decision) {
   return true;
 }
 
-function denyBridgeChat(chat) {
+function stopBridgeChat(chat) {
+  for (const [halt, of] of bridgeBatches) if (of === chat) halt.abort();
   for (const id of [...bridgePending.keys()]) {
     if (bridgePending.get(id)?.chat === chat) settleBridge(id, 'deny');
   }
 }
 
-function askBridge(chat, tool, args, reason) {
+// A card whose caller gave up, or whose batch was stopped, is denied. A batch
+// step's card says which step of which batch, since it has no call id the
+// transcript could find its row by.
+function askBridge(chat, tool, args, { reason, signal, batch }) {
   return new Promise((resolve) => {
     const id = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const timer = setTimeout(() => settleBridge(id, 'deny'), 5 * 60 * 1000);
     bridgePending.set(id, { resolve, timer, chat });
+    signal?.addEventListener('abort', () => settleBridge(id, 'deny'), { once: true });
     send('agent:permission', {
       chat,
       id,
@@ -1301,6 +1342,7 @@ function askBridge(chat, tool, args, reason) {
       input: args,
       reason,
       agent: { id: 'bridge', label: 'preview' },
+      batch,
     });
   });
 }
@@ -1310,17 +1352,47 @@ function askBridge(chat, tool, args, reason) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch, claudeCode = false } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   const chat = named || chatForTool(from);
+  // Each step comes back through here under its own route, so it is judged,
+  // asked about and leased exactly as the same call made alone would be.
+  // The CLI weighed its settings rules against the batch and never sees a
+  // step, so they are weighed here: a deny refuses the step, an ask forces
+  // its card. An allow changes nothing, as for a call made alone, which the
+  // window asks about by its mode whatever the CLI allowed. When Claude Code
+  // is the caller, a step one of its PreToolUse hooks watches refuses the
+  // whole batch. Other agents run no Claude hooks.
+  if (tool === 'batch') {
+    const project = from || cwdOfChat(chat);
+    const watch = claudeCode ? permissionRules.hookWatch(project) : null;
+    const steps = planBatch(args?.actions, require('zod').z, watch ? (name) => watch(`mcp__conn__${name}`) : undefined);
+    const id = `bb${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const halt = new AbortController();
+    bridgeBatches.set(halt, chat);
+    const stop = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
+    try {
+      const out = await runBatch(steps, (step, i) => {
+        const name = `mcp__conn__${step.name}`;
+        const rule = permissionRules.ruleFor(project, name);
+        if (rule === 'deny') throw refusal(step.route, { reason: `a permission rule in your settings denies ${name}.` });
+        return runBridgeTool(step.route, step.mapped, from, named, {
+          report: true, signal: stop, ask: rule === 'ask', batch: { id, step: i + 1, total: steps.length },
+        });
+      }, stop);
+      return report ? { result: out, caused: null } : out;
+    } finally {
+      bridgeBatches.delete(halt);
+    }
+  }
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
-  if (verdict.action === 'ask' && !pageGrants.has(chat)) {
-    const ok = await askBridge(chat, tool, args, verdict.reason);
+  if (ask || (verdict.action === 'ask' && !pageGrants.has(chat))) {
+    const ok = await askBridge(chat, tool, args, { reason: verdict.reason, signal, batch });
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
-  return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR) });
+  return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR), report });
 }
 
 // Ask the running session what it ended up with, fold it into the cached
@@ -1661,7 +1733,11 @@ function registerIpc() {
   });
   ipcMain.handle('rules:remove', (_e, { project, ...rule } = {}) => {
     const dir = project ? openDir(project) : null;
-    return permissionRules.remove(dir, rule);
+    const res = permissionRules.remove(dir, rule);
+    // Always on a card wrote the rule and a grant together, so the grant goes
+    // with it. A user rule spans every project, so every chat forgets.
+    if (res.ok) for (const live of liveSessions()) live.grants?.clear();
+    return res;
   });
 
   // --- terminal ---
@@ -1744,7 +1820,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
-    denyBridgeChat(chat);
+    stopBridgeChat(chat);
     await sessions.get(chat)?.interrupt();
     releaseChatEverywhere(chat);
     return { ok: true };
@@ -1925,12 +2001,12 @@ function registerIpc() {
     return { provider, models: allModels(), current: settleModel() || '' };
   });
   ipcMain.handle('agent:forgetModel', (_e, { model }) => {
-    const d = rowOf('claude').driver.forget(model);
+    rowOf('claude').driver.forget(model);
     if (chosenModels.claude === model) {
-      chosenModels.claude = d.models[0]?.value || null;
-      rememberModel('claude', chosenModels.claude);
+      chosenModels.claude = null;
+      rememberModel('claude', null);
     }
-    return { model: chosenModels.claude, models: allModels() };
+    return { model: modelFor('claude'), models: allModels() };
   });
   // The two reports the meter opens onto. Both come off the live session, and
   // both are asked for only when someone opens the panel: the running totals it
@@ -2535,6 +2611,7 @@ app.whenReady().then(async () => {
   registry = createRegistry({ cacheDir: app.getPath('userData'), settings });
   for (const row of registry.all()) chosenModels[row.id] = settings.get('agent')[row.modelKey] || null;
   if (chosenModels.claude === 'default') chosenModels.claude = null;
+  clearAutoModel();
   shellEnv.ready().then(() => applyBinaries()).catch(() => {});
   for (const row of registry.all()) {
     row.catalog?.on?.('changed', (dir, listing) => {
@@ -2564,7 +2641,7 @@ app.whenReady().then(async () => {
   projects.setOpenProjects(openDirs());
   const bridgeDev = !app.isPackaged;
   bridge = new Bridge({
-    run: (tool, args, from, chat) => runBridgeTool(tool, args, from, chat),
+    run: (tool, args, from, chat, opts) => runBridgeTool(tool, args, from, chat, opts),
     debug: bridgeDev,
     cwds: openDirs(),
     focusWindow: (cwd) => {

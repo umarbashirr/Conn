@@ -9,7 +9,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 
 const state = require('../cli/state');
-const { browserTools, keyframeBlocks } = require('../src/shared/browser-tools');
+const { browserTools, toolContent, planBatch, batchContent } = require('../src/shared/browser-tools');
 
 // Which project the agent is working in. The window may have several open, so
 // the request has to say. The terminal that started this server exports
@@ -26,46 +26,51 @@ function connection() {
   return { url: s.url, token: s.token };
 }
 
-async function call(tool, args = {}) {
+// Answers { result, caused }: the window adds what a page-changing call left
+// in the console and the network, so the agent need not ask in a call of its own.
+// `signal` is the MCP request's: cancelling it closes the connection, which
+// the window takes as the caller giving up.
+async function call(tool, args = {}, signal) {
   const { url, token } = connection();
-  const headers = { 'content-type': 'application/json', 'x-conn-token': token, 'x-conn-cwd': callerCwd() };
+  const headers = { 'content-type': 'application/json', 'x-conn-token': token, 'x-conn-cwd': callerCwd(), 'x-conn-report': '1' };
   // Which chat this server speaks for. The app sets it when it starts the
   // server for a chat; a server started from a shell has none, and the window
   // falls back to the chat on screen. Chat keys built from folder names are
   // not header-safe as they are.
   if (process.env.CONN_CHAT) headers['x-conn-chat'] = encodeURIComponent(process.env.CONN_CHAT);
-  const res = await fetch(`${url}/tool/${tool}`, { method: 'POST', headers, body: JSON.stringify(args) });
+  // The window holds a batch's steps to Claude Code's PreToolUse hooks when it
+  // is the client, which it says by name when it connects. CLAUDECODE in the
+  // environment would not do: it is inherited, so Codex started from a shell
+  // inside a Claude session has it too.
+  if (server.server.getClientVersion()?.name === 'claude-code') headers['x-conn-claude-code'] = '1';
+  const res = await fetch(`${url}/tool/${tool}`, { method: 'POST', headers, body: JSON.stringify(args), signal });
   const body = await res.json().catch(() => ({ error: `bad response (${res.status})` }));
   if (!res.ok || body.error) throw new Error(body.error || `request failed (${res.status})`);
-  return body.result;
+  return { result: body.result, caused: body.caused };
 }
-
-const text = (v) => ({ content: [{ type: 'text', text: typeof v === 'string' ? v : JSON.stringify(v, null, 2) }] });
-
-const image = (shot) => ({
-  content: [
-    { type: 'image', data: fs.readFileSync(shot.path).toString('base64'), mimeType: 'image/png' },
-    { type: 'text', text: `${shot.width}x${shot.height} saved to ${shot.path}` },
-  ],
-});
 
 const server = new McpServer(
   { name: 'conn', version: '0.1.0' },
-  { instructions: 'Controls the preview browser pane sitting next to this terminal. Call browser_snapshot first: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept. Use browser_console and browser_network to see what the page reported after an action.' },
+  { instructions: 'Controls the preview browser pane next to this terminal. browser_snapshot returns [ref=eN] handles that browser_click and other actions take. Put steps you can plan ahead in one browser_batch call; any browser tool is a step there, named bare. Action results list console errors and failed requests seen by the time they return; later ones show in browser_console.' },
 );
 
-const wrap = (fn) => async (args) => {
-  try { return await fn(args || {}); }
+const wrap = (fn) => async (args, extra) => {
+  try { return await fn(args || {}, extra?.signal); }
   catch (e) { return { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }; }
 };
 
-for (const t of browserTools(z)) {
-  server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a) => {
-    const result = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a);
-    if (t.format === 'image') return image(result);
-    const out = text(t.render ? t.render(result) : result);
-    if (t.format === 'recording' && result?.keyframes) out.content.push(...keyframeBlocks(result, fs.readFileSync));
-    return out;
+const table = browserTools(z);
+for (const t of table) {
+  server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a, signal) => {
+    // Checked here against each tool's schema, then run by the window one step
+    // at a time, each under its own route and its own permission check.
+    if (t.format === 'batch') {
+      const steps = planBatch(a.actions, z);
+      const { result } = await call('batch', { actions: steps.map((st) => ({ tool: st.name, ...st.args })) }, signal);
+      return batchContent(result, fs.readFileSync);
+    }
+    const { result, caused } = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a, signal);
+    return toolContent(t, result, fs.readFileSync, { args: a, caused });
   }));
 }
 

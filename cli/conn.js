@@ -190,6 +190,7 @@ const COMMANDS = {
   state: { tool: 'state', pos: [], help: 'conn state' },
   devtools: { tool: 'devtools', pos: [], help: 'conn devtools' },
   preview: { tool: 'preview', pos: ['open'], help: 'conn preview open | close | toggle' },
+  batch: { tool: 'batch', pos: ['actions'], help: 'conn batch \'[{"tool":"fill","target":"#q","value":"hi"},{"tool":"click","target":"#go"}]\'' },
 };
 
 // Register the MCP server with whatever agent is running in this terminal.
@@ -222,6 +223,19 @@ function setup(rest) {
   }
 
   die(`unknown setup target ${target}. Use: conn setup [print|project]`);
+}
+
+// One line per step that ran or ended the batch, then what did not run. Each
+// step's own result prints the way --json would print it, on one line.
+function printBatch({ steps }) {
+  steps.forEach((st, i) => {
+    if (st.status === 'stopped') return;
+    const what = st.status === 'ran' ? JSON.stringify(st.result) : `${st.status}: ${st.error}`;
+    process.stdout.write(`${i + 1}. ${st.name.replace(/^browser_/, '')} ${what}\n`);
+  });
+  const skipped = steps.flatMap((st, i) => (st.status === 'stopped' ? [i + 1] : []));
+  if (skipped.length) process.stdout.write(`${skipped.length === 1 ? `step ${skipped[0]}` : `steps ${skipped[0]}-${skipped.at(-1)}`} did not run\n`);
+  if (steps.some((st) => st.status !== 'ran')) process.exitCode = 1;
 }
 
 function usage() {
@@ -268,12 +282,17 @@ function usage() {
     args.open = word === 'open' ? true : word === 'close' ? false : undefined;
   }
   if (spec.tool === 'waitFor' && args.selector === undefined && !args.ms && !args.networkIdle) args.networkIdle = true;
+  if (spec.tool === 'batch') {
+    try { args.actions = JSON.parse(args.actions); } catch (e) { die(`batch takes a JSON list of steps: ${e.message}`); }
+    if (args.actions && !Array.isArray(args.actions)) args.actions = args.actions.actions;
+  }
   // `conn viewport` with no size means "stop emulating".
   const tool = spec.tool === 'setViewport' && !args.width ? 'clearViewport' : spec.tool;
 
   const result = await call(tool, args);
 
   if (wantJson) process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+  else if (spec.tool === 'batch') printBatch(result);
   else if (spec.tool === 'record' && result && result.path) {
     process.stdout.write(result.path + '\n');
     process.stderr.write(`${result.seconds}s ${result.width}x${result.height} ${result.format}, stills: ${result.keyframes.join(' ')}\n`);

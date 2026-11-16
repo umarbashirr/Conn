@@ -159,9 +159,26 @@ async function mcpClient(conn) {
     const res = await client.callTool({ name, arguments: args });
     const text = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
     if (res.isError) throw new Error(text);
-    try { return JSON.parse(text); } catch { return text; }
+    return readResult(text);
   };
   return { client, env, call };
+}
+
+/* The tools answer the model in a line rather than JSON: a page is
+   `url "title"`, a new or selected tab `tab <id>: url "title"`, and the tab
+   list one `<id>: url "title", you drive it, on screen` per tab. Read back
+   the fields this script checks. */
+function readResult(text) {
+  if (text === '(no tabs)') return { tabs: [] };
+  const opened = /^tab (\S+): (\S+)/.exec(text);
+  if (opened) return { tab: opened[1], url: opened[2] };
+  const rows = text.split('\n').map((l) => /^([^\s:]+): (\S+)(.*)$/.exec(l));
+  if (rows.every(Boolean)) {
+    const tabs = rows.map(([, id, url, rest]) => ({ id, url, driver: /you drive it/.test(rest) ? 'you' : null, onScreen: /on screen/.test(rest) }));
+    return { tabs, current: tabs.find((t) => t.driver === 'you')?.id ?? null };
+  }
+  const page = /^((?:https?|about|file):\S*)/.exec(text);
+  return page ? { url: page[1], text } : text;
 }
 
 async function main() {
