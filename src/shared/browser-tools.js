@@ -292,16 +292,20 @@ function toolContent(t, result, read, { args, caused } = {}) {
 const ALWAYS_LOADED = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
   'browser_screenshot', 'browser_batch', 'browser_show', 'browser_tabs', 'browser_tab_new']);
 
+/* Appended to every request of a chat that has the pane, so it is kept as
+   short as the facts allow. It asks for fewer calls, not more: steps go in a
+   batch, and an action's own result already says what went wrong. */
 const INSTRUCTIONS = [
-  'You are working next to a live preview browser. It is a real Chromium view the human can see.',
-  'Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000).',
+  'You are working next to a live preview browser, a real Chromium view the human can see.',
+  'browser_navigate loads a URL (bare ports work: "3000" becomes http://localhost:3000).',
   'Call browser_show when you want the human to see the pane; it starts hidden and the page keeps working while closed.',
-  'Call browser_snapshot to perceive the page: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept.',
-  'Refs are dropped on navigation, so snapshot again after loading a page.',
-  'After any action that should have changed something, check browser_console and browser_network before concluding it worked.',
-  'The pane has tabs. browser_tabs lists this chat\'s tabs, which one you are driving and which one the human is looking at.',
-  'The tab you start on may hold the person\'s own app, so open another with browser_tab_new for anything unrelated, such as documentation or research, rather than navigating away from it.',
-  'browser_tab_select changes which tab your other browser tools act on. A subagent\'s first browser_navigate opens a tab of its own.',
+  'browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Refs are dropped on navigation.',
+  'Check behaviour with browser_snapshot or browser_text; take browser_screenshot only for visual checks.',
+  'Put steps you can plan ahead in one browser_batch call rather than a call each.',
+  'Action results list new console errors and failed requests; when they list none, there were none.',
+  'browser_tabs lists this chat\'s tabs, which one you drive and which one the human sees.',
+  'The tab you start on may hold the person\'s own app, so use browser_tab_new for anything unrelated, such as docs.',
+  'browser_tab_select changes which tab your tools act on. A subagent\'s first browser_navigate opens a tab of its own.',
 ].join(' ');
 
 // Enough of zod's surface to build the table above without loading zod, which
