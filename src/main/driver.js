@@ -267,10 +267,26 @@ const ALIAS = 'default';
 const pickable = (models) => {
   const list = (models || []).filter((m) => m && m.value);
   const rest = list.filter((m) => m.value !== ALIAS);
-  const stands = versioned(list.find((m) => m.value === ALIAS) || {});
-  const at = stands ? rest.findIndex((m) => (versioned(m) || m.displayName) === stands) : -1;
-  return at > 0 ? [rest[at], ...rest.slice(0, at), ...rest.slice(at + 1)] : rest;
+  const alias = list.find((m) => m.value === ALIAS);
+  const first = alias && standsFor(alias, rest);
+  return first ? [first, ...rest.filter((m) => m.value !== first.value)] : rest;
 };
+
+/* The row the alias stands for. The id it resolves to says exactly, the
+   window included (claude-opus-5-5[1m]), when the CLI gives one; its
+   description names the model without the window. A default on the long
+   window lands on the long twin, which withVariants lists either way. */
+function standsFor(alias, rows) {
+  const id = alias.resolvedModel || '';
+  const named = versioned(alias);
+  const found = [
+    (m) => id && (m.resolvedModel === id || m.value === id),
+    (m) => id && (m.resolvedModel === withoutLong(id) || m.value === withoutLong(id)),
+    (m) => named && (versioned(m) || m.displayName) === named,
+  ].reduce((hit, test) => hit || rows.find(test), null);
+  if (!found || !isLong(id) || isLong(found.value) || !hasLong(found.value)) return found;
+  return rows.find((m) => m.value === withLong(found.value)) || { ...found, value: withLong(found.value) };
+}
 
 // The CLI's names leave the version out ("Opus"), which says nothing once two Opus
 // releases are about. The description leads with it ("Opus 5.5 with 1M

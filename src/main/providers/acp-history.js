@@ -2,7 +2,7 @@
 const fs = require('fs');
 const os = require('os');
 const { AcpRpc } = require('./acp-rpc');
-const { CLIENT, ACP_INSTRUCTIONS, toolOf, callInput, textOf, readingOf, readingMessage } = require('./acp-session');
+const { CLIENT, ACP_PREFACES, toolOf, callInput, textOf, readingOf, readingMessage } = require('./acp-session');
 const shellEnv = require('../shell-env');
 const { chatTitle, TITLE_MAX } = require('../../shared/chat-title');
 const { clip } = require('../transcript-clip');
@@ -93,7 +93,10 @@ function usageOf(updates) {
   return last && readingMessage(last);
 }
 
-const withoutPreface = (text) => (text.startsWith(ACP_INSTRUCTIONS) ? text.slice(ACP_INSTRUCTIONS.length).trimStart() : text);
+const withoutPreface = (text) => {
+  const preface = ACP_PREFACES.find((p) => text.startsWith(p));
+  return preface ? text.slice(preface.length).trimStart() : text;
+};
 
 const within = (ms, promise) => new Promise((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timed out')), ms);
@@ -116,7 +119,7 @@ const squash = (t) => t.replace(/\s+/g, ' ').trim();
 // nothing about the chat.
 function isPrefaceSlice(title) {
   const head = squash(title).replace(/\.{3}$/, '').trimEnd();
-  return head.length >= MIN_PREFACE_HEAD && squash(ACP_INSTRUCTIONS).startsWith(head);
+  return head.length >= MIN_PREFACE_HEAD && ACP_PREFACES.some((p) => squash(p).startsWith(head));
 }
 
 const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/;

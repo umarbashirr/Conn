@@ -290,9 +290,11 @@ async function transcriptForPhone(dir, id, provider) {
   return { id, messages: phoneMessages(read && read.messages) };
 }
 
+// A pick made in the picker. Claude's is marked as one, so the clearing
+// below can tell it from a model an older release saved by itself.
 const rememberModel = (p, model) => {
   const key = rowOf(p)?.modelKey;
-  if (key) settings.patch({ agent: { [key]: model || '' } });
+  if (key) settings.patch({ agent: { [key]: model || '', ...(p === 'claude' ? { modelPicked: !!model } : {}) } });
 };
 
 function allModels() {
@@ -324,17 +326,30 @@ function providerStates() {
 }
 
 // Nothing picked. Passing no model does not mean "no opinion": the CLI runs
-// whatever the account defaults to, which on most plans is Fable, and the picker
-// meanwhile says "Pick a model". Two different answers to the same question.
-// Land on the first model the driver lists, write it down, and hand it back so
-// the label and the session agree from the first message on.
+// whatever the account defaults to, and the picker meanwhile says "Pick a
+// model". Two different answers to the same question. Land on the first model
+// the driver lists, which is the account's default when the CLI says what that
+// is, so the label and the session agree from the first message on. It is not
+// written down: saved, it would outlive a change of the account's default and
+// read as a pick nobody made.
 function modelFor(p) {
-  if (chosenModels[p]) return chosenModels[p];
-  const first = driverFor(p)?.current({ refresh: false }).models[0]?.value;
-  if (!first) return null;
-  chosenModels[p] = first;
-  rememberModel(p, first);
-  return first;
+  return chosenModels[p] || driverFor(p)?.current({ refresh: false }).models[0]?.value || null;
+}
+
+/* Releases before this one saved the first model listed (opus on today's
+   CLIs) on every launch, so nearly everyone has one saved that they never
+   picked, and it pinned their chats to it rather than to the account's
+   default. Once, a saved Claude model that is exactly what that code would
+   have saved, with no pick behind it, is cleared. At the first launch the
+   driver's cache is still the list that code read, in the order it read it.
+   With no list to compare against, it waits for a launch that has one. */
+function clearAutoModel() {
+  const agent = settings.get('agent');
+  if (agent.modelPicked || agent.autoModelCleared) return;
+  const first = rowOf('claude')?.driver.current({ refresh: false }).models[0]?.value;
+  if (!first) return;
+  if (chosenModels.claude === first) chosenModels.claude = null;
+  settings.patch({ agent: { model: chosenModels.claude || '', autoModelCleared: true } });
 }
 
 // The same question for whichever CLI the picker is pointed at.
@@ -1214,14 +1229,19 @@ function tabOps(cwd, actor) {
 }
 
 // Permission is already settled by the caller; this never asks. With
-// `report` the answer is { result, caused }: what a page-changing tool left in
-// the console and the network, for the agent's copy of the result. Without it
-// the result is as it always was, for the CLI and anything else reading it.
+// `report` the answer is { result, caused }: the pane's report of what a
+// page-changing tool left in the console and the network, or null, for the
+// agent's copy of the result. Without it the result is as it always was, for
+// the CLI and anything else reading it.
 async function driveTool(tool, args, { cwd, actor, report = false }) {
   if (TAB_TOOLS.has(tool)) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab: router.current(actor), reveal: false });
+    const since = Date.now();
     const result = await runTool(tool, args, { tabs: tabOps(cwd, actor) });
-    return report ? { result, caused: [] } : result;
+    if (!report) return result;
+    // A tab opened on a url loaded a page there, which reports like a navigate.
+    const pane = tool === 'tabNew' && args?.url ? panes.get(router.current(actor))?.pane : null;
+    return { result, caused: pane ? await pane.caused(since) : null };
   }
   const pageChange = !READS.has(tool);
   const tab = router.tabFor(actor, tool, cwd, { pageChange });
@@ -1244,7 +1264,7 @@ async function driveTool(tool, args, { cwd, actor, report = false }) {
     });
     if (!report) return result;
     const pane = panes.get(tab)?.pane;
-    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : [] };
+    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : null };
   } finally {
     l.done(tool, actor);
   }
@@ -1978,12 +1998,12 @@ function registerIpc() {
     return { provider, models: allModels(), current: settleModel() || '' };
   });
   ipcMain.handle('agent:forgetModel', (_e, { model }) => {
-    const d = rowOf('claude').driver.forget(model);
+    rowOf('claude').driver.forget(model);
     if (chosenModels.claude === model) {
-      chosenModels.claude = d.models[0]?.value || null;
-      rememberModel('claude', chosenModels.claude);
+      chosenModels.claude = null;
+      rememberModel('claude', null);
     }
-    return { model: chosenModels.claude, models: allModels() };
+    return { model: modelFor('claude'), models: allModels() };
   });
   // The two reports the meter opens onto. Both come off the live session, and
   // both are asked for only when someone opens the panel: the running totals it
@@ -2588,6 +2608,7 @@ app.whenReady().then(async () => {
   registry = createRegistry({ cacheDir: app.getPath('userData'), settings });
   for (const row of registry.all()) chosenModels[row.id] = settings.get('agent')[row.modelKey] || null;
   if (chosenModels.claude === 'default') chosenModels.claude = null;
+  clearAutoModel();
   shellEnv.ready().then(() => applyBinaries()).catch(() => {});
   for (const row of registry.all()) {
     row.catalog?.on?.('changed', (dir, listing) => {

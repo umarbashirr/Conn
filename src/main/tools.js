@@ -37,10 +37,12 @@ const TOOLS = {
   batch: { args: '{ actions: [{ tool, ...args }] }', help: 'Run up to 15 of the tools above in order, each asked and run as if called alone. Stops at the first that fails or is refused.' },
 };
 
-// Tools that can change the page. Their results, when the caller asks, carry
-// what the page reported after them, so checking the console and the network
-// after each one is not a call of its own.
-const CAUSES = new Set(['navigate', 'back', 'forward', 'reload', 'click', 'fill', 'type', 'press', 'select', 'evaluate']);
+// Tools that can change or load a page, or give it time to log something.
+// Their results, when the caller asks, carry what the page reported after
+// them, so checking the console and the network after each one is not a call
+// of its own. tabNew reports too when it loads a url (see driveTool).
+const CAUSES = new Set(['navigate', 'back', 'forward', 'reload', 'click', 'hover', 'fill', 'type', 'press', 'select',
+  'scroll', 'scrollTo', 'highlight', 'evaluate', 'waitFor', 'setViewport', 'clearViewport']);
 
 // Tools that act on the chat's set of tabs rather than on a page. They never
 // need a pane, so runTool must not go looking for one.

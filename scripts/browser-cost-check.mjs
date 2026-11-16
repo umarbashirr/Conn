@@ -9,15 +9,25 @@
    - A fixed scenario on the shop fixture through the agent's real tool
      handlers: open the page, read it, fill SAVE10, click Apply, wait for
      #message.ok, read the text, screenshot. Once as seven single calls, once
-     as one batch.
+     as one batch. The batch's saving is model calls, each a turn that reads
+     the whole conversation again; its text is the single calls' own plus a
+     number per step, so it is set against today's single calls as well as
+     against the calls before this branch.
    - A screenshot at the median pane size seen in real transcripts, 1280x929.
+   - What the prose names: the instructions, the MCP server's own and the
+     $browser mention may name a tool as browser_<name> only when it is
+     always loaded. Naming one that loads on demand steers Claude to a
+     ToolSearch round trip before the call; the rest are named bare, as
+     browser_batch steps, which run any tool without loading it.
 
    Images are counted as the model reads them: w*h/750 tokens after fitting
    the long side to 1568. Needs a built renderer: `npx vite build`. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = process.env.CONN_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,6 +83,30 @@ await client.close();
 console.log(`conn MCP server: ${listed.length} tools, tools/list ${listChars} chars (before ${BEFORE.mcpList}), instructions ${serverInstructions.length} chars`);
 check('mcp-tool-list-no-larger', listChars <= BEFORE.mcpList);
 
+// --- what the prose names --------------------------------------------------------
+
+const mentionBlock = async (provider) => {
+  const { rolldown } = await import('rolldown');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cost-mentions-'));
+  try {
+    const bundle = await rolldown({ input: path.join(ROOT, 'src/renderer/ui/lib/conn-mentions.js'), platform: 'node', logLevel: 'silent' });
+    await bundle.write({ file: path.join(dir, 'mentions.cjs'), format: 'cjs' });
+    return require(path.join(dir, 'mentions.cjs')).MENTIONS.browser.block({ provider });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+const onDemand = (text) => [...new Set(text.match(/browser_[a-z_]+/g) || [])].filter((n) => !ALWAYS_LOADED.has(n));
+for (const [where, text] of [
+  ['instructions', INSTRUCTIONS],
+  ['mcp-instructions', serverInstructions],
+  ['claude-mention', await mentionBlock('claude')],
+  ['acp-mention', await mentionBlock('cursor')],
+]) {
+  const named = onDemand(text);
+  check(`${where}-names-only-always-loaded-tools`, named.length === 0, named.length ? `names ${named.join(', ')}, which load on demand` : '');
+}
+
 // --- the scenario, through the real handlers -----------------------------------
 
 const drive = await import(pathToFileURL(path.join(ROOT, '.claude/skills/verify/drive.mjs')).href);
@@ -127,6 +161,8 @@ try {
   const batch = sum(batched);
   console.log(`scenario as single calls: ${single.calls} calls, ${single.chars} result chars, images ${J(single.images)} (before ${BEFORE.scenarioCalls} calls, ${BEFORE.scenarioChars} chars)`);
   console.log(`scenario as one batch: ${batch.calls} call, ${batch.chars} result chars, images ${J(batch.images)}`);
+  console.log(`model calls: ${single.calls} single, ${batch.calls} batched; that is the batch's saving`);
+  console.log(`result text: the batch ${batch.chars} chars, the same steps as single calls today ${single.chars} (${batch.chars - single.chars >= 0 ? '+' : ''}${batch.chars - single.chars}, its step numbers), single calls before this branch ${BEFORE.scenarioChars}`);
   console.log(`--- the batch result the model reads ---\n${batched[0].text}\n---`);
   check('scenario-runs', !single.failed && !batch.failed);
   check('batch-confirms-the-coupon', /SAVE10 applied: \$4\.00 off/.test(batched[0].text));

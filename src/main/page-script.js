@@ -216,11 +216,11 @@
   window.__conn = {
     version: 2,
 
-    // 400 lines is a large app's whole screen. Past that the agent is told
-    // where it stopped and how to ask for more, rather than handed all of it.
+    // Past max lines the reader is told where it stopped and how to ask for
+    // more, rather than handed all of it.
     snapshot(opts = {}) {
       const out = [];
-      opts.max = opts.max || 400;
+      opts.max = opts.max || 600;
       walk(document, out, 0, opts);
       if (opts.cut) out.push(`… stopped at ${opts.max} lines; pass max for more`);
       const head = [
@@ -232,9 +232,9 @@
       return head.concat(out.length ? out : ['(no interactive elements found)']).join('\n');
     },
 
-    text(maxChars = 8000) {
-      const t = (document.body?.innerText || '').replace(/\n{3,}/g, '\n\n');
-      return t.length > maxChars ? `${t.slice(0, maxChars)}\n… truncated at ${maxChars} of ${t.length} characters; pass max for more` : t;
+    // All of it: main makes the cut, with the same rule as every other cap.
+    text() {
+      return (document.body?.innerText || '').replace(/\n{3,}/g, '\n\n');
     },
 
     // `show` draws the pointer at the point as well as returning it. The

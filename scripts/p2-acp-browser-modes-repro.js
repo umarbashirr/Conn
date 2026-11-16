@@ -69,7 +69,7 @@ function checkToolOf() {
 
 function checkInstructions() {
   check('shared-mentions-navigate', /\bbrowser_navigate\b/.test(INSTRUCTIONS));
-  check('shared-mentions-show', /\bbrowser_show\b/.test(INSTRUCTIONS));
+  check('shared-mentions-show', /\ba show step\b/.test(INSTRUCTIONS));
   check('acp-mentions-preview-pane', /preview pane inside this app/.test(ACP_INSTRUCTIONS));
   check('acp-mentions-other-browser', /Any other browser tool/.test(ACP_INSTRUCTIONS));
   check('acp-includes-shared', ACP_INSTRUCTIONS.includes('browser_snapshot'));
