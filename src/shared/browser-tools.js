@@ -246,6 +246,9 @@ function modelFit(width, height, { high = false, fullPage = false } = {}) {
 // How a screenshot result announces itself: what was sent, and where the full
 // file landed. index.js reads the path back to show the picture in the
 // transcript without carrying its bytes over IPC, so the two have to agree.
+// The note is a text block of its own directly before its picture, and only
+// a block that is a note and nothing else is read, with the step number a
+// batch puts in front. Text a page put in a result is never read for a path.
 // The older "WxH saved to path" form still matches, for transcripts made
 // before the model copy existed.
 const shotNote = (r) => {
@@ -253,7 +256,7 @@ const shotNote = (r) => {
   const note = `${m.width}x${m.height} sent, ${r.width}x${r.height} saved to ${r.path}`;
   return m.cropped ? `${note}\nThe picture is the top of the page; the file has all of it.` : note;
 };
-const SHOT_NOTE = /(?:(\d+)x(\d+) sent, )?(\d+)x(\d+) saved to (.+)$/gm;
+const SHOT_NOTE = /^(?:\d+\. )?(?:\d+x\d+ sent, )?\d+x\d+ saved to (.+)(?:\nThe picture is the top of the page; the file has all of it\.)?$/;
 
 const shotImage = (r, read) => {
   const m = r.model || { path: r.path, mime: 'image/png' };
@@ -400,13 +403,18 @@ async function runBatch(steps, run, signal) {
 
 /**
  * One result for the whole batch: a numbered line per step that ran or ended
- * it, a block under the number for a step that returns a page of text, then
- * the screenshots in order. `out` is what runBatch returned, possibly after a
- * trip over the bridge.
+ * it, a block under the number for a step that returns a page of text, and
+ * each screenshot where it ran, as its note in a block of its own and then
+ * its picture. `out` is what runBatch returned, possibly after a trip over
+ * the bridge.
  */
 function batchContent({ steps, interrupted }, read) {
-  const lines = [];
-  const images = [];
+  const content = [];
+  let lines = [];
+  const flush = () => {
+    if (lines.length) content.push({ type: 'text', text: lines.join('\n') });
+    lines = [];
+  };
   for (const [i, s] of steps.entries()) {
     const n = `${i + 1}.`;
     const what = shortName(s.name);
@@ -416,19 +424,21 @@ function batchContent({ steps, interrupted }, read) {
       continue;
     }
     const t = BY_NAME.get(s.name);
-    let text;
     if (t.format === 'image') {
-      text = shotNote(s.result);
-      images.push(shotImage(s.result, read));
-    } else text = textOf(t, s.result, s.args);
+      flush();
+      content.push({ type: 'text', text: `${n} ${shotNote(s.result)}` }, shotImage(s.result, read));
+      continue;
+    }
+    const text = textOf(t, s.result, s.args);
     lines.push((text.includes('\n') ? `${n} ${what}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
   }
   const skipped = steps.flatMap((s, i) => (s.status === 'stopped' ? [i + 1] : []));
   if (skipped.length) {
     lines.push(`${interrupted ? 'Stopped: the turn was interrupted.' : 'Stopped there.'} ${skipped.length === 1 ? `Step ${skipped[0]} did` : `Steps ${skipped[0]}-${skipped.at(-1)} did`} not run.`);
   }
+  flush();
   const ended = steps.some((s) => s.status !== 'ran');
-  return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(ended ? { isError: true } : {}) };
+  return { content, ...(ended ? { isError: true } : {}) };
 }
 
 /** browser_* MCP name -> bare TOOLS key, for policy without loading zod. Derived from the table, so a tool added there is known here. */

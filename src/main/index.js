@@ -1023,23 +1023,23 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
-// The pictures in a result, in order. A batch can hold several screenshots,
-// each announced on its own line, so every note counts, not just the first.
-// The path is the full file, which is what the transcript shows.
+// The file behind each picture in a result, by the picture's place in it. A
+// screenshot's path is read only from its note, the block right before it,
+// so text a page put in the result cannot name the file. A recording's stills
+// follow its JSON, in order. The path is the full file, which is what the
+// transcript shows.
 function imagePaths(content) {
-  const paths = [];
+  const stills = [];
   for (const b of content) {
-    const text = typeof b?.text === 'string' ? b.text : '';
-    for (const shot of text.matchAll(SHOT_NOTE)) paths.push(shot[5]);
-    if (paths.length) continue;
-    if (text.startsWith('{')) {
-      try {
-        const { keyframes } = JSON.parse(text);
-        if (Array.isArray(keyframes)) return keyframes;
-      } catch {}
-    }
+    if (typeof b?.text !== 'string' || !b.text.startsWith('{')) continue;
+    try {
+      const { keyframes } = JSON.parse(b.text);
+      if (Array.isArray(keyframes)) stills.push(...keyframes);
+    } catch {}
   }
-  return paths;
+  return content.map((b, at) => (b?.type === 'image'
+    ? SHOT_NOTE.exec(content[at - 1]?.text ?? '')?.[1] ?? stills.shift() ?? null
+    : null));
 }
 
 function lighten(msg) {
@@ -1051,14 +1051,13 @@ function lighten(msg) {
     if (block?.type !== 'tool_result' || !Array.isArray(block.content)) return block;
 
     const paths = imagePaths(block.content);
-    let image = 0;
     let hit = false;
-    const inner = block.content.map((b) => {
+    const inner = block.content.map((b, at) => {
       if (b?.type === 'image') {
         hit = true;
         // No path means no way to show it later, so say that rather than
         // silently dropping the block.
-        const file = paths[image++];
+        const file = paths[at];
         return file ? { type: 'image', path: file } : { type: 'text', text: '[screenshot]' };
       }
       if (typeof b?.text === 'string' && b.text.length > MAX_TOOL_TEXT) {
