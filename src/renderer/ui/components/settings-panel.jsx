@@ -111,6 +111,10 @@ const Mono = ({ children, title }) => (
 // The palette is painted on the preview only. Putting data-scheme on the
 // button itself made Brutalist's thick border and Glass's ground look like
 // the selection chrome.
+//
+// items-stretch is not optional: Chromium gives every <button> a default of
+// align-items: flex-start, which shrank the preview and the caption to the
+// width of their contents and left a strip of picture beside empty card.
 function SchemeTile({ id, label, note, mode, active, onPick }) {
   return (
     <button
@@ -118,35 +122,56 @@ function SchemeTile({ id, label, note, mode, active, onPick }) {
       aria-pressed={active}
       onClick={() => onPick(id)}
       className={cn(
-        'flex flex-col overflow-hidden rounded-xl border bg-card text-left shadow-xs transition',
+        'group/tile relative flex flex-col items-stretch overflow-hidden rounded-xl border bg-card text-left shadow-xs transition',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
         active
           ? 'border-primary ring-2 ring-primary/30'
-          : 'border-border hover:border-foreground/25',
+          : 'border-border hover:border-foreground/25 hover:shadow-sm',
       )}>
-      <div data-scheme={id} data-theme={mode} className="bg-background">
-        <div className="flex h-24">
-          <div className="w-8 border-r bg-muted" />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <div className="flex flex-1 flex-col gap-1.5 p-2.5">
-              <div className="h-1.5 w-4/5 rounded-full bg-foreground/25" />
-              <div className="h-1.5 w-3/5 rounded-full bg-foreground/15" />
-              <div className="mt-auto h-3.5 w-10 rounded-md bg-primary" />
+      <SchemePreview id={id} mode={mode} />
+      {active && (
+        <span className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+          <CheckIcon className="size-3" strokeWidth={3} />
+        </span>
+      )}
+      <div className="border-t px-3 py-2.5">
+        <div className="text-[13px] font-medium text-foreground">{label}</div>
+        <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground">{note}</div>
+      </div>
+    </button>
+  );
+}
+
+/* A small window in the scheme's own colours and corners: the rail with the
+   open chat picked out, a question and a reply, the composer's send button in
+   the accent, and a shell line along the bottom. */
+function SchemePreview({ id, mode }) {
+  return (
+    <div data-scheme={id} data-theme={mode} aria-hidden="true" className="bg-background">
+      <div className="flex h-28 gap-1.5 p-1.5">
+        <div className="flex w-1/4 flex-col gap-1 rounded-md border bg-sidebar p-1.5">
+          <div className="h-1.5 w-3/4 rounded-full bg-foreground/20" />
+          <div className="mt-1 h-3 rounded-sm bg-sidebar-accent" />
+          <div className="h-1.5 w-4/5 rounded-full bg-foreground/12" />
+          <div className="h-1.5 w-3/5 rounded-full bg-foreground/12" />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
+          <div className="flex flex-1 flex-col gap-1.5 p-2">
+            <div className="ml-auto h-3 w-2/5 rounded-md bg-muted" />
+            <div className="h-1.5 w-11/12 rounded-full bg-foreground/25" />
+            <div className="h-1.5 w-3/4 rounded-full bg-foreground/15" />
+            <div className="mt-auto flex items-center gap-1.5 rounded-md border px-1.5 py-1">
+              <div className="h-1.5 flex-1 rounded-full bg-foreground/10" />
+              <div className="size-3 rounded-full bg-primary" />
             </div>
-            <div className="flex h-5 items-center gap-1.5 bg-[var(--term-bg)] px-2">
-              <span className="size-1.5 rounded-full bg-[var(--term-cursor)]" />
-              <span className="h-1 w-10 rounded-full bg-[var(--term-dim)]" />
-            </div>
+          </div>
+          <div className="flex h-4 items-center gap-1.5 bg-[var(--term-bg)] px-2">
+            <span className="size-1.5 rounded-full bg-[var(--term-cursor)]" />
+            <span className="h-1 w-1/3 rounded-full bg-[var(--term-dim)]" />
           </div>
         </div>
       </div>
-      <div className="flex items-start gap-2 border-t px-2.5 py-2">
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-foreground">{label}</div>
-          <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-muted-foreground">{note}</div>
-        </div>
-        {active && <CheckIcon className="mt-0.5 ml-auto size-3.5 shrink-0 text-primary" />}
-      </div>
-    </button>
+    </div>
   );
 }
 
@@ -171,7 +196,7 @@ function Appearance({ settings, set }) {
             Colours, corners and surfaces for the whole window. Light or dark is the switch above.
           </FieldDescription>
         </FieldContent>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 @2xl/field-group:grid-cols-3">
           {SCHEMES.map(([id, label, note]) => (
             <SchemeTile
               key={id}
