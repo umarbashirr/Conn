@@ -366,15 +366,18 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
  *   ran      it ran
  *   failed   it threw
  *   refused  a mode, a rule or the person said no; told apart by its code
- *   stopped  it never ran, because a step before it failed or was refused
+ *   stopped  it never ran, because a step before it failed or was refused,
+ *            or `signal` was aborted, which `interrupted` says
  * The first step that fails or is refused ends the batch; what ran before it
- * is kept.
+ * is kept. A step already running when `signal` aborts runs to its end.
  */
-async function runBatch(steps, run) {
+async function runBatch(steps, run, signal) {
   const out = [];
   let ended = false;
+  let interrupted = false;
   for (const [i, step] of steps.entries()) {
     const done = (status, rest) => out.push({ name: step.name, args: step.args, status, ...rest });
+    if (!ended && signal?.aborted) ended = interrupted = true;
     if (ended) { done('stopped'); continue; }
     try {
       const { result, caused } = await run(step, i);
@@ -384,7 +387,7 @@ async function runBatch(steps, run) {
       ended = true;
     }
   }
-  return { steps: out };
+  return { steps: out, interrupted };
 }
 
 /**
@@ -393,7 +396,7 @@ async function runBatch(steps, run) {
  * the screenshots in order. `out` is what runBatch returned, possibly after a
  * trip over the bridge.
  */
-function batchContent({ steps }, read) {
+function batchContent({ steps, interrupted }, read) {
   const lines = [];
   const images = [];
   for (const [i, s] of steps.entries()) {
@@ -414,7 +417,7 @@ function batchContent({ steps }, read) {
   }
   const skipped = steps.flatMap((s, i) => (s.status === 'stopped' ? [i + 1] : []));
   if (skipped.length) {
-    lines.push(`Stopped there. ${skipped.length === 1 ? `Step ${skipped[0]} did` : `Steps ${skipped[0]}-${skipped.at(-1)} did`} not run.`);
+    lines.push(`${interrupted ? 'Stopped: the turn was interrupted.' : 'Stopped there.'} ${skipped.length === 1 ? `Step ${skipped[0]} did` : `Steps ${skipped[0]}-${skipped.at(-1)} did`} not run.`);
   }
   const ended = steps.some((s) => s.status !== 'ran');
   return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(ended ? { isError: true } : {}) };

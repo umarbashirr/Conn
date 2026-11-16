@@ -353,7 +353,7 @@ const catalogSessions = (dir) => liveSessions().filter((a) => a instanceof Agent
 
 function stopChat(chat) {
   const a = sessions.get(chat);
-  denyBridgeChat(chat);
+  stopBridgeChat(chat);
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
@@ -1260,6 +1260,9 @@ function refusal(tool, verdict) {
 // when the chat changes mode, so a later Plan or Ask starts clean.
 const pageGrants = new Set();
 const bridgePending = new Map();
+// Bridge batches still running, each with its chat, so Stop on the chat ends
+// them between steps: an agent's CLI need not cancel the call it stopped in.
+const bridgeBatches = new Map(); // AbortController -> chat
 
 function modeOfChat(chat) {
   const live = sessions.get(chat);
@@ -1296,17 +1299,20 @@ function settleBridge(id, decision) {
   return true;
 }
 
-function denyBridgeChat(chat) {
+function stopBridgeChat(chat) {
+  for (const [halt, of] of bridgeBatches) if (of === chat) halt.abort();
   for (const id of [...bridgePending.keys()]) {
     if (bridgePending.get(id)?.chat === chat) settleBridge(id, 'deny');
   }
 }
 
-function askBridge(chat, tool, args, reason) {
+// A card whose caller gave up, or whose batch was stopped, is denied.
+function askBridge(chat, tool, args, reason, signal) {
   return new Promise((resolve) => {
     const id = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const timer = setTimeout(() => settleBridge(id, 'deny'), 5 * 60 * 1000);
     bridgePending.set(id, { resolve, timer, chat });
+    signal?.addEventListener('abort', () => settleBridge(id, 'deny'), { once: true });
     send('agent:permission', {
       chat,
       id,
@@ -1323,21 +1329,28 @@ function askBridge(chat, tool, args, reason) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null, { report = false } = {}) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
+  const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
   // asked about and leased exactly as the same call made alone would be.
   if (tool === 'batch') {
     const steps = planBatch(args?.actions);
-    const out = await runBatch(steps, (step) => runBridgeTool(step.route, step.mapped, from, named, { report: true }));
-    return report ? { result: out, caused: [] } : out;
+    const halt = new AbortController();
+    bridgeBatches.set(halt, chat);
+    const stop = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
+    try {
+      const out = await runBatch(steps, (step) => runBridgeTool(step.route, step.mapped, from, named, { report: true, signal: stop }), stop);
+      return report ? { result: out, caused: [] } : out;
+    } finally {
+      bridgeBatches.delete(halt);
+    }
   }
-  const chat = named || chatForTool(from);
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
   if (verdict.action === 'ask' && !pageGrants.has(chat)) {
-    const ok = await askBridge(chat, tool, args, verdict.reason);
+    const ok = await askBridge(chat, tool, args, verdict.reason, signal);
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
   return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR), report });
@@ -1764,7 +1777,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
-    denyBridgeChat(chat);
+    stopBridgeChat(chat);
     await sessions.get(chat)?.interrupt();
     releaseChatEverywhere(chat);
     return { ok: true };

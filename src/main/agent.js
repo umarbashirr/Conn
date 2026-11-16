@@ -29,6 +29,9 @@ class AgentSession extends EventEmitter {
     this.busy = false;
     this.pending = new Map();          // permission id -> resolve
     this.grants = new Set();           // browser tools the human chose Always for
+    // Aborted by interrupt() and stop(). A running batch checks it between
+    // steps, because the CLI does not abort a tool call it stops the turn on.
+    this.halt = new AbortController();
     // The mode the composer shows. The SDK is told the closest of its own modes.
     // decide() is what actually gates the call, and it is the same function the
     // other agents use.
@@ -146,8 +149,10 @@ class AgentSession extends EventEmitter {
       schema: t.schema,
       alwaysLoad: ALWAYS_LOADED.has(t.name),
       handler: async (args, extra) => {
+        // Read before the wait below, or a Stop during it is missed.
+        const halt = this.halt.signal;
         const actor = await this.#actorFor(extra);
-        if (t.format === 'batch') return this.#batch(args, extra, actor, { table, z });
+        if (t.format === 'batch') return this.#batch(args, extra, actor, { table, z }, halt);
         const route = t.route ? t.route(args) : t.bridgeTool;
         const mapped = t.map ? t.map(args) : args;
         const { result, caused } = await this.invoke(route, mapped, actor, { report: true });
@@ -159,17 +164,18 @@ class AgentSession extends EventEmitter {
   // The CLI asked about the batch as a whole, and decide() let it through
   // because a batch does nothing by itself. Each step is asked here instead,
   // as the CLI would have asked about it called alone, before it runs.
-  async #batch({ actions }, extra, actor, plan) {
+  async #batch({ actions }, extra, actor, plan, halt) {
     let steps;
     try { steps = planBatch(actions, plan); } catch (e) {
       return { content: [{ type: 'text', text: e.message }], isError: true };
     }
     const forId = extra?._meta?.['claudecode/toolUseId'] || null;
+    const signal = extra?.signal ? AbortSignal.any([halt, extra.signal]) : halt;
     const out = await runBatch(steps, async (step, i) => {
-      const refused = await this.#stepRefusal(step, actor, forId, `step ${i + 1} of ${steps.length} in a batch`);
+      const refused = await this.#stepRefusal(step, actor, forId, `step ${i + 1} of ${steps.length} in a batch`, signal);
       if (refused) throw Object.assign(new Error(refused), { code: 'PERMISSION_DENIED' });
       return this.invoke(step.route, step.mapped, actor, { report: true });
-    });
+    }, signal);
     return batchContent(out, fs.readFileSync);
   }
 
@@ -180,7 +186,7 @@ class AgentSession extends EventEmitter {
      The mode is decide() as for any call, and its refusal is not overridden
      by an allow rule, so a step is never let through where the same call
      made alone might not be. */
-  async #stepRefusal(step, actor, forId, where) {
+  async #stepRefusal(step, actor, forId, where, signal) {
     const tool = `mcp__preview__${step.name}`;
     const rule = ruleFor(this.cwd, tool);
     if (rule === 'deny') return `a permission rule in your settings denies ${tool}.`;
@@ -191,6 +197,7 @@ class AgentSession extends EventEmitter {
       reason: [verdict.reason, where].filter(Boolean).join('; '),
       from: actor,
       toolUseID: forId,
+      signal,
     });
     return answer.behavior === 'allow' ? null : answer.message;
   }
@@ -333,11 +340,13 @@ class AgentSession extends EventEmitter {
     });
   }
 
-  // A card for the human, answered through decide().
-  #ask(name, input, { suggestions, reason, title, displayName, toolUseID, from }) {
+  // A card for the human, answered through decide(). One a stopped batch was
+  // waiting on is denied, as interrupt() denies the rest.
+  #ask(name, input, { suggestions, reason, title, displayName, toolUseID, from, signal }) {
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     return new Promise((resolve) => {
       this.pending.set(id, { resolve, input, suggestions, tool: name });
+      signal?.addEventListener('abort', () => this.decide(id, 'deny'), { once: true });
       this.emit('permission', {
         id, tool: name, input, reason, title, displayName,
         agent: from && from.id !== 'main' ? from : null,
@@ -409,6 +418,8 @@ class AgentSession extends EventEmitter {
     // outlive the turn. Denied before the SDK interrupt so canUseTool promises
     // resolve instead of holding interrupt() open.
     for (const [id] of this.pending) this.decide(id, 'deny');
+    this.halt.abort();
+    this.halt = new AbortController();
     try { await this.query?.interrupt(); } catch {}
     this.busy = false;
   }
@@ -602,6 +613,7 @@ class AgentSession extends EventEmitter {
   stop() {
     this.closed = true;
     for (const [id] of this.pending) this.decide(id, 'deny');
+    this.halt.abort();
     if (this.waiting) { const w = this.waiting; this.waiting = null; w(); }
     try { this.abort?.abort(); } catch {}
   }
