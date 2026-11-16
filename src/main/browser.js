@@ -379,17 +379,16 @@ class BrowserPane extends EventEmitter {
     return this.#js(`window.__conn.snapshot(${JSON.stringify(opts)})`);
   }
 
-  // Both are read again on every later turn, so the defaults are a page's
-  // worth rather than all of it, and a cut says how much there was so the
-  // agent can ask for more on purpose.
+  // The defaults are what the conn CLI prints. An agent's tools ask for less
+  // (READ in shared/browser-tools.js), and a cut says how much there was.
   async text(max) {
-    const cap = Number(max) || 8000;
+    const cap = Number(max) || 20000;
     const t = await this.#js('window.__conn.text()');
     return t.length > cap ? `${cut(t, cap)}\n… truncated at ${cap} of ${t.length} characters; pass max for more` : t;
   }
 
   async html(max) {
-    const cap = Number(max) || 20000;
+    const cap = Number(max) || 200000;
     // Without Conn's own pointer, whose reset style alone runs to 5,000
     // characters and is not the page's.
     const h = await this.#js(`(() => { const d = document.documentElement.cloneNode(true);
@@ -658,13 +657,13 @@ class BrowserPane extends EventEmitter {
     return { ok: true };
   }
 
-  consoleLog({ level, limit = 20 } = {}) {
+  consoleLog({ level, limit = 50 } = {}) {
     let list = this.console;
     if (level) list = list.filter((c) => c.level === level);
     return list.slice(-limit);
   }
 
-  networkLog({ limit = 20 } = {}) { return this.network.slice(-limit); }
+  networkLog({ limit = 50 } = {}) { return this.network.slice(-limit); }
 
   /* What the page reported since an action began, for that action's own
      result: console errors and warnings and failed requests. Requests the

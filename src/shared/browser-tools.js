@@ -8,6 +8,10 @@
    pretty-printed JSON with every field the shell uses. */
 const ROW_CHARS = 300;          // one console message or request URL
 const EVALUATE_CHARS = 10000;   // what a script hands back
+// How much a read hands an agent that names no amount: a page's worth rather
+// than all of it, with a cut that says how much there was. The pane's own
+// defaults are larger, and are what the conn CLI prints.
+const READ = { text: 8000, html: 20000, snapshot: 400, rows: 20 };
 
 // The first n characters, one fewer when the nth is the first half of an
 // emoji or other pair: half a pair is not text, and encoders mangle it.
@@ -59,16 +63,19 @@ function browserTools(z) {
       name: 'browser_snapshot', bridgeTool: 'snapshot', label: 'Read page', title: 'Snapshot the page',
       description: 'Outline of the page, same-origin iframes included, with [ref=eN] handles the other tools take. Refs reset on navigation.',
       schema: { max: z.number().optional() },
+      map: (a) => ({ ...a, max: a.max ?? READ.snapshot }),
     },
     {
       name: 'browser_text', bridgeTool: 'text', label: 'Read text', title: 'Read page text',
-      description: 'Visible text of the page, up to max characters (8000 by default).',
+      description: `Visible text of the page, up to max characters (${READ.text} by default).`,
       schema: { max: z.number().optional() },
+      map: (a) => ({ ...a, max: a.max ?? READ.text }),
     },
     {
       name: 'browser_html', bridgeTool: 'html', label: 'Read HTML', title: 'Read page HTML',
-      description: 'Outer HTML of the page, up to max characters (20000 by default).',
+      description: `Outer HTML of the page, up to max characters (${READ.html} by default).`,
       schema: { max: z.number().optional() },
+      map: (a) => ({ ...a, max: a.max ?? READ.html }),
     },
     {
       name: 'browser_click', bridgeTool: 'click', label: 'Click', title: 'Click',
@@ -128,14 +135,16 @@ function browserTools(z) {
     },
     {
       name: 'browser_console', bridgeTool: 'console', label: 'Console', title: 'Read the console',
-      description: 'Console messages since the last navigation, the last 20 unless limit says.',
+      description: `Console messages since the last navigation, the last ${READ.rows} unless limit says.`,
       schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional() },
+      map: (a) => ({ ...a, limit: a.limit ?? READ.rows }),
       render: (rows) => rows.filter((r) => !electronOwn(r)).map((r) => `[${r.level}] ${clip(r.message, ROW_CHARS)}${where(r.source)}`).join('\n') || '(console is empty)',
     },
     {
       name: 'browser_network', bridgeTool: 'network', label: 'Network', title: 'Read failed requests',
       description: 'Requests that failed or returned 4xx/5xx since the last navigation.',
       schema: { limit: z.number().optional() },
+      map: (a) => ({ ...a, limit: a.limit ?? READ.rows }),
       render: (rows) => (rows.length ? rows.map(requestLine).join('\n') : '(no failed requests)'),
     },
     {

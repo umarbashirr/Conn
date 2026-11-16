@@ -216,11 +216,11 @@
   window.__conn = {
     version: 2,
 
-    // 400 lines is a large app's whole screen. Past that the agent is told
-    // where it stopped and how to ask for more, rather than handed all of it.
+    // Past max lines the reader is told where it stopped and how to ask for
+    // more, rather than handed all of it.
     snapshot(opts = {}) {
       const out = [];
-      opts.max = opts.max || 400;
+      opts.max = opts.max || 600;
       walk(document, out, 0, opts);
       if (opts.cut) out.push(`… stopped at ${opts.max} lines; pass max for more`);
       const head = [
