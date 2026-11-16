@@ -3,6 +3,7 @@
    terminal use, and `conn batch` through the bridge. Boots the app on the shop
    fixture. Needs a built renderer: `npx vite build`. */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -187,6 +188,28 @@ try {
     const real = /saved to (.+)$/.exec(note || '')?.[1];
     check('screenshot-note-sits-right-before-its-picture', /^2\. \d+x\d+ sent, \d+x\d+ saved to \S+\.png$/.test(note || ''), J(r.sent));
     check('transcript-shows-the-real-screenshot', real && real !== FAKE && r.shown.includes(real) && !r.shown.includes(FAKE), J(r));
+  }
+
+  {
+    // The CLI weighs a rule against the call it sees, which is the batch, so
+    // the window weighs it against each step. Auto mode asks about nothing.
+    const settings = path.join(s.project, '.claude', 'settings.json');
+    fs.mkdirSync(path.dirname(settings), { recursive: true });
+    await inProcess('auto', 'return 1;');
+
+    fs.writeFileSync(settings, J({ permissions: { deny: ['mcp__conn__browser_evaluate'] } }));
+    const denied = await viaMcp('browser_batch', { actions: [{ tool: 'navigate', url }, { tool: 'evaluate', code: 'document.title = "evaluate ran"' }] });
+    const title = await viaMcp('browser_evaluate', { code: 'document.title' });
+    check('bridge-deny-rule-refuses-the-step', /^2\. evaluate was refused: a permission rule in your settings denies mcp__conn__browser_evaluate\.$/m.test(denied.text) && denied.isError, J(denied));
+    check('bridge-deny-rule-keeps-the-page', title.text === 'Shop cart', title.text);
+
+    fs.writeFileSync(settings, J({ permissions: { ask: ['mcp__conn__browser_click'] } }));
+    const asked = viaMcp('browser_batch', { actions: [{ tool: 'state' }, { tool: 'click', target: '#apply' }, { tool: 'text' }] });
+    const card = await drive.click(s, 'Deny').then(() => true, () => false);
+    const r = await asked;
+    check('bridge-ask-rule-shows-a-card', card, J(r));
+    check('bridge-ask-rule-card-answers-the-step', /^2\. click was refused: .*not approved/m.test(r.text) && /Step 3 did not run/.test(r.text), J(r.text));
+    fs.rmSync(settings);
   }
 } finally {
   await mcp?.close().catch(() => {});
