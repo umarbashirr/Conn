@@ -232,7 +232,8 @@ function printBatch({ steps, total }) {
     const what = st.error ? `${st.refused ? 'refused' : 'failed'}: ${st.error}` : JSON.stringify(st.result);
     process.stdout.write(`${i + 1}. ${st.name.replace(/^browser_/, '')} ${what}\n`);
   });
-  if (steps.length < total) process.stdout.write(`steps ${steps.length + 1}-${total} did not run\n`);
+  const left = total - steps.length;
+  if (left) process.stdout.write(`${left === 1 ? `step ${total}` : `steps ${steps.length + 1}-${total}`} did not run\n`);
   if (steps.at(-1)?.error) process.exitCode = 1;
 }
 

@@ -7,7 +7,7 @@ const { abortAll: abortAllRecordings } = require('./recorder');
 const { Terminal } = require('./terminal');
 const { Bridge } = require('./bridge');
 const { startMobileGate } = require('./mobile-gate');
-const { runTool, TAB_TOOLS } = require('./tools');
+const { runTool, TAB_TOOLS, CAUSES } = require('./tools');
 const { createTabRouter } = require('./tab-router');
 const { AgentSession } = require('./agent');
 const { SHOT_NOTE, planBatch, runBatch } = require('../shared/browser-tools');
@@ -1120,7 +1120,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     bridgeEnv: { ...bridge.env(), CONN_CHAT: chat },
     mcp: previewMcp(cwd),
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: (tool, args, actor) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor) }),
+    invoke: (tool, args, actor, opts) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor), ...opts }),
   });
   agent.provider = runs;
   sessions.set(chat, agent);
@@ -1213,11 +1213,15 @@ function tabOps(cwd, actor) {
   };
 }
 
-// Permission is already settled by the caller; this never asks.
-async function driveTool(tool, args, { cwd, actor }) {
+// Permission is already settled by the caller; this never asks. With
+// `report` the answer is { result, caused }: what a page-changing tool left in
+// the console and the network, for the agent's copy of the result. Without it
+// the result is as it always was, for the CLI and anything else reading it.
+async function driveTool(tool, args, { cwd, actor, report = false }) {
   if (TAB_TOOLS.has(tool)) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab: router.current(actor), reveal: false });
-    return runTool(tool, args, { tabs: tabOps(cwd, actor) });
+    const result = await runTool(tool, args, { tabs: tabOps(cwd, actor) });
+    return report ? { result, caused: [] } : result;
   }
   const pageChange = !READS.has(tool);
   const tab = router.tabFor(actor, tool, cwd, { pageChange });
@@ -1233,10 +1237,14 @@ async function driveTool(tool, args, { cwd, actor }) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab, reveal });
     // The pane is the one leased above, resolved once. Resolving again after
     // the wait could land on a tab this call never leased.
-    return await runTool(tool, args, {
+    const since = Date.now();
+    const result = await runTool(tool, args, {
       getPane: () => panes.get(tab)?.pane || null,
       showPreview: (show) => showPreview(show, cwd, actor.chat, tab),
     });
+    if (!report) return result;
+    const pane = panes.get(tab)?.pane;
+    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : [] };
   } finally {
     l.done(tool, actor);
   }
@@ -1315,13 +1323,14 @@ function askBridge(chat, tool, args, reason) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null) {
+async function runBridgeTool(tool, args, from, named = null, { report = false } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   // Each step comes back through here under its own route, so it is judged,
   // asked about and leased exactly as the same call made alone would be.
   if (tool === 'batch') {
     const steps = planBatch(args?.actions);
-    return runBatch(steps, async (step) => ({ result: await runBridgeTool(step.route, step.mapped, from, named) }));
+    const out = await runBatch(steps, (step) => runBridgeTool(step.route, step.mapped, from, named, { report: true }));
+    return report ? { result: out, caused: [] } : out;
   }
   const chat = named || chatForTool(from);
   const mode = modeOfChat(chat);
@@ -1331,7 +1340,7 @@ async function runBridgeTool(tool, args, from, named = null) {
     const ok = await askBridge(chat, tool, args, verdict.reason);
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
-  return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR) });
+  return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR), report });
 }
 
 // Ask the running session what it ended up with, fold it into the cached
@@ -2575,7 +2584,7 @@ app.whenReady().then(async () => {
   projects.setOpenProjects(openDirs());
   const bridgeDev = !app.isPackaged;
   bridge = new Bridge({
-    run: (tool, args, from, chat) => runBridgeTool(tool, args, from, chat),
+    run: (tool, args, from, chat, opts) => runBridgeTool(tool, args, from, chat, opts),
     debug: bridgeDev,
     cwds: openDirs(),
     focusWindow: (cwd) => {

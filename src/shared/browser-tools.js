@@ -3,6 +3,39 @@
 // by the conn CLI, over stdio by the MCP server, and in-process by the agent
 // panel. Only the transport differs.
 
+/* Results are written for the model to read, once per call and again on
+   every later turn, so each says what happened in a line rather than as
+   pretty-printed JSON with every field the shell uses. */
+const ROW_CHARS = 300;          // one console message or request URL
+const EVALUATE_CHARS = 10000;   // what a script hands back
+
+const clip = (v, n) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+const quote = (v) => JSON.stringify(clip(v, 80));
+const capped = (t, n) => (t.length > n ? `${t.slice(0, n)}\n… truncated at ${n} of ${t.length} characters` : t);
+// A console source is usually a long URL; its file and line say enough, and
+// an inline script has no file to name.
+const where = (src) => { const w = String(src || '').replace(/^.*\//, ''); return w.startsWith(':') ? '' : ` (${w})`; };
+// Electron's own notices reach the page's console from its bundled scripts.
+// They are about the app, never the page.
+const electronOwn = (r) => /^(?:node:)?electron\//.test(String(r.source || ''));
+
+// Where the tab is now. The rest of state() is for the shell's own toolbar.
+const page = (r) => [
+  `${r.url || 'about:blank'}${r.title ? ` "${r.title}"` : ''}`,
+  r.loading && 'still loading',
+  r.viewport && `viewport ${r.viewport}`,
+  r.recording && 'recording',
+  r.error && `error: ${r.error}`,
+  r.warning,
+  r.note,
+].filter(Boolean).join('; ');
+
+const tabLine = (r) => `tab ${r.tab}: ${r.url || 'about:blank'}${r.title ? ` "${r.title}"` : ''}`;
+
+const requestLine = (r) => (r.kind === 'navigation-failed'
+  ? `page failed to load: ${r.desc} (${r.code}) ${clip(r.url, ROW_CHARS)}`
+  : `${r.status || r.error || 'failed'} ${r.method || ''} ${clip(r.url, ROW_CHARS)}`.replace(/\s+/g, ' '));
+
 /**
  * `label` is what the transcript calls the tool. `routes` lists every bridge
  * route `route()` can pick.
@@ -17,6 +50,7 @@ function browserTools(z) {
       name: 'browser_navigate', bridgeTool: 'navigate', label: 'Open page', title: 'Open a URL',
       description: 'Load a URL in the tab you drive. Bare ports work: "3000" is http://localhost:3000.',
       schema: { url: z.string() },
+      render: page,
     },
     {
       name: 'browser_snapshot', bridgeTool: 'snapshot', label: 'Read page', title: 'Snapshot the page',
@@ -30,38 +64,44 @@ function browserTools(z) {
     },
     {
       name: 'browser_html', bridgeTool: 'html', label: 'Read HTML', title: 'Read page HTML',
-      description: 'Outer HTML of the page, for markup the snapshot leaves out, up to max characters (20000 by default).',
+      description: 'Outer HTML of the page, up to max characters (20000 by default).',
       schema: { max: z.number().optional() },
     },
     {
       name: 'browser_click', bridgeTool: 'click', label: 'Click', title: 'Click',
       description: 'Click an element by ref or CSS selector, with a real mouse event.',
       schema: { target: z.string(), button: z.enum(['left', 'right', 'middle']).optional(), clickCount: z.number().optional() },
+      render: (r) => `clicked ${r.clicked}`,
     },
     {
       name: 'browser_fill', bridgeTool: 'fill', label: 'Fill', title: 'Fill a field',
       description: 'Set the value of an input, textarea or contenteditable and fire input and change.',
       schema: { target: z.string(), value: z.string() },
+      render: (r, a) => `filled ${a.target} = ${quote(r.value)}`,
     },
     {
       name: 'browser_type', bridgeTool: 'type', label: 'Type', title: 'Type',
       description: 'Send real keystrokes, into target if given. Use it when the page listens for keydown.',
       schema: { text: z.string(), target: z.string().optional(), delay: z.number().optional() },
+      render: (r) => `typed ${r.typed} characters`,
     },
     {
       name: 'browser_press', bridgeTool: 'press', label: 'Press key', title: 'Press a key',
       description: 'Press a key or chord: "Enter", "Escape", "ctrl+a".',
       schema: { key: z.string() },
+      render: (r) => `pressed ${r.key}`,
     },
     {
       name: 'browser_select', bridgeTool: 'select', label: 'Select', title: 'Select an option',
       description: 'Choose an option in a select element.',
       schema: { target: z.string(), value: z.string() },
+      render: (r, a) => `selected ${quote(r.value)} in ${a.target}`,
     },
     {
       name: 'browser_hover', bridgeTool: 'hover', label: 'Hover', title: 'Hover',
       description: 'Move the mouse over an element, for menus and tooltips.',
       schema: { target: z.string() },
+      render: (_r, a) => `hovered ${a.target}`,
     },
     {
       name: 'browser_scroll', bridgeTool: 'scroll', label: 'Scroll', title: 'Scroll',
@@ -69,6 +109,7 @@ function browserTools(z) {
       schema: { dy: z.number().optional(), target: z.string().optional() },
       route: (a) => (a.target ? 'scrollTo' : 'scroll'),
       routes: ['scroll', 'scrollTo'],
+      render: (r) => `scrolled to y=${Math.round(r.y)}`,
     },
     {
       name: 'browser_screenshot', bridgeTool: 'screenshot', label: 'Screenshot', title: 'Screenshot',
@@ -78,32 +119,35 @@ function browserTools(z) {
     },
     {
       name: 'browser_record', bridgeTool: 'record', label: 'Record', title: 'Record the page',
-      description: 'Make a video of the page, without sound. action "start" begins (maxSeconds 60 by default, 120 at most, then it stops by itself and keeps the file); "stop" returns its path, length, size and three stills (first, middle, last) you can look at. Act between the two to record it. name is a file name, not a path.',
+      description: 'Video of the page, no sound. "start" begins it (it stops by itself after maxSeconds, 60 by default, 120 at most, and keeps the file); "stop" returns its path, length and three stills to look at. Act in between to record it. name is a file name.',
       schema: { action: z.enum(['start', 'stop']), name: z.string().optional(), maxSeconds: z.number().optional() },
       format: 'recording',
     },
     {
       name: 'browser_console', bridgeTool: 'console', label: 'Console', title: 'Read the console',
-      description: 'Console messages since the last navigation, the newest limit of them (20 by default).',
+      description: 'Console messages since the last navigation, the last 20 unless limit says.',
       schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional() },
-      render: (rows) => (rows.length ? rows.map((r) => `[${r.level}] ${r.message}  (${r.source})`).join('\n') : '(console is empty)'),
+      render: (rows) => rows.filter((r) => !electronOwn(r)).map((r) => `[${r.level}] ${clip(r.message, ROW_CHARS)}${where(r.source)}`).join('\n') || '(console is empty)',
     },
     {
       name: 'browser_network', bridgeTool: 'network', label: 'Network', title: 'Read failed requests',
       description: 'Requests that failed or returned 4xx/5xx since the last navigation.',
       schema: { limit: z.number().optional() },
-      render: (rows) => (rows.length ? rows.map((r) => `${r.kind} ${r.status || r.error || ''} ${r.method || ''} ${r.url}`).join('\n') : '(no failed requests)'),
+      render: (rows) => (rows.length ? rows.map(requestLine).join('\n') : '(no failed requests)'),
     },
     {
       name: 'browser_evaluate', bridgeTool: 'evaluate', label: 'Run script', title: 'Run JavaScript',
       description: 'Run JavaScript in the page and return the result.',
       schema: { code: z.string() },
+      render: (v) => capped(typeof v === 'string' ? v : JSON.stringify(v) ?? 'undefined', EVALUATE_CHARS),
     },
     {
       name: 'browser_wait', bridgeTool: 'waitFor', label: 'Wait', title: 'Wait',
       description: 'Wait for a selector to appear, ms to pass, or the network to go quiet.',
       schema: { selector: z.string().optional(), ms: z.number().optional(), timeout: z.number().optional() },
       map: (a) => ({ networkIdle: !a.selector && !a.ms, ...a }),
+      render: (r) => (r.waited ? `waited ${r.waited} ms` : r.selector ? `${r.selector} is there`
+        : r.idle ? 'the network is quiet' : r.note || 'done'),
     },
     {
       name: 'browser_viewport', bridgeTool: 'setViewport', label: 'Viewport', title: 'Set viewport',
@@ -111,44 +155,55 @@ function browserTools(z) {
       schema: { width: z.number().optional(), height: z.number().optional() },
       route: (a) => (a.width && a.height ? 'setViewport' : 'clearViewport'),
       routes: ['setViewport', 'clearViewport'],
+      render: (r) => (r.error ? `error: ${r.error}` : r.width ? `viewport ${r.width}x${r.height}` : 'viewport cleared'),
     },
-    { name: 'browser_back', bridgeTool: 'back', label: 'Back', title: 'Back', description: 'Go back one history entry.', schema: {} },
-    { name: 'browser_forward', bridgeTool: 'forward', label: 'Forward', title: 'Forward', description: 'Go forward one history entry.', schema: {} },
-    { name: 'browser_reload', bridgeTool: 'reload', label: 'Reload', title: 'Reload', description: 'Reload the current page.', schema: {} },
-    { name: 'browser_state', bridgeTool: 'state', label: 'Page state', title: 'Page state', description: 'Current url, title and loading state.', schema: {} },
+    { name: 'browser_back', bridgeTool: 'back', label: 'Back', title: 'Back', description: 'Go back one history entry.', schema: {}, render: page },
+    { name: 'browser_forward', bridgeTool: 'forward', label: 'Forward', title: 'Forward', description: 'Go forward one history entry.', schema: {}, render: page },
+    { name: 'browser_reload', bridgeTool: 'reload', label: 'Reload', title: 'Reload', description: 'Reload the current page.', schema: {}, render: page },
+    { name: 'browser_state', bridgeTool: 'state', label: 'Page state', title: 'Page state', description: 'Current url, title and loading state.', schema: {}, render: page },
     {
-      name: 'browser_show', bridgeTool: 'preview', label: 'Show preview', title: 'Show the preview to the human',
+      name: 'browser_show', bridgeTool: 'preview', label: 'Show preview', title: 'Show the preview',
       description: 'Open or close the preview pane, for when the person should look. The page works while it is closed.',
       schema: { open: z.boolean().optional() },
+      render: (r) => `preview ${r.preview}`,
     },
     {
-      name: 'browser_highlight', bridgeTool: 'highlight', label: 'Highlight', title: 'Highlight for the human',
-      description: 'Flash a box around an element so the person can see which one you mean.',
+      name: 'browser_highlight', bridgeTool: 'highlight', label: 'Highlight', title: 'Highlight',
+      description: 'Flash a box around an element for the person watching.',
       schema: { target: z.string() },
+      render: (_r, a) => `highlighted ${a.target}`,
     },
     {
-      name: 'browser_tabs', bridgeTool: 'tabs', label: 'Tabs', title: 'List this chat\'s tabs',
+      name: 'browser_tabs', bridgeTool: 'tabs', label: 'Tabs', title: 'List tabs',
       description: 'This chat\'s tabs: id, url, title, which you drive and which the person sees.',
       schema: {},
+      render: (r) => r.tabs.map((t) => [
+        `${t.id}: ${t.url || 'about:blank'}${t.title ? ` "${t.title}"` : ''}`,
+        t.driver === 'you' ? 'you drive it' : t.driver && `${t.driver} drives it`,
+        t.onScreen && 'on screen',
+      ].filter(Boolean).join(', ')).join('\n') || '(no tabs)',
     },
     {
       name: 'browser_tab_new', bridgeTool: 'tabNew', label: 'New tab', title: 'Open a new tab',
-      description: 'Open a tab in this chat and drive it from now on, loading url if given. Use one for anything unrelated to the open page, such as docs.',
+      description: 'Open a tab in this chat and drive it, loading url if given. Use one for anything unrelated to the open page.',
       schema: { url: z.string().optional() },
+      render: tabLine,
     },
     {
       name: 'browser_tab_select', bridgeTool: 'tabSelect', label: 'Switch tab', title: 'Switch tabs',
       description: 'Drive another of this chat\'s tabs. Ids come from browser_tabs.',
       schema: { tab: z.string() },
+      render: tabLine,
     },
     {
       name: 'browser_tab_close', bridgeTool: 'tabClose', label: 'Close tab', title: 'Close a tab',
       description: 'Close one of this chat\'s tabs, by default the one you drive. A tab another agent drives is refused.',
       schema: { tab: z.string().optional() },
+      render: (r) => `closed ${r.closed}${r.current ? `, now driving ${r.current}` : ''}`,
     },
     {
-      name: 'browser_batch', bridgeTool: 'batch', label: 'Browser steps', title: 'Run several browser steps',
-      description: 'Run up to 15 browser steps in one call, in order. Each action is {tool, ...args}: a browser tool without browser_ (navigate, click, fill, type, press, wait, snapshot, text, screenshot, evaluate...) and its args. Stops at the first step that fails.',
+      name: 'browser_batch', bridgeTool: 'batch', label: 'Browser steps', title: 'Browser steps',
+      description: 'Run up to 15 browser steps in one call, in order. Each action is {tool, ...args}: a browser tool without browser_ (navigate, click, fill, press, wait, text, screenshot...) and its args. Stops at the first step that fails.',
       schema: { actions: z.array(z.object({ tool: z.string() }).passthrough()).max(BATCH_MAX) },
       format: 'batch',
     },
@@ -205,21 +260,37 @@ const shotImage = (r, read) => {
   return { type: 'image', data: read(m.path).toString('base64'), mimeType: m.mime };
 };
 
-const textOf = (t, result, args) => (t.render ? t.render(result, args || {})
-  : typeof result === 'string' ? result
-    : JSON.stringify(result, null, 2));
+function textOf(t, result, args) {
+  if (t.render && result != null) {
+    try { return t.render(result, args || {}); } catch { /* an unexpected shape reads as itself below */ }
+  }
+  if (typeof result === 'string') return result;
+  return JSON.stringify(result) ?? 'undefined';
+}
+
+/* What a page-changing action caused, as main reported it: new console
+   errors and warnings and failed requests, one per line. Nothing new adds
+   nothing, which the instructions tell the agent means clean. */
+const causedText = (caused, indent = '') => (caused?.length ? `\n${caused.map((c) => indent + c).join('\n')}` : '');
 
 /**
  * What the model is handed for one call, the same over every transport.
  * `read` loads a file the result names; both callers pass fs.readFileSync.
  */
-function toolContent(t, result, read, { args } = {}) {
+function toolContent(t, result, read, { args, caused } = {}) {
   if (t.format === 'image' && result?.path) {
     return { content: [{ type: 'text', text: shotNote(result) }, shotImage(result, read)] };
   }
   const stills = t.format === 'recording' && result?.keyframes ? keyframeBlocks(result, read) : [];
-  return { content: [{ type: 'text', text: textOf(t, result, args) }, ...stills] };
+  return { content: [{ type: 'text', text: textOf(t, result, args) + causedText(caused) }, ...stills] };
 }
+
+/* The tools whose definitions ride along in every Claude request. The rest
+   are deferred: the CLI lists their names and loads one when it is wanted,
+   and browser_batch runs any of them without loading it. Together these cost
+   less than the ten that were here before the batch existed. */
+const ALWAYS_LOADED = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
+  'browser_screenshot', 'browser_batch', 'browser_show', 'browser_tabs', 'browser_tab_new']);
 
 const INSTRUCTIONS = [
   'You are working next to a live preview browser. It is a real Chromium view the human can see.',
@@ -321,7 +392,7 @@ function batchContent(out, read) {
       text = shotNote(s.result);
       images.push(shotImage(s.result, read));
     } else text = textOf(t, s.result, s.args);
-    lines.push(text.includes('\n') ? `${n} ${shortName(s.name)}:\n${text}` : `${n} ${text}`);
+    lines.push((text.includes('\n') ? `${n} ${shortName(s.name)}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
   }
   const left = out.total - out.steps.length;
   if (left > 0) {
@@ -351,5 +422,5 @@ const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: ''
 module.exports = {
   browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE,
   planBatch, runBatch, batchContent, BATCH_MAX,
-  INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
+  INSTRUCTIONS, ALWAYS_LOADED, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
 };

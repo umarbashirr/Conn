@@ -198,8 +198,12 @@ class Bridge {
       try { args = JSON.parse(body); } catch (e) { return send(400, { error: 'invalid JSON body: ' + e.message }); }
     }
 
+    // The MCP server asks for what a page-changing call caused, to put in the
+    // agent's copy of the result. The CLI does not, and gets the result alone.
+    const report = req.headers['x-conn-report'] === '1';
     try {
-      send(200, { ok: true, result: await this.run(name, args, from, callerChat(req)) });
+      const out = await this.run(name, args, from, callerChat(req), { report });
+      send(200, report ? { ok: true, ...out } : { ok: true, result: out });
     } catch (err) {
       send(500, { ok: false, error: err?.message || String(err) });
     }

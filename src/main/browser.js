@@ -35,6 +35,14 @@ const MAX_INFLIGHT = 500;
 // Every screenshot the agent takes lands on disk and nothing ever collected
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
+// How long an action's result waits on the requests it started, and how much
+// of what they caused it repeats.
+const SETTLE_MS = 1000;
+const CAUSED_ROWS = 5;
+const clip = (v, n = 200) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+// Electron's own notices land in the page's console from its bundled scripts.
+// They are about the app, never the page, so they are not the page's errors.
+const ELECTRON_SOURCE = /^(?:electron\/|node:electron\/|sandbox_bundle|renderer_init)/;
 const MAX_RECORDINGS = 20;
 
 const ERR_ABORTED = -3;
@@ -372,11 +380,19 @@ class BrowserPane extends EventEmitter {
     return this.#js(`window.__conn.snapshot(${JSON.stringify(opts)})`);
   }
 
-  async text(max) { return this.#js(`window.__conn.text(${Number(max) || 20000})`); }
+  // Both are read again on every later turn, so the defaults are a page's
+  // worth rather than all of it, and a cut says how much there was so the
+  // agent can ask for more on purpose.
+  async text(max) { return this.#js(`window.__conn.text(${Number(max) || 8000})`); }
 
-  async html(max = 200000) {
-    const h = await this.#js('document.documentElement.outerHTML');
-    return h.length > max ? h.slice(0, max) + '\n<!-- truncated -->' : h;
+  async html(max) {
+    const cap = Number(max) || 20000;
+    // Without Conn's own pointer, whose reset style alone runs to 5,000
+    // characters and is not the page's.
+    const h = await this.#js(`(() => { const d = document.documentElement.cloneNode(true);
+      d.querySelectorAll('#__conn-cursor, [data-conn-ripple]').forEach((n) => n.remove());
+      return d.outerHTML; })()`);
+    return h.length > cap ? `${h.slice(0, cap)}\n<!-- truncated at ${cap} of ${h.length} characters; pass max for more -->` : h;
   }
 
   // Until the page has drawn a frame, Chromium has nothing to hit-test a press
@@ -639,13 +655,40 @@ class BrowserPane extends EventEmitter {
     return { ok: true };
   }
 
-  consoleLog({ level, limit = 50 } = {}) {
+  consoleLog({ level, limit = 20 } = {}) {
     let list = this.console;
     if (level) list = list.filter((c) => c.level === level);
     return list.slice(-limit);
   }
 
-  networkLog({ limit = 50 } = {}) { return this.network.slice(-limit); }
+  networkLog({ limit = 20 } = {}) { return this.network.slice(-limit); }
+
+  /* What the page reported since an action began, for that action's own
+     result: console errors and warnings and failed requests. Requests the
+     action set off get up to SETTLE_MS to finish first, so a click whose
+     fetch fails says so; with none in flight this returns at once. */
+  async caused(since) {
+    const until = Date.now() + SETTLE_MS;
+    const busy = () => [...this.reqs.values()].some((r) => r.t >= since);
+    if (busy()) {
+      while (busy() && Date.now() < until) await sleep(50);
+      await sleep(50); // a page's own catch logs a beat after the failure
+    }
+    const logged = this.console.filter((c) => c.t >= since && (c.level === 'error' || c.level === 'warning')
+      && !ELECTRON_SOURCE.test(String(c.source || '')));
+    const errors = logged.filter((c) => c.level === 'error');
+    const shown = [...errors, ...logged.filter((c) => c.level === 'warning')].slice(0, CAUSED_ROWS);
+    const failed = this.network.filter((n) => n.t >= since);
+    const lines = [
+      ...shown.map((c) => { const w = String(c.source || '').replace(/^.*\//, ''); return `console ${c.level}: ${clip(c.message)}${w.startsWith(':') ? '' : ` (${w})`}`; }),
+      ...failed.slice(0, CAUSED_ROWS).map((n) => (n.kind === 'navigation-failed'
+        ? `page failed to load: ${n.desc} (${n.code})`
+        : `request failed: ${n.status || n.error} ${n.method || ''} ${clip(n.url)}`.replace(/\s+/g, ' '))),
+    ];
+    if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console`);
+    if (failed.length > CAUSED_ROWS) lines.push(`${failed.length - CAUSED_ROWS} more failed requests: browser_network`);
+    return lines;
+  }
 
   // Docked under the page, or in a window of its own.
   toggleDevTools(detached = false) {

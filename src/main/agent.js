@@ -6,18 +6,11 @@ const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
-const { browserTools, toolContent, planBatch, runBatch, batchContent, INSTRUCTIONS } = require('../shared/browser-tools');
+const { browserTools, toolContent, planBatch, runBatch, batchContent, INSTRUCTIONS, ALWAYS_LOADED } = require('../shared/browser-tools');
 const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const { ruleFor } = require('./permission-rules');
 const shellEnv = require('./shell-env');
-
-// The browser tools whose definitions ride along in every request. The rest
-// are deferred: the CLI lists their names and loads one when it is wanted, and
-// browser_batch can run any of them without loading it. Together these cost
-// no more than the ten that used to be here.
-const CORE = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
-  'browser_screenshot', 'browser_batch', 'browser_show', 'browser_tabs', 'browser_tab_new']);
 
 // How long a browser tool waits to learn which agent called it. The CLI
 // announces the tool_use a beat after it starts running the tool, so the first
@@ -151,14 +144,14 @@ class AgentSession extends EventEmitter {
       name: t.name,
       description: t.description,
       schema: t.schema,
-      alwaysLoad: CORE.has(t.name),
+      alwaysLoad: ALWAYS_LOADED.has(t.name),
       handler: async (args, extra) => {
         const actor = await this.#actorFor(extra);
         if (t.format === 'batch') return this.#batch(args, extra, actor, { table, z });
         const route = t.route ? t.route(args) : t.bridgeTool;
         const mapped = t.map ? t.map(args) : args;
-        const result = await this.invoke(route, mapped, actor);
-        return toolContent(t, result, fs.readFileSync, { args });
+        const { result, caused } = await this.invoke(route, mapped, actor, { report: true });
+        return toolContent(t, result, fs.readFileSync, { args, caused });
       },
     }));
   }
@@ -175,7 +168,7 @@ class AgentSession extends EventEmitter {
     const out = await runBatch(steps, async (step, i) => {
       const refused = await this.#stepRefusal(step, actor, forId, `step ${i + 1} of ${steps.length} in a batch`);
       if (refused) throw Object.assign(new Error(refused), { code: 'PERMISSION_DENIED' });
-      return { result: await this.invoke(step.route, step.mapped, actor) };
+      return this.invoke(step.route, step.mapped, actor, { report: true });
     });
     return batchContent(out, fs.readFileSync);
   }
