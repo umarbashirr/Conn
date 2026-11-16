@@ -1,0 +1,455 @@
+# The Conn guide
+
+Everything Conn does, in detail. For the short version, see the [README](../README.md).
+
+An agent, a terminal, and a browser the agent can drive, in one window. Two riders, one machine,
+either one can steer.
+
+Site and downloads: https://getconn.netlify.app
+
+Cursor puts an agent next to an editor. This puts one next to a shell and a live browser. The agent
+reads your code, runs commands, loads the page, clicks through it, reads the console, and takes
+screenshots it can actually see. You watch it happen, and you can grab the browser yourself at any
+time.
+
+```
+┌──────────────┬───────────────┬──────────────┐
+│ agent        │ terminal      │ preview      │
+│              │               │              │
+│ ▸ snapshot   │ $ npm run dev │  [ page ]    │
+│ ▸ click e7   │ ready :3000   │              │
+│ ▸ shot       │               │              │
+│              │               │              │
+│ [#go chip]   │               │              │
+│ > fix the …  │               │              │
+└──────────────┴───────────────┴──────────────┘
+                    Ctrl+`          ^⇧B
+```
+
+The preview pane starts hidden. It appears when you press `Ctrl+Shift+B`, when you run `conn go 3000`,
+or when the agent navigates. Close it and the page keeps running at full size, so the agent can carry
+on working on something you are not looking at.
+
+The window draws its own frame. The menu and the window buttons share the top strip; below them sit
+the folder you are working in and one row of tabs for the preview and every shell you have open, so
+what is running is visible whether or not its pane is showing.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/umarbashirr/Conn/main/install.sh | sh
+```
+
+That is the whole thing. No GitHub account, no `gh`, no node, no downloading a file and working out
+what to do with it. The script reads the newest release off the public API, picks the build that
+matches the machine, installs it, and puts `conn` on PATH. It asks for your password once, because
+the app lands in `/opt/conn` and Chromium's sandbox helper has to be owned by root.
+
+On Debian and Ubuntu it installs the .deb through apt, so dependencies come with it. Anywhere else it
+unpacks the AppImage into `/opt/conn` by hand, which gets you the same layout, the same `conn`
+command, and the same sandbox, without needing FUSE. Run it again later and it upgrades in place, or
+says there is nothing to do.
+
+A few flags, if you want them:
+
+```sh
+curl -fsSL .../install.sh | sh -s -- --user        # under ~/.local, no password, no sandbox
+curl -fsSL .../install.sh | sh -s -- --version 0.7.0
+curl -fsSL .../install.sh | sh -s -- --uninstall
+```
+
+`--user` is the escape hatch for a machine where you have no root. Chromium's sandbox helper has to
+be setuid root, and nobody but root can make it so, so that install runs with `--no-sandbox`.
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/umarbashirr/Conn/main/install.ps1 | iex
+```
+
+Same release, same idea. It downloads the installer and runs it. That installer is one click: it
+lands in `%LOCALAPPDATA%\Programs\conn` for you alone, asks for no password, puts
+`%LOCALAPPDATA%\Programs\conn\bin` on PATH (the CLI shim, not the folder that holds
+`conn.exe`), and adds "Open with Conn" to a folder's right-click menu. Open a new terminal
+afterwards, or the one you are in will not have the new PATH. A piped script takes no arguments, so
+pass them through a script block instead:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/umarbashirr/Conn/main/install.ps1))) -Uninstall
+```
+
+The install directory is lowercase and one word on purpose: the sandbox helper splits its own
+executable path on spaces, so a space in the path makes the app abort at startup with
+`failed to execvp:`. The capitalised name lives in the desktop entry, so it still shows up as
+"Conn" in the launcher.
+
+To build the packages yourself:
+
+```sh
+npm install
+npm run dist            # writes dist/*.deb and dist/*.AppImage
+npm run dist:win        # writes dist/conn-<version>-x64.exe, needs Windows or wine
+npm run dist:win:docker # the same .exe, cross-built on Linux in docker
+```
+
+`dist:win` needs a Windows machine, or wine. `npm run dist:win:docker` is the second option: it
+builds the installer on Linux inside `electronuserland/builder:wine`. That works because node-pty
+ships N-API prebuilds for win32-x64 in its own npm package, so nothing has to compile on Windows.
+A GitHub Action (`.github/workflows/windows-installer.yml`) is set up to run that docker build on a
+Linux runner when a release is published and attach the .exe and `SHA256SUMS`. Its recent runs fail,
+so releases are currently built by hand.
+`sh scripts/release-checksums.sh dist` writes the same checksum file for whatever installers are in `dist/`.
+
+There is no macOS `.dmg` on the release. electron-builder's dmgbuild bundle is a macOS executable,
+so this Linux build cannot produce one.
+
+To run from source:
+
+```sh
+npm install
+npm start           # npm run enable-sandbox once, to turn Chromium's sandbox back on
+```
+
+Conn does not ship a claude of its own. It runs the one on your PATH, with the login you already
+have, so if `claude --version` answers in your terminal the panel works. If it does not, the model
+picker stays empty and says so. Install it with `npm install -g @anthropic-ai/claude-code`, or point
+Conn at an unusual location under Settings, Agent.
+
+Cursor, Grok, OpenCode and Copilot work the same way, through their own CLIs. Conn does not ship those either.
+
+- **Cursor:** install the [Cursor CLI](https://cursor.com/cli) (`agent` or `cursor-agent` on PATH),
+  then `agent login`. The picker offers Auto, Composer, GPT-5.4, Claude, and Grok names the CLI
+  advertises.
+- **Grok:** install the [Grok CLI](https://x.ai/cli), then `grok login`.
+- **Copilot:** install the [GitHub Copilot CLI](https://github.com/features/copilot/cli) with
+  `npm install -g @github/copilot`, then `copilot login`. The picker lists the models the CLI documents;
+  one your plan lacks runs as Auto. Copilot asks before every edit and command, so the mode you pick
+  decides what goes through.
+- **OpenCode:** install [OpenCode](https://opencode.ai) with its install script or
+  `npm install -g opencode-ai`. Its free Zen models work without a login; `opencode auth login` adds your other providers. Conn runs it
+  with every edit, command and fetch set to ask, so the mode you pick decides what goes through.
+
+If a CLI is missing, its row in the model picker is empty and disabled. After login, a chat on that
+provider streams like Claude. Which CLI a chat uses is stored per chat, the same way model and mode
+already are: switching the picker on a chat that has messages forks it rather than rewriting the
+thread. Point Conn at an unusual binary under Settings, Agent.
+
+Each provider's models are split into Latest and Legacy. A model is Legacy when a newer version of
+the same line is listed, or when the CLI calls it legacy or older. Each row carries the CLI's own
+one-line description. Effort and, where the model has one, the 1M context window sit under the list
+as one-click rows.
+
+## Opening a project
+
+The installer puts `conn` on PATH, so a folder opens the way you would open one in an editor:
+
+```sh
+conn .                  # open this folder
+conn ~/code/shop        # open that one
+```
+
+A window holds up to eight folders. **Open Folder** adds a folder to this window. **Open Folder in
+New Window** starts another window. Each folder keeps its own chats, shells, and preview tabs. The
+folder on screen is the one whose shells and right column you see. Chats in the other folders keep
+running.
+
+Run `conn .` again on a folder that is already open and that window comes forward, with that folder
+focused. A folder that is not open yet starts a new window. The window title is the focused folder's
+name.
+
+Every open folder is advertised under `~/.conn/projects/`. The files for one window share its
+bridge, so `conn go 3000` in a shell reaches the window that has that folder open. The lookup walks
+up from your working directory, so a subfolder resolves too.
+
+Running an AppImage you downloaded yourself, rather than one the installer unpacked? Point
+`CONN_APP` at it and `conn .` will use that:
+
+```sh
+export CONN_APP=~/Apps/conn-0.7.1-x86_64.AppImage
+```
+
+## The agent panel
+
+Type what you want changed and press Enter. The agent has the usual file and shell tools plus the
+browser, wired in already: no MCP config, no restart, no setup step.
+
+- **Permission modes** on the composer, in the order Shift+Tab walks them: Plan, Ask, Auto, Full
+  bypass. The same four apply to Claude, ChatGPT, Cursor, Grok, OpenCode, and Copilot. Plan looks and reads,
+  and does not edit, run a command, or change the page. Ask looks and reads, and shows a card before
+  an edit, a command, or a page change. Auto runs edits, ordinary commands, and the preview, and
+  stops on a short list of known-dangerous commands (a forced `rm`, `sudo`, a git history rewrite,
+  and the like). That list is a convenience, not a sandbox. It cannot catch everything a command
+  could do, so anyone who needs real isolation should run the CLI inside an OS-level sandbox instead.
+  Full bypass asks for nothing and checks nothing. Looking at the preview does not ask in any mode.
+  That covers snapshot, text, screenshot, record, console, and network. Changing the page follows the chat
+  on screen: refused in Plan, a card in Ask, allowed in Auto and Full bypass. The card offers
+  **Allow**, **Always**, or **Deny**. A terminal agent driving the preview through `conn` or the MCP
+  server uses that same chat mode, and Ask shows the card in the chat rather than refusing the call.
+  Shift+Tab works from anywhere in the window except a text field, the terminal, or an open dialog
+  or menu.
+- **Stop** interrupts mid-turn.
+- **Queue**: Enter while a turn runs queues the message, and queued messages go out in order. Each
+  can be edited, removed or sent next. Enter on an empty box sends the first one now. After Stop the
+  queue is held rather than sent.
+- **Edit, retry, fork and undo**: edit or retry a past message, fork a chat from any message into a
+  new one (carrying a summary or the full history, to the same or another provider), or undo a
+  Claude turn's file edits from its message.
+- **Usage**: the meter under the composer shows the chat's tokens and cost, and Usage in the rail
+  shows 30 days of spend and your plan's limits, read from the CLIs' own transcripts.
+- **Saved permission rules**: Settings, Permissions lists the rules **Always** saved for Claude in
+  this folder and for every folder, and removes any of them.
+- **Search** (`Ctrl+K`) finds text inside every past chat, not only titles. **Export chat** in the
+  palette saves a chat as Markdown.
+- **Next steps** appear as chips under a finished turn, worked out from what the turn did. A chip
+  fills the box and does not send, so you can edit it first. Tab in an empty box takes the first one.
+- **Dictation**: `Ctrl+D` records into the chat box. The speech model is an English Whisper that runs
+  on your machine, in its own process. Pick Tiny (40 MB), Base (76 MB, the default) or Small
+  (248 MB, the most accurate) under Settings, Dictation; it downloads once. Names Whisper cannot
+  know, such as tool names, skills and this project's folders, are respelled after each take, but
+  only on an exact match, so ordinary speech is left alone.
+- **Earlier sessions** are in the rail, one section per open folder. `Ctrl+B` shows or hides it.
+  Claude chats are the transcripts in `~/.claude/projects/`, the same ones `claude --resume` uses, so
+  a conversation you started in the terminal shows up in the rail, and a chat you started here shows
+  up in `claude --resume`. Codex chats appear in that rail too. So do Cursor, Grok, OpenCode and Copilot chats: Conn
+  asks each CLI for its chats, including ones you started in its own terminal. Cursor opens a long
+  chat slowly, about ten seconds. Delete works for OpenCode only; the others keep their chats
+  until you delete them in the CLI. Pick one and the
+  thread replays, tool calls and screenshots included, and that chat is live again for the next thing
+  you type. Switching chats does not stop one that is still running.
+- **Tool calls** collapse to one line each. Click one to see its input and result, including
+  screenshots inline.
+
+**Point instead of describing.** `Ctrl+Shift+E` arms the picker, you hover the preview, click an
+element, and it becomes a chip on the composer carrying the selector, the size, and a screenshot of
+just that element:
+
+```
+[preview element]
+  css: #go
+  element: button "Create account"
+  ref: e4   size: 129x39 at 48,261
+  screenshot: /tmp/conn-shots-1000/pick-1787310022.png
+```
+
+Then you finish the sentence: "make this the same height as the input". The agent gets a selector and
+a picture, not a vague description of the thing in the corner.
+
+Drag instead of clicking to pick a stretch of the page, such as two cards that do not line up. The
+chip carries the box you drew, the controls inside it with the refs the agent can act on, and a
+screenshot of just that area:
+
+```
+[preview area]
+  area: 270x78 at 13,69 in the viewport, page scrolled to 0,0
+  contains: button "Alpha" (e1), button "Bravo" (e2)
+  screenshot: /tmp/conn-shots-1000/pick-1794488561216.png
+```
+
+**Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
+layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
+clicks and typing still reach the page. Press **Take control** on that layer to get the page back.
+It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
+meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
+when the agent's turn ends.
+
+## Worktrees
+
+Give a chat its own branch and its own folder, so two agents can work at once without touching each
+other's files. In the branch menu under the composer, **Create Branch** then **Open in worktree**, or
+type a name in the **Worktrees** pane (palette, toolbar, or the chat overview). The worktree is made
+in `.claude/worktrees/<name>`, the same place `claude --worktree` uses, opened as its own folder in
+the rail, and a new chat starts there. `node_modules` is linked from the main checkout when the
+lockfiles match, so dev servers run without a fresh install.
+
+The pane lists every worktree of the repository, including ones made in a terminal, with commits
+ahead of and behind the main checkout's branch and uncommitted files. Changes can compare a worktree
+with where it left `main` (**since main**) as well as show uncommitted edits. From each row:
+
+- **Merge** the branch into the main checkout's branch. Uncommitted files on either side stop it, and
+  a conflict is backed out, so `main` is never left mid-merge.
+- **Push to main** merges the same way, then pushes the branch to `origin`. It asks first, never
+  forces, and refuses when `origin` has commits you have not pulled. The main checkout's row shows
+  how many commits `origin` lacks and has its own push.
+- **Remove** the folder. The branch is kept. Uncommitted files ask a second time.
+
+## Skills and MCP servers
+
+The pill above the composer says how many of each this folder has. Click it to see them.
+
+**Skills** are everything the agent can be told to do by name: the SKILL.md folders in `.claude/skills`
+here and in `~/.claude`, the commands in `.claude/commands`, whatever your enabled plugins ship, and,
+once a chat is running, the ones Claude Code ships with. Type `/` in the composer and the list filters
+as you type. Enter drops the name in where you typed it and leaves the caret after it for the
+argument. A prompt can name more than one skill.
+
+Switching a skill off hides it from the agent in this folder and nothing else: the files stay where
+they are and the `claude` CLI outside the app is unaffected. The off list rides along as a
+`skillOverrides` settings layer when a chat starts, and is applied mid-chat if you change your mind
+while one is running.
+
+**MCP servers** are read from `.mcp.json` here, from `~/.claude.json` (both yours and this folder's),
+and from the plugins you have on, so a server you added with `claude mcp add` is already in the list.
+Once a chat is running each row carries its real state: connected with a tool count, failed with the
+error, or waiting on a sign-in. Reconnect one, switch one off for this folder, or add one:
+
+```
+name      github
+type      stdio, http or sse
+command   npx -y @modelcontextprotocol/server-github     (or a URL, for http and sse)
+scope     .mcp.json (shared with the repo), yours, or this folder
+```
+
+A new server is written to the config file its scope names and joins the chat that is already running,
+so nothing has to be restarted. Servers a plugin brought with it are listed but not editable: they
+belong to the plugin. The app's own browser tools appear in the same list as `preview`.
+
+A server waiting on OAuth cannot be signed in to from inside a chat, because the Agent SDK has no
+control request for it. Those rows get a **Sign in** button instead, which opens a shell here running
+`claude mcp login <server>` — the CLI's own flow, saving the token the next chat reads.
+
+**The connectors from your Claude account** are fetched and connected by the CLI itself, and they can
+crowd out a local server offering the same thing: with the Figma connector on, the Figma plugin's own
+MCP server is never loaded. The switch at the top of the list turns them off for this folder, and then
+only the servers configured on this machine are used.
+
+Both lists are read off disk, so they are drawn before any agent has started. Nothing here spawns the
+Claude binary just to fill a menu.
+
+## The terminal
+
+A real PTY running your own shell, with your prompt, your aliases, your tmux. It is not a transcript
+of the agent; it is yours.
+
+Two things it does beyond being a terminal:
+
+**Dev servers open themselves.** The output is watched for a local URL. When Vite or Django or
+`next dev` prints one, a toast offers to load it in the preview. Say "always" once and it stops asking.
+
+**`conn` is on PATH.** The app injects a loopback bridge URL and a tool token into every terminal it
+spawns, so anything running there can drive the same browser the agent is using:
+
+```sh
+conn go 3000            # bare ports, hostnames and URLs all work
+conn snapshot           # page outline with [ref=eN] handles
+conn fill e3 "you@example.com"
+conn click e7
+conn console --level error
+conn shot --full
+conn record start demo # a video of the page; conn record stop prints its path
+conn preview close
+```
+
+`conn snapshot` is the entry point:
+
+```
+url: http://localhost:3000/
+title: "Signup"
+viewport: 795x860  scroll: 0/860
+
+- heading "Signup" [ref=e1]
+- textbox "Email address" [ref=e2]
+- combobox "Plan" [ref=e3]
+- button "Create account" [ref=e4]
+- link "About this thing" [ref=e5] href="/about.html"
+```
+
+Every `eN` feeds `click`, `fill`, `hover`, `select` and `highlight`. Refs are dropped on navigation, so
+snapshot again after a page load. `conn help` lists the rest.
+
+## Recording the page
+
+`record` makes a video of the preview pane, for when a person asked to see a flow and a still would
+not show it. Start it, click and type, stop it:
+
+```sh
+conn record start login-flow --max 30
+conn click e7
+conn record stop        # prints /tmp/conn-recordings-1000/login-flow.mp4
+```
+
+The agent has the same thing as the `browser_record` tool (`action` is `start` or `stop`, with
+optional `name` and `maxSeconds`). Stop returns the path, the length, the size, and three stills
+(first, middle, last) saved beside the video. The stills reach the model as images, so an agent that
+cannot watch video still sees what was recorded. Looking at the page does not ask permission in any
+mode, and neither does this.
+
+- It records the preview page, not the window. There is no audio.
+- It works with the pane closed or behind another tab, and a navigation does not end it.
+- It stops by itself after `maxSeconds` (60 unless asked, 120 at most) and keeps the file. The next
+  `stop` hands that file over.
+- Files go to a private folder in the temp directory (`/tmp/conn-recordings-<uid>/`), and only the
+  newest 20 are kept, a video with its stills. `name` is a file name, never a path.
+- The video is H.264 in an MP4 where this build of Electron can encode it, and WebM (VP9, then
+  whatever WebM it has) where it cannot. The extension says which. Frames are 10 a second, and a
+  still page repeats its last frame so the length matches the clock. Both sides are rounded down to
+  an even number of pixels.
+- Opening DevTools on the pane takes its debugger, so a recording in progress ends there and a new
+  one will not start until DevTools is closed.
+- Nothing needs ffmpeg. The encoding happens in a hidden window that exists only while recording.
+
+## Using it from another agent
+
+The panel is not the only way in. Any agent that speaks MCP can have the same 22 browser tools:
+
+```sh
+conn setup project      # writes ./.mcp.json
+# or
+claude mcp add conn -- node /path/to/conn/mcp/server.js
+```
+
+Screenshots come back as images, so the model sees the layout instead of a description of it.
+
+## Keys
+
+The chords below belong to the app. In the terminal, plain `Ctrl+L` and the rest still go
+to your shell. `Ctrl+B` and `Ctrl+D` are the app's: the sidebar and dictation.
+
+| | |
+|---|---|
+| `Ctrl+\`` | show or hide the terminal panel |
+| `Ctrl+B` | show or hide the session rail |
+| `Ctrl+D` | dictate into the chat box |
+| `Shift+Tab` | cycle the permission modes, outside text fields and the terminal |
+| `Ctrl+Shift+B` | show or hide the preview |
+| `Ctrl+Shift+E` | pick an element, or drag to pick an area |
+| `Ctrl+Shift+T` | new terminal tab |
+| `Ctrl+Shift+L` | focus the address bar |
+| `Ctrl+Shift+J` | console and network drawer |
+| `Ctrl+1…9` | switch terminal tab |
+| `Ctrl+Shift+R` | restart Conn, from anywhere in the window |
+
+## How it fits together
+
+```
+  agent panel ──┐
+  conn CLI ───┼──▶ tool dispatch ──▶ WebContentsView (the preview)
+  MCP server ───┘         │
+                          └── bridge on 127.0.0.1, tool token in the terminal env
+```
+
+One tool definition, three ways in. The agent panel calls it in-process; the CLI and the MCP server go
+through a loopback HTTP bridge whose tool token is injected into the terminals the app spawns. Nothing
+outside those terminals can reach the tool routes without that token.
+
+## Limits worth knowing
+
+- A window holds up to eight folders, and each worktree you open counts as one. Opening a ninth
+  closes the oldest folder that is safe to close, never one with a chat still working, the one on
+  screen, or a main checkout with worktrees open. When none is safe, the open is refused. Each folder has its own chats, shells, and preview tabs, and
+  more than one chat can run at the same time. The right column shows one tab of the focused folder.
+  A shell command reaches the window that has that folder open, including when another folder is the
+  one on screen.
+- Anything running in the app's terminal holds the tool token (`CONN_TOKEN`), enough to drive the
+  preview. `/debug/*` needs a separate debug token that never lands in the terminal env or
+  `~/.conn`; unpackaged builds log it on the main-process console once.
+- Do not run untrusted code in a terminal that holds the tool token.
+- A skill switched off is hidden from the agent's listing, not locked away. The files are still on
+  disk and still readable with Read or Bash if you point the agent at them.
+- Started from a desktop launcher, an app inherits a PATH with none of your own directories on it, so
+  an MCP server configured as a bare command name would fail to start. The app asks your login shell
+  for its PATH once at startup and hands that to the agent and to its servers.
+- Cross-origin iframes appear in snapshots but their contents cannot be read.
+- `screenshot --full`, viewport emulation and `record` go through CDP, and none works while DevTools
+  is open, since only one debugger can attach at a time.
+- Updates are not installed silently. Conn finds a new release, downloads the installer for your
+  system and hands it over, and you finish the install.
