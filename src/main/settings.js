@@ -33,6 +33,11 @@ const DEFAULTS = {
   },
   agent: {
     model: '',              // empty means whatever the CLI picks
+    // A Claude model saved by the picker. Releases before this one saved the
+    // first model listed on every launch, as if it had been picked.
+    modelPicked: false,
+    // The one-time clearing of such a model has run.
+    autoModelCleared: false,
     mode: 'ask',
     // How hard the model thinks. Empty means whatever the CLI defaults to,
     // which is not the same as any level we could name here: naming one would
