@@ -45,7 +45,7 @@ try {
         // Long enough for the pane to have left the box, as it has a model turn later.
         if (i % 2) await sleep(400);
         const r = await run('browser_batch', { actions: [{ tool: 'navigate', url: ${J(url)} }, { tool: look }] });
-        trials.push({ look, text: r.content[0].text, images: r.content.filter((b) => b.type === 'image').length });
+        trials.push({ look, text: r.content.filter((b) => b.type === 'text').map((b) => b.text).join('\\n'), images: r.content.filter((b) => b.type === 'image').length });
       }
     }
     return trials;

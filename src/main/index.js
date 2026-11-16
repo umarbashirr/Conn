@@ -1377,7 +1377,7 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
           report: true, signal: stop, ask: rule === 'ask', batch: { id, step: i + 1, total: steps.length },
         });
       }, stop);
-      return report ? { result: out, caused: [] } : out;
+      return report ? { result: out, caused: null } : out;
     } finally {
       bridgeBatches.delete(halt);
     }
