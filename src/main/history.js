@@ -14,10 +14,36 @@ const shellEnv = require('./shell-env');
 const { parseQuery, snippetOf } = require('./transcript-search');
 const { windowOf, MAX_MESSAGES } = require('./transcript-clip');
 
-const PROJECTS = path.join(os.homedir(), '.claude', 'projects');
+const PROJECTS = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects');
+const WIN = process.platform === 'win32';
 
-// Claude Code slugifies a cwd by replacing / and . with -.
-const slugFor = (cwd) => cwd.replace(/[/.]/g, '-');
+// Claude Code slugifies a cwd by turning every character that is not a letter
+// or digit into -, so d:\TMS\app becomes d--TMS-app. Replacing only / and .
+// worked on Linux and found nothing on Windows.
+const slugFor = (cwd) => cwd.replace(/(.)[\\/]+$/, '$1').replace(/[^a-zA-Z0-9]/g, '-');
+
+// Windows paths ignore case and take either slash, and the CLI records the
+// drive letter as the terminal typed it, so one project can hold both a
+// d--TMS-app and a D--TMS-app folder.
+const samePath = (a, b) => {
+  if (!WIN) return a === b;
+  const norm = (p) => p.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+};
+
+// Every folder under PROJECTS named for this slug: one on Linux and macOS, and
+// on Windows each casing the CLI happened to write.
+function slugDirs(cwd) {
+  const slug = slugFor(cwd);
+  if (!WIN) {
+    const dir = path.join(PROJECTS, slug);
+    return fs.existsSync(dir) ? [dir] : [];
+  }
+  let names = [];
+  try { names = fs.readdirSync(PROJECTS); } catch { return []; }
+  const want = slug.toLowerCase();
+  return names.filter((n) => n.toLowerCase() === want).map((n) => path.join(PROJECTS, n));
+}
 
 // One entry per project. This was a single cwd for as long as a window held a
 // single folder, and the rail now asks about every project that is open: with
@@ -29,8 +55,7 @@ const dirs = new Map();
 function projectDir(cwd) {
   const hit = dirs.get(cwd);
   if (hit) return hit;
-  let dir = path.join(PROJECTS, slugFor(cwd));
-  if (!fs.existsSync(dir)) dir = scanForCwd(cwd) || dir;
+  const dir = slugDirs(cwd)[0] || scanForCwd(cwd) || path.join(PROJECTS, slugFor(cwd));
   dirs.set(cwd, dir);
   return dir;
 }
@@ -48,7 +73,7 @@ function scanForCwd(cwd) {
     if (!files.length) continue;
     for (const o of parseHead(path.join(dir, files[0]), 1 << 15)) {
       if (!o.cwd) continue;
-      if (o.cwd === cwd) return dir;
+      if (samePath(o.cwd, cwd)) return dir;
       break; // this directory belongs to another project
     }
   }
@@ -257,12 +282,10 @@ function historyDirs(cwd) {
   const out = [];
   const add = (dir) => { if (dir && !out.includes(dir)) out.push(dir); };
   add(projectDir(cwd));
+  for (const dir of slugDirs(cwd)) add(dir);
   try {
     const real = fs.realpathSync(cwd);
-    if (real !== cwd) {
-      const alt = path.join(PROJECTS, slugFor(real));
-      if (fs.existsSync(alt)) add(alt);
-    }
+    if (real !== cwd) for (const dir of slugDirs(real)) add(dir);
   } catch {}
   return out;
 }
