@@ -11,13 +11,20 @@
      #message.ok, read the text, screenshot. Once as seven single calls, once
      as one batch.
    - A screenshot at the median pane size seen in real transcripts, 1280x929.
+   - What the prose names: the instructions, the MCP server's own and the
+     $browser mention may name a tool as browser_<name> only when it is
+     always loaded. Naming one that loads on demand steers Claude to a
+     ToolSearch round trip before the call; the rest are named bare, as
+     browser_batch steps, which run any tool without loading it.
 
    Images are counted as the model reads them: w*h/750 tokens after fitting
    the long side to 1568. Needs a built renderer: `npx vite build`. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = process.env.CONN_ROOT || path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -72,6 +79,30 @@ const serverInstructions = client.getInstructions() || '';
 await client.close();
 console.log(`conn MCP server: ${listed.length} tools, tools/list ${listChars} chars (before ${BEFORE.mcpList}), instructions ${serverInstructions.length} chars`);
 check('mcp-tool-list-no-larger', listChars <= BEFORE.mcpList);
+
+// --- what the prose names --------------------------------------------------------
+
+const mentionBlock = async (provider) => {
+  const { rolldown } = await import('rolldown');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cost-mentions-'));
+  try {
+    const bundle = await rolldown({ input: path.join(ROOT, 'src/renderer/ui/lib/conn-mentions.js'), platform: 'node', logLevel: 'silent' });
+    await bundle.write({ file: path.join(dir, 'mentions.cjs'), format: 'cjs' });
+    return require(path.join(dir, 'mentions.cjs')).MENTIONS.browser.block({ provider });
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+};
+const onDemand = (text) => [...new Set(text.match(/browser_[a-z_]+/g) || [])].filter((n) => !ALWAYS_LOADED.has(n));
+for (const [where, text] of [
+  ['instructions', INSTRUCTIONS],
+  ['mcp-instructions', serverInstructions],
+  ['claude-mention', await mentionBlock('claude')],
+  ['acp-mention', await mentionBlock('cursor')],
+]) {
+  const named = onDemand(text);
+  check(`${where}-names-only-always-loaded-tools`, named.length === 0, named.length ? `names ${named.join(', ')}, which load on demand` : '');
+}
 
 // --- the scenario, through the real handlers -----------------------------------
 
