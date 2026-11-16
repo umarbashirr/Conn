@@ -357,6 +357,10 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
   });
 }
 
+// evaluate's result is whatever the page's script returned, so an `error`
+// there is the page's own data.
+const failedWith = (name, result) => (name !== 'browser_evaluate' && typeof result?.error === 'string' ? result.error : null);
+
 /**
  * Runs planned steps in order through `run`, which is whatever a single call
  * of that step goes through on this transport: its permission check, its
@@ -364,7 +368,9 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
  *
  * Every step comes back with its `status`:
  *   ran      it ran
- *   failed   it threw
+ *   failed   it threw, or its result carries an `error`, which is how a
+ *            navigate that did not load and a viewport that could not be
+ *            set say so
  *   refused  a mode, a rule or the person said no; told apart by its code
  *   stopped  it never ran, because a step before it failed or was refused,
  *            or `signal` was aborted, which `interrupted` says
@@ -381,7 +387,9 @@ async function runBatch(steps, run, signal) {
     if (ended) { done('stopped'); continue; }
     try {
       const { result, caused } = await run(step, i);
-      done('ran', { result, caused });
+      const error = failedWith(step.name, result);
+      done(error ? 'failed' : 'ran', { result, caused, ...(error ? { error } : {}) });
+      ended = !!error;
     } catch (e) {
       done(e?.code === 'PERMISSION_DENIED' ? 'refused' : 'failed', { error: e?.message || String(e) });
       ended = true;
@@ -404,7 +412,7 @@ function batchContent({ steps, interrupted }, read) {
     const what = shortName(s.name);
     if (s.status === 'stopped') continue;
     if (s.status !== 'ran') {
-      lines.push(`${n} ${what} ${s.status === 'refused' ? 'was refused' : 'failed'}: ${s.error}`);
+      lines.push(`${n} ${what} ${s.status === 'refused' ? 'was refused' : 'failed'}: ${s.error}${causedText(s.caused, '   ')}`);
       continue;
     }
     const t = BY_NAME.get(s.name);
