@@ -8,7 +8,7 @@ const { normalizeUrl, isAllowedUrl, engineOf } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
 const { Recorder } = require('./recorder');
-const { modelFit, cut, clip } = require('../shared/browser-tools');
+const { modelFit, cut } = require('../shared/browser-tools');
 
 // Electron's default user agent names the app and Electron, and Google's
 // sign-in refuses any browser that says so ("This browser or app may not be
@@ -35,10 +35,15 @@ const MAX_INFLIGHT = 500;
 // Every screenshot the agent takes lands on disk and nothing ever collected
 // them. Keep a working set; the agent only ever looks at the recent ones.
 const MAX_SHOTS = 60;
-// How long an action's result waits on the requests it started, and how much
-// of what they caused it repeats.
+// How long an action's result waits on the requests it started.
 const SETTLE_MS = 1000;
-const CAUSED_ROWS = 5;
+// A page's handlers have run by the time an action returns, but what they set
+// off can start a frame later: a framework's effect runs after its render.
+// Measured in the pane, a request a fill starts itself reaches main within
+// 1 ms of the fill returning, and one started on the next frame within 19 ms.
+// 80 ms, the beat press and hover already take after their input, is about
+// four frames.
+const BEAT_MS = 80;
 // Electron's own notices land in the page's console from its bundled scripts.
 // They are about the app, never the page, so they are not the page's errors.
 const ELECTRON_SOURCE = /^(?:electron\/|node:electron\/|sandbox_bundle|renderer_init)/;
@@ -63,6 +68,9 @@ class BrowserPane extends EventEmitter {
     this.partition = partitionFor(this.project);
     this.console = [];
     this.network = [];
+    this.seq = 0;                   // numbers every console and network row
+    this.reported = null;           // the last row an action's result told
+    this.reportedAt = 0;            // and when
     this.pending = new Set();
     this.reqs = new Map();          // requestId -> the bits needed to log a failure
     this.lastActivity = Date.now();
@@ -125,7 +133,7 @@ class BrowserPane extends EventEmitter {
     });
     wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
       if (isMainFrameNavFail(isMainFrame, code)) {
-        this.network.push({ t: Date.now(), kind: 'navigation-failed', url, code, desc });
+        this.#log(this.network, { kind: 'navigation-failed', url, code, desc });
         // failedUrl matters: after a failed load getURL() can still report the
         // previous page, and the error card needs the address that broke.
         this.emit('state', { ...this.state(), error: `${desc} (${code})`, failedUrl: url });
@@ -133,9 +141,7 @@ class BrowserPane extends EventEmitter {
     });
     wc.on('console-message', (_e, level, message, line, sourceId) => {
       const levels = ['debug', 'info', 'warning', 'error'];
-      this.console.push({ t: Date.now(), level: levels[level] || String(level), message, source: `${sourceId}:${line}` });
-      if (this.console.length > RING) this.console.shift();
-      this.emit('console', this.console[this.console.length - 1]);
+      this.emit('console', this.#log(this.console, { level: levels[level] || String(level), message, source: `${sourceId}:${line}` }));
     });
     this.#guardOpens(wc);
     wc.on('will-navigate', (e, url) => {
@@ -206,8 +212,7 @@ class BrowserPane extends EventEmitter {
         r.status = p.response.status;
         r.type = p.type;
         if (p.response.status >= 400) {
-          this.network.push({ t: Date.now(), kind: 'http', ...r });
-          if (this.network.length > RING) this.network.shift();
+          this.#log(this.network, { kind: 'http', ...r });
         }
       }
     } else if (method === 'Network.loadingFailed') {
@@ -215,13 +220,21 @@ class BrowserPane extends EventEmitter {
       this.reqs.delete(p.requestId);
       this.pending.delete(p.requestId);
       if (!p.canceled) {
-        this.network.push({ t: Date.now(), kind: 'failed', url: r.url, method: r.method, error: p.errorText });
-        if (this.network.length > RING) this.network.shift();
+        this.#log(this.network, { kind: 'failed', url: r.url, method: r.method, error: p.errorText });
       }
     } else if (method === 'Network.loadingFinished') {
       this.reqs.delete(p.requestId);
       this.pending.delete(p.requestId);
     }
+  }
+
+  // `t` is when the row was logged, even for a request row, which is built
+  // from the request's own entry and its start time.
+  #log(list, row) {
+    const entry = { ...row, t: Date.now(), n: ++this.seq };
+    list.push(entry);
+    if (list.length > RING) list.shift();
+    return entry;
   }
 
   async #inject() {
@@ -692,31 +705,35 @@ class BrowserPane extends EventEmitter {
 
   networkLog({ limit = 50 } = {}) { return this.network.slice(-limit); }
 
-  /* What the page reported since an action began, for that action's own
-     result: console errors and warnings and failed requests. Requests the
-     action set off get up to SETTLE_MS to finish first, so a click whose
-     fetch fails says so; with none in flight this returns at once. */
+  /* An action's report: the console errors and warnings and the failed
+     requests the page logged in its window, as rows, for the action's own
+     result. The window opens where the last report closed, so each row is
+     told once, and one that came between two actions is told by the second,
+     its time saying it came before that action began (`since`). The first
+     report on a pane starts at its action. After the beat, requests the
+     action set off get up to SETTLE_MS to finish, so a click whose fetch
+     fails says so; with none in flight it returns then. */
   async caused(since) {
+    await sleep(BEAT_MS);
     const until = Date.now() + SETTLE_MS;
     const busy = () => [...this.reqs.values()].some((r) => r.t >= since);
     if (busy()) {
       while (busy() && Date.now() < until) await sleep(50);
       await sleep(50); // a page's own catch logs a beat after the failure
     }
-    const logged = this.console.filter((c) => c.t >= since && (c.level === 'error' || c.level === 'warning')
-      && !ELECTRON_SOURCE.test(String(c.source || '')));
-    const errors = logged.filter((c) => c.level === 'error');
-    const shown = [...errors, ...logged.filter((c) => c.level === 'warning')].slice(0, CAUSED_ROWS);
-    const failed = this.network.filter((n) => n.t >= since);
-    const lines = [
-      ...shown.map((c) => { const w = String(c.source || '').replace(/^.*\//, ''); return `console ${c.level}: ${clip(c.message, 200)}${w.startsWith(':') ? '' : ` (${w})`}`; }),
-      ...failed.slice(0, CAUSED_ROWS).map((n) => (n.kind === 'navigation-failed'
-        ? `page failed to load: ${n.desc} (${n.code})`
-        : `request failed: ${n.status || n.error} ${n.method || ''} ${clip(n.url, 200)}`.replace(/\s+/g, ' '))),
-    ];
-    if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console`);
-    if (failed.length > CAUSED_ROWS) lines.push(`${failed.length - CAUSED_ROWS} more failed requests: browser_network`);
-    return lines;
+    const told = this.reported;
+    const fresh = (r) => (told === null ? r.t >= since : r.n > told);
+    const rows = [
+      ...this.console.filter((c) => fresh(c) && (c.level === 'error' || c.level === 'warning') && !ELECTRON_SOURCE.test(String(c.source || '')))
+        .map((c) => ({ kind: 'console', level: c.level, text: c.message, source: c.source, t: c.t, n: c.n })),
+      ...this.network.filter(fresh).map((r) => (r.kind === 'navigation-failed'
+        ? { kind: 'request', page: true, status: `${r.desc} (${r.code})`, text: r.url, t: r.t, n: r.n }
+        : { kind: 'request', status: r.status || r.error, method: r.method, text: r.url, t: r.t, n: r.n })),
+    ].sort((a, b) => a.n - b.n);
+    const from = told === null ? since : this.reportedAt;
+    this.reported = this.seq;
+    this.reportedAt = Date.now();
+    return { from, since, until: this.reportedAt, rows };
   }
 
   // Docked under the page, or in a window of its own.

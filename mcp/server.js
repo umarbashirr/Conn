@@ -44,7 +44,7 @@ async function call(tool, args = {}) {
 
 const server = new McpServer(
   { name: 'conn', version: '0.1.0' },
-  { instructions: 'Controls the preview browser pane next to this terminal. browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Put steps you can plan ahead in one browser_batch call. Action results list new console errors and failed requests.' },
+  { instructions: 'Controls the preview browser pane next to this terminal. browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Put steps you can plan ahead in one browser_batch call. Action results list the console errors and failed requests seen by the time they return; later ones show in browser_console and browser_network.' },
 );
 
 const wrap = (fn) => async (args) => {

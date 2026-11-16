@@ -280,10 +280,31 @@ function textOf(t, result, args) {
   return JSON.stringify(result) ?? 'undefined';
 }
 
-/* What a page-changing action caused, as main reported it: new console
-   errors and warnings and failed requests, one per line. Nothing new adds
-   nothing, which the instructions tell the agent means clean. */
-const causedText = (caused, indent = '') => (caused?.length ? `\n${caused.map((c) => indent + c).join('\n')}` : '');
+/* A page-changing action's report, as the pane made it (BrowserPane.caused),
+   one line per row: errors before warnings, at most REPORT_ROWS of each kind,
+   and a row that came before the action began marked as such. An empty
+   report adds nothing. */
+const REPORT_ROWS = 5;
+
+function reportLine(r, since) {
+  const what = r.kind === 'console' ? `console ${r.level}` : r.page ? 'page failed to load' : 'request failed';
+  const when = r.t < since ? ' (after the previous step)' : '';
+  const body = r.kind === 'console' ? `${clip(r.text, ROW_CHARS)}${where(r.source)}`
+    : r.page ? r.status : `${r.status} ${r.method || ''} ${clip(r.text, ROW_CHARS)}`.replace(/\s+/g, ' ');
+  return `${what}${when}: ${body}`;
+}
+
+function causedText(report, indent = '') {
+  const rows = report?.rows || [];
+  if (!rows.length) return '';
+  const logged = rows.filter((r) => r.kind === 'console');
+  const shown = [...logged.filter((r) => r.level === 'error'), ...logged.filter((r) => r.level !== 'error')].slice(0, REPORT_ROWS);
+  const failed = rows.filter((r) => r.kind === 'request');
+  const lines = [...shown, ...failed.slice(0, REPORT_ROWS)].map((r) => reportLine(r, report.since));
+  if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console`);
+  if (failed.length > REPORT_ROWS) lines.push(`${failed.length - REPORT_ROWS} more failed requests: browser_network`);
+  return `\n${lines.map((l) => indent + l).join('\n')}`;
+}
 
 /**
  * What the model is handed for one call, the same over every transport.
@@ -314,7 +335,7 @@ const INSTRUCTIONS = [
   'browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Refs are dropped on navigation.',
   'Check behaviour with browser_snapshot or browser_text; take browser_screenshot only for visual checks.',
   'Put steps you can plan ahead in one browser_batch call rather than a call each.',
-  'Action results list new console errors and failed requests; when they list none, there were none.',
+  'Action results list the console errors and failed requests seen by the time they return; later ones show in browser_console and browser_network.',
   'browser_tabs lists this chat\'s tabs, which one you drive and which one the human sees.',
   'The tab you start on may hold the person\'s own app, so use browser_tab_new for anything unrelated, such as docs.',
   'browser_tab_select changes which tab your tools act on. A subagent\'s first browser_navigate opens a tab of its own.',
@@ -436,7 +457,7 @@ const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.route
 const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '', copilot: '' };
 
 module.exports = {
-  browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE, cut, clip,
+  browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE, cut,
   planBatch, runBatch, batchContent, BATCH_MAX,
   INSTRUCTIONS, ALWAYS_LOADED, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
 };

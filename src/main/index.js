@@ -1214,14 +1214,19 @@ function tabOps(cwd, actor) {
 }
 
 // Permission is already settled by the caller; this never asks. With
-// `report` the answer is { result, caused }: what a page-changing tool left in
-// the console and the network, for the agent's copy of the result. Without it
-// the result is as it always was, for the CLI and anything else reading it.
+// `report` the answer is { result, caused }: the pane's report of what a
+// page-changing tool left in the console and the network, or null, for the
+// agent's copy of the result. Without it the result is as it always was, for
+// the CLI and anything else reading it.
 async function driveTool(tool, args, { cwd, actor, report = false }) {
   if (TAB_TOOLS.has(tool)) {
     send('agent:activity', { tool, args, t: Date.now(), actor, project: cwd || focused, tab: router.current(actor), reveal: false });
+    const since = Date.now();
     const result = await runTool(tool, args, { tabs: tabOps(cwd, actor) });
-    return report ? { result, caused: [] } : result;
+    if (!report) return result;
+    // A tab opened on a url loaded a page there, which reports like a navigate.
+    const pane = tool === 'tabNew' && args?.url ? panes.get(router.current(actor))?.pane : null;
+    return { result, caused: pane ? await pane.caused(since) : null };
   }
   const pageChange = !READS.has(tool);
   const tab = router.tabFor(actor, tool, cwd, { pageChange });
@@ -1244,7 +1249,7 @@ async function driveTool(tool, args, { cwd, actor, report = false }) {
     });
     if (!report) return result;
     const pane = panes.get(tab)?.pane;
-    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : [] };
+    return { result, caused: pane && CAUSES.has(tool) ? await pane.caused(since) : null };
   } finally {
     l.done(tool, actor);
   }
