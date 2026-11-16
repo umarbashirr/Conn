@@ -390,8 +390,9 @@ class BrowserPane extends EventEmitter {
   async html(max) {
     const cap = Number(max) || 200000;
     // Without Conn's own pointer, whose reset style alone runs to 5,000
-    // characters and is not the page's.
-    const h = await this.#js(`(() => { const d = document.documentElement.cloneNode(true);
+    // characters and is not the page's. The copy is made in a document of its
+    // own, which loads nothing: a copy made in the page fetches its images again.
+    const h = await this.#js(`(() => { const d = document.implementation.createHTMLDocument('').importNode(document.documentElement, true);
       d.querySelectorAll('#__conn-cursor, [data-conn-ripple]').forEach((n) => n.remove());
       return d.outerHTML; })()`);
     return h.length > cap ? `${cut(h, cap)}\n<!-- truncated at ${cap} of ${h.length} characters; pass max for more -->` : h;
