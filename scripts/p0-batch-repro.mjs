@@ -3,6 +3,7 @@
    terminal use, and `conn batch` through the bridge. Boots the app on the shop
    fixture. Needs a built renderer: `npx vite build`. */
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -126,6 +127,37 @@ try {
     const n = await countedViaMcp();
     check('bridge-stop-button-stops-the-batch', n === '1', `window.__n is ${n}; ${J(r.text)}`);
     check('bridge-stop-button-says-stopped', STOPPED.test(r.text), J(r.text));
+  }
+
+  {
+    // A navigate that does not load answers with an error rather than throwing.
+    // The steps after it would act on whatever page is left.
+    const blocked = [
+      { tool: 'navigate', url },
+      { tool: 'navigate', url: 'file:///etc/passwd' },
+      { tool: 'fill', target: '#coupon', value: 'SAVE10' },
+      { tool: 'click', target: '#apply' },
+      { tool: 'evaluate', code: 'document.querySelector("#message").textContent' },
+    ];
+    const BLOCKED = /^2\. navigate failed: blocked URL scheme: file:$/m;
+    const viaBridge = await viaMcp('browser_batch', { actions: blocked });
+    check('mcp-blocked-navigate-fails-its-step', BLOCKED.test(viaBridge.text) && viaBridge.isError, J(viaBridge));
+    check('mcp-blocked-navigate-stops-the-batch', /Stopped there\. Steps 3-5 did not run\./.test(viaBridge.text), J(viaBridge.text));
+
+    const r = await inProcess('auto', `return text(await call('browser_batch', { actions: ${J(blocked)} }));`);
+    check('in-process-blocked-navigate-fails-its-step', BLOCKED.test(r.text) && r.isError, J(r));
+    check('in-process-blocked-navigate-stops-the-batch', /Stopped there\. Steps 3-5 did not run\./.test(r.text), J(r.text));
+
+    const port = await new Promise((res) => { const l = net.createServer().listen(0, '127.0.0.1', () => { const p = l.address().port; l.close(() => res(p)); }); });
+    const down = await inProcess('auto', `return text(await call('browser_batch', { actions: ${J([
+      { tool: 'navigate', url },
+      { tool: 'navigate', url: `http://127.0.0.1:${port}/` },
+      { tool: 'evaluate', code: 'location.href' },
+    ])} }));`);
+    check('in-process-unreachable-navigate-stops-the-batch', /^2\. navigate failed: ERR_CONNECTION_REFUSED/m.test(down.text) && /Stopped there\. Step 3 did not run\./.test(down.text), J(down.text));
+
+    const single = await inProcess('auto', `return text(await call('browser_navigate', { url: 'file:///etc/passwd' }));`);
+    check('single-navigate-reads-as-before', !single.isError && /; error: blocked URL scheme: file:$/.test(single.text), J(single));
   }
 } finally {
   await mcp?.close().catch(() => {});
