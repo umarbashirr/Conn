@@ -44,6 +44,10 @@ const SETTLE_MS = 1000;
 // 80 ms, the beat press and hover already take after their input, is about
 // four frames.
 const BEAT_MS = 80;
+// A stream stays open for as long as the page wants it, so an action's
+// result does not wait for one to finish: an EventSource or WebSocket from
+// the start, a fetch once its answer says text/event-stream.
+const STREAM_TYPES = new Set(['EventSource', 'WebSocket']);
 // Electron's own notices land in the page's console from its bundled scripts.
 // They are about the app, never the page, so they are not the page's errors.
 const ELECTRON_SOURCE = /^(?:electron\/|node:electron\/|sandbox_bundle|renderer_init)/;
@@ -205,12 +209,13 @@ class BrowserPane extends EventEmitter {
         this.reqs.delete(oldest);
         this.pending.delete(oldest);
       }
-      this.reqs.set(p.requestId, { url: p.request.url, method: p.request.method, t: Date.now() });
+      this.reqs.set(p.requestId, { url: p.request.url, method: p.request.method, t: Date.now(), ...(STREAM_TYPES.has(p.type) ? { stream: true } : {}) });
     } else if (method === 'Network.responseReceived') {
       const r = this.reqs.get(p.requestId);
       if (r) {
         r.status = p.response.status;
         r.type = p.type;
+        if (p.response.mimeType === 'text/event-stream') r.stream = true;
         if (p.response.status >= 400) {
           this.#log(this.network, { kind: 'http', ...r });
         }
@@ -716,7 +721,7 @@ class BrowserPane extends EventEmitter {
   async caused(since) {
     await sleep(BEAT_MS);
     const until = Date.now() + SETTLE_MS;
-    const busy = () => [...this.reqs.values()].some((r) => r.t >= since);
+    const busy = () => [...this.reqs.values()].some((r) => r.t >= since && !r.stream);
     if (busy()) {
       while (busy() && Date.now() < until) await sleep(50);
       await sleep(50); // a page's own catch logs a beat after the failure
