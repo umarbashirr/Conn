@@ -258,7 +258,19 @@ async function probeModels(base, token) {
 // themselves. Applied on the way out too, so a cache written before this still
 // cannot serve it.
 const ALIAS = 'default';
-const pickable = (models) => (models || []).filter((m) => m && m.value && m.value !== ALIAS);
+//
+// What the alias stood for still matters, though: with nothing picked, the
+// first model here is the one every chat runs on. The CLI on its own runs the
+// account's default, so that model goes first. Taking whatever happened to be
+// listed first instead could put an account whose default is Sonnet on Opus,
+// and spend its usage several times faster than the same work in the CLI.
+const pickable = (models) => {
+  const list = (models || []).filter((m) => m && m.value);
+  const rest = list.filter((m) => m.value !== ALIAS);
+  const stands = versioned(list.find((m) => m.value === ALIAS) || {});
+  const at = stands ? rest.findIndex((m) => (versioned(m) || m.displayName) === stands) : -1;
+  return at > 0 ? [rest[at], ...rest.slice(0, at), ...rest.slice(at + 1)] : rest;
+};
 
 // The CLI's names leave the version out ("Opus"), which says nothing once two Opus
 // releases are about. The description leads with it ("Opus 5.5 with 1M
