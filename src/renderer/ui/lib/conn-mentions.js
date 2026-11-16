@@ -16,7 +16,7 @@ function browserBlock({ provider }) {
   return [
     '[conn browser] $browser',
     '  "Browser" here means the Browser pane in Conn, the app this chat runs in. It is a live Chromium view beside this chat, and the person is watching it. It is not your own product\'s browser, Claude in Chrome or any other extension, Playwright, Puppeteer, or computer use.',
-    `  Drive it only with ${source}. Open pages with ${tool('navigate')}, read them with ${tool('snapshot')} or ${tool('text')}, act with ${tool('click')}, ${tool('fill')}, ${tool('type')} and ${tool('press')}, run steps you can plan ahead in one ${tool('batch')} call, and call ${tool('show')} to put the pane in front of the person. Action results list the console errors and failed requests seen by the time they return; later ones show in ${tool('console')} and ${tool('network')}.`,
+    `  Drive it only with ${source}. Open pages with ${tool('navigate')}, read them with ${tool('snapshot')} or ${tool('text')}, act with ${tool('click')} or ${tool('evaluate')}, and look with ${tool('screenshot')}. Run steps you can plan ahead in one ${tool('batch')} call: any browser tool is a step there, named bare, such as fill, type, press, or show, which puts the pane in front of the person. Action results list console errors and failed requests seen by the time they return; later ones show in ${tool('console')}.`,
   ].join('\n');
 }
 

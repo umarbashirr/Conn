@@ -303,7 +303,7 @@ function causedText(report, indent = '') {
   const failed = rows.filter((r) => r.kind === 'request');
   const lines = [...shown, ...failed.slice(0, REPORT_ROWS)].map((r) => reportLine(r, report.since));
   if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console {"full":true}`);
-  if (failed.length > REPORT_ROWS) lines.push(`${failed.length - REPORT_ROWS} more failed requests: browser_network`);
+  if (failed.length > REPORT_ROWS) lines.push(`${failed.length - REPORT_ROWS} more failed requests: a network step`);
   return `\n${lines.map((l) => indent + l).join('\n')}`;
 }
 
@@ -320,25 +320,30 @@ function toolContent(t, result, read, { args, caused } = {}) {
 }
 
 /* The tools whose definitions ride along in every Claude request. The rest
-   are deferred: the CLI lists their names and loads one when it is wanted,
-   and browser_batch runs any of them without loading it. Together these cost
-   less than the ten that were here before the batch existed. */
-const ALWAYS_LOADED = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
-  'browser_screenshot', 'browser_batch', 'browser_show', 'browser_tabs', 'browser_tab_new']);
+   are deferred: the CLI lists their names, and calling one costs a ToolSearch
+   round trip to load it first, while browser_batch runs any of them as a
+   step without loading it. These are the most called in real transcripts
+   (evaluate 1,197, navigate 711, screenshot 631, wait 291, console 133,
+   tab_select 121, click 91, snapshot 57, text 15), plus the batch, and
+   together cost no more than the ten that were here before it. The prose
+   names a tool as browser_<name> only if it is here (browser-cost-check). */
+const ALWAYS_LOADED = new Set(['browser_batch', 'browser_evaluate', 'browser_navigate', 'browser_screenshot', 'browser_wait',
+  'browser_console', 'browser_tab_select', 'browser_click', 'browser_snapshot', 'browser_text']);
 
 /* Appended to every request of a chat that has the pane, so it is kept as
    short as the facts allow. It asks for fewer calls, not more: steps go in a
-   batch, and an action's own result already says what went wrong. */
+   batch, and an action's own result already says what went wrong. A tool
+   that is not always loaded is named as a batch step, bare. */
 const INSTRUCTIONS = [
   'You are working next to a live preview browser, a real Chromium view the human can see.',
   'browser_navigate loads a URL (bare ports work: "3000" becomes http://localhost:3000).',
-  'Call browser_show when you want the human to see the pane; it starts hidden and the page keeps working while closed.',
-  'browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Refs are dropped on navigation.',
-  'Check behaviour with browser_snapshot or browser_text; take browser_screenshot only for visual checks.',
-  'Put steps you can plan ahead in one browser_batch call rather than a call each.',
-  'Action results list the console errors and failed requests seen by the time they return; later ones show in browser_console and browser_network.',
-  'browser_tabs lists this chat\'s tabs, which one you drive and which one the human sees.',
-  'The tab you start on may hold the person\'s own app, so use browser_tab_new for anything unrelated, such as docs.',
+  'browser_snapshot returns [ref=eN] handles that browser_click and other steps take; refs reset on navigation.',
+  'Check behaviour with browser_snapshot or browser_text; use browser_screenshot only for visual checks.',
+  'Put steps you can plan ahead in one browser_batch call, not a call each; any browser tool is a step there, named bare: fill, type, press.',
+  'The pane starts hidden and the page works while closed; a show step puts it in front of the human.',
+  'Action results list console errors and failed requests seen by the time they return; later ones show in browser_console or a network step.',
+  'A tabs step lists this chat\'s tabs: which you drive, which the human sees.',
+  'The tab you start on may hold the person\'s own app, so use a tab_new step for anything unrelated, like docs.',
   'browser_tab_select changes which tab your tools act on. A subagent\'s first browser_navigate opens a tab of its own.',
 ].join(' ');
 

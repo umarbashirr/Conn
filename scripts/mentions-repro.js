@@ -60,7 +60,7 @@ async function blocks(dir) {
     const [browser] = m.mentionBlocks(new Set(['browser']), '', { provider, slot });
     const want = expected(provider);
     const named = browser.match(/\b[\w]*browser_[a-z]+\b/g) || [];
-    check(`${provider}-block-uses-its-tool-names`, named.length >= 9 && named.every((n) => n.startsWith(`${want}browser_`) && real.has(n.slice(want.length))), named.join(' '));
+    check(`${provider}-block-uses-its-tool-names`, named.length >= 8 && named.every((n) => n.startsWith(`${want}browser_`) && real.has(n.slice(want.length))), named.join(' '));
     if (!want) check(`${provider}-block-names-the-conn-server`, browser.includes(`${acpServer} MCP server`), browser);
   }
 
