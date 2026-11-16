@@ -7,6 +7,7 @@
    and only the images the agent is sent are 800. Needs a built renderer:
    `npx vite build`. */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -41,6 +42,8 @@ try {
   console.log(`library: ${library.path}, video ${library.width} wide, stills ${libraryWidths.join(' ')}`);
   check('library-recording-lands-in-videos', library.path.startsWith(path.join(s.home, 'Videos', 'Conn')), library.path);
   check('library-stills-keep-the-frame-size', library.width > 800 && libraryWidths.every((w) => w === library.width), `${libraryWidths} vs ${library.width}`);
+  const shelf = fs.readdirSync(path.dirname(library.path));
+  check('library-holds-only-the-persons-files', shelf.length === 4 && !shelf.some((f) => f.includes('.sent.')), shelf.join(' '));
 
   const agent = await drive.evaluate(s, `(async () => {
     const a = globalThis.__agent;

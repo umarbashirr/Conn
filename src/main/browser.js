@@ -645,7 +645,7 @@ class BrowserPane extends EventEmitter {
       if (library && !name) name = `conn-recording-${new Date().toLocaleString('sv').replace(/[: ]/g, '-')}`;
       const where = library
         ? { dir: path.join(app.getPath('videos'), 'Conn'), keep: null }
-        : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS };
+        : { dir: ensurePrivateDir('conn-recordings'), keep: MAX_RECORDINGS, forModel: true };
       return this.recorder.start({ ...where, name, maxSeconds, announce: library });
     }
     if (action === 'stop') return this.recorder.stop();

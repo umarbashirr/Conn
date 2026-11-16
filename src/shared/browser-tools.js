@@ -228,7 +228,9 @@ function browserTools(z) {
 // covers any such check; past that the agent should look at what it has.
 const BATCH_MAX = 15;
 
-const keyframeBlocks = (result, read) => (result.keyframes || []).map((file) => ({
+// The small copies when the recording was an agent's; a person's recording
+// that an agent stopped has only the person's own stills.
+const keyframeBlocks = (result, read) => ((result.model || result).keyframes || []).map((file) => ({
   type: 'image', data: read(file).toString('base64'), mimeType: 'image/jpeg',
 }));
 

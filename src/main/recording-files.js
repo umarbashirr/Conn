@@ -6,6 +6,8 @@ const STILLS = ['first', 'mid', 'last'];
 const VIDEO = /\.(mp4|webm)$/i;
 
 const stillPath = (video, which) => video.replace(VIDEO, `-${which}.jpg`);
+// The copy of a still the agent is sent, beside the person's own.
+const sentPath = (still) => still.replace(/\.jpg$/, '.sent.jpg');
 
 function pruneRecordings(dir, keep) {
   try {
@@ -18,11 +20,11 @@ function pruneRecordings(dir, keep) {
       .filter(Boolean)
       .sort((a, b) => b.at - a.at);
     for (const { full } of videos.slice(keep)) {
-      for (const f of [full, ...STILLS.map((s) => stillPath(full, s))]) {
+      for (const f of [full, ...STILLS.flatMap((s) => [stillPath(full, s), sentPath(stillPath(full, s))])]) {
         try { fs.unlinkSync(f); } catch {}
       }
     }
   } catch {}
 }
 
-module.exports = { STILLS, stillPath, pruneRecordings };
+module.exports = { STILLS, stillPath, sentPath, pruneRecordings };

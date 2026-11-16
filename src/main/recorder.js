@@ -6,7 +6,7 @@ const fs = require('fs');
 const { nativeImage } = require('electron');
 const { EncoderWindow } = require('./encoder-window');
 const { safeFilePath } = require('./screenshot-path');
-const { STILLS, stillPath, pruneRecordings } = require('./recording-files');
+const { STILLS, stillPath, sentPath, pruneRecordings } = require('./recording-files');
 const { modelFit } = require('../shared/browser-tools');
 
 const FPS = 10;
@@ -27,8 +27,8 @@ const PICKS = 48;
 
 const SCREENCAST = { format: 'jpeg', quality: 80, everyNthFrame: 1 };
 
-// The stills are handed to the agent as they are, so they keep to the same
-// size a screenshot is sent at. A frame already inside it is written untouched.
+// The copy of a still the agent is sent keeps to the size a screenshot is
+// sent at. A frame already inside it is copied untouched.
 function fitStill(jpeg) {
   const img = nativeImage.createFromBuffer(jpeg);
   const { width, height } = img.getSize();
@@ -65,13 +65,15 @@ class Recorder {
     return Promise.resolve().then(() => this.io.send(method, params));
   }
 
-  async start({ dir, name, keep, maxSeconds, announce = false }) {
+  // `forModel` is a recording an agent asked for: its stills get the small
+  // copies it is sent, beside them. A person's own recording keeps only theirs.
+  async start({ dir, name, keep, maxSeconds, announce = false, forModel = false }) {
     if (this.phase !== 'idle') throw new Error('already recording this pane. Call record stop first.');
     if (!this.io.attached()) {
       throw new Error('DevTools is open on the preview pane, so it cannot be recorded. Close them with the devtools tool and try again.');
     }
     const rec = {
-      dir, name, keep, announce,
+      dir, name, keep, announce, forModel,
       fps: FPS,
       maxSeconds: clampSeconds(maxSeconds),
       startedAt: 0,
@@ -230,7 +232,7 @@ class Recorder {
 
       const video = safeFilePath(rec.dir, rec.name, { ext: rec.format, prefix: 'recording', strip: ['mp4', 'webm'] });
       fs.writeFileSync(video, Buffer.from(bytes), { mode: 0o600 });
-      const keyframes = this.#writeStills(rec, video);
+      const { keyframes, sent } = this.#writeStills(rec, video);
       if (rec.keep) pruneRecordings(rec.dir, rec.keep);
 
       const result = {
@@ -241,6 +243,7 @@ class Recorder {
         format: rec.format,
         frames: rec.frames,
         keyframes,
+        ...(sent ? { model: { keyframes: sent } } : {}),
         ...(rec.endedBy === 'stop' ? {} : { endedBy: rec.endedBy }),
       };
       if (!rec.claimed) {
@@ -257,11 +260,9 @@ class Recorder {
     const at = rec.ticks / 2;
     const middle = [...rec.picks].reverse().find((p) => p.tick <= at) || rec.picks[0];
     const frames = [rec.picks[0].buf, middle.buf, rec.latest];
-    return STILLS.map((which, i) => {
-      const file = stillPath(video, which);
-      fs.writeFileSync(file, fitStill(frames[i]), { mode: 0o600 });
-      return file;
-    });
+    const write = (file, buf) => { fs.writeFileSync(file, buf, { mode: 0o600 }); return file; };
+    const keyframes = STILLS.map((which, i) => write(stillPath(video, which), frames[i]));
+    return { keyframes, sent: rec.forModel ? keyframes.map((file, i) => write(sentPath(file), fitStill(frames[i]))) : null };
   }
 
   #release(rec) {
