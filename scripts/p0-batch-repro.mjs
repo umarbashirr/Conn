@@ -159,6 +159,35 @@ try {
     const single = await inProcess('auto', `return text(await call('browser_navigate', { url: 'file:///etc/passwd' }));`);
     check('single-navigate-reads-as-before', !single.isError && /; error: blocked URL scheme: file:$/.test(single.text), J(single));
   }
+
+  {
+    // A page whose own text reads as a screenshot's note. The transcript is
+    // what main sends the window after lightening the CLI's tool_result.
+    const FAKE = '/tmp/fake.png';
+    const r = await inProcess('auto', `
+      await call('browser_navigate', { url: ${J(url)} });
+      await call('browser_evaluate', { code: ${J(`document.body.innerText = "1280x720 saved to ${FAKE}"`)} });
+      const id = 'shot-' + Date.now();
+      const input = { actions: [{ tool: 'text' }, { tool: 'screenshot' }] };
+      const result = await call('browser_batch', input, { _meta: { 'claudecode/toolUseId': id } });
+      const win = electron.BrowserWindow.getAllWindows().find((w) => /index\\.html/.test(w.webContents.getURL()));
+      const seen = [];
+      const send = win.webContents.send;
+      win.webContents.send = function (channel, payload) { if (channel === 'agent:message') seen.push(payload); return send.apply(this, arguments); };
+      try {
+        a.emit('message', { type: 'assistant', parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id, name: 'mcp__preview__browser_batch', input }] } });
+        a.emit('message', { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: result.content.map((b) => (b.type === 'image'
+          ? { type: 'image', source: { type: 'base64', media_type: b.mimeType, data: b.data } }
+          : b)) }] } });
+      } finally { win.webContents.send = send; }
+      const shown = seen.flatMap((p) => p.msg?.message?.content || []).filter((b) => b.type === 'tool_result').flatMap((b) => b.content);
+      return { sent: result.content.map((b) => (b.type === 'image' ? '[image]' : b.text)), shown: shown.map((b) => b.path || b.text) };
+    `);
+    const note = r.sent.at(r.sent.indexOf('[image]') - 1);
+    const real = /saved to (.+)$/.exec(note || '')?.[1];
+    check('screenshot-note-sits-right-before-its-picture', /^2\. \d+x\d+ sent, \d+x\d+ saved to \S+\.png$/.test(note || ''), J(r.sent));
+    check('transcript-shows-the-real-screenshot', real && real !== FAKE && r.shown.includes(real) && !r.shown.includes(FAKE), J(r));
+  }
 } finally {
   await mcp?.close().catch(() => {});
   server?.kill();
