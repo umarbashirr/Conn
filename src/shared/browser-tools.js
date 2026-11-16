@@ -176,7 +176,7 @@ function browserTools(z) {
     { name: 'browser_state', bridgeTool: 'state', label: 'Page state', title: 'Page state', description: 'Current url, title and loading state.', schema: {}, render: page },
     {
       name: 'browser_show', bridgeTool: 'preview', label: 'Show preview', title: 'Show the preview',
-      description: 'Open or close the preview pane, for when the person should look. The page works while it is closed.',
+      description: 'Open or close the preview pane, for when the person should look.',
       schema: { open: z.boolean().optional() },
       render: (r) => `preview ${r.preview}`,
     },
