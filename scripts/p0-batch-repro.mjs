@@ -162,6 +162,13 @@ try {
 
     const single = await inProcess('auto', `return text(await call('browser_navigate', { url: 'file:///etc/passwd' }));`);
     check('single-navigate-reads-as-before', !single.isError && /; error: blocked URL scheme: file:$/.test(single.text), J(single));
+
+    const tab = await inProcess('auto', `return text(await call('browser_batch', { actions: ${J([
+      { tool: 'tab_new', url: 'file:///etc/passwd' },
+      { tool: 'evaluate', code: 'location.href' },
+    ])} }));`);
+    check('tab-new-that-does-not-load-stops-the-batch', /^1\. tab_new failed: blocked URL scheme: file:$/m.test(tab.text) && /Step 2 did not run/.test(tab.text), J(tab.text));
+    await inProcess('auto', `await call('browser_tab_close', {}); return 1;`);
   }
 
   {
