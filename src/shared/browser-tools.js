@@ -360,51 +360,64 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
 /**
  * Runs planned steps in order through `run`, which is whatever a single call
  * of that step goes through on this transport: its permission check, its
- * lease, its actor. The first step that throws ends the batch; what ran
- * before it is kept. A refusal is told apart from a failure by its code.
+ * lease, its actor. It answers { result, caused }.
+ *
+ * Every step comes back with its `status`:
+ *   ran      it ran
+ *   failed   it threw
+ *   refused  a mode, a rule or the person said no; told apart by its code
+ *   stopped  it never ran, because a step before it failed or was refused
+ * The first step that fails or is refused ends the batch; what ran before it
+ * is kept.
  */
 async function runBatch(steps, run) {
-  const done = [];
+  const out = [];
+  let ended = false;
   for (const [i, step] of steps.entries()) {
+    const done = (status, rest) => out.push({ name: step.name, args: step.args, status, ...rest });
+    if (ended) { done('stopped'); continue; }
     try {
-      done.push({ name: step.name, args: step.args, ...(await run(step, i)) });
+      const { result, caused } = await run(step, i);
+      done('ran', { result, caused });
     } catch (e) {
-      done.push({ name: step.name, args: step.args, error: e?.message || String(e), refused: e?.code === 'PERMISSION_DENIED' });
-      break;
+      done(e?.code === 'PERMISSION_DENIED' ? 'refused' : 'failed', { error: e?.message || String(e) });
+      ended = true;
     }
   }
-  return { steps: done, total: steps.length };
+  return { steps: out };
 }
 
 /**
- * One result for the whole batch: a numbered line per step, a block under the
- * number for a step that returns a page of text, then the screenshots in
- * order. `out` is what runBatch returned, possibly after a trip over the bridge.
+ * One result for the whole batch: a numbered line per step that ran or ended
+ * it, a block under the number for a step that returns a page of text, then
+ * the screenshots in order. `out` is what runBatch returned, possibly after a
+ * trip over the bridge.
  */
-function batchContent(out, read) {
+function batchContent({ steps }, read) {
   const lines = [];
   const images = [];
-  for (const [i, s] of out.steps.entries()) {
-    const t = BY_NAME.get(s.name);
+  for (const [i, s] of steps.entries()) {
     const n = `${i + 1}.`;
-    if (s.error) {
-      lines.push(`${n} ${shortName(s.name)} ${s.refused ? 'was refused' : 'failed'}: ${s.error}`);
+    const what = shortName(s.name);
+    if (s.status === 'stopped') continue;
+    if (s.status !== 'ran') {
+      lines.push(`${n} ${what} ${s.status === 'refused' ? 'was refused' : 'failed'}: ${s.error}`);
       continue;
     }
+    const t = BY_NAME.get(s.name);
     let text;
     if (t.format === 'image') {
       text = shotNote(s.result);
       images.push(shotImage(s.result, read));
     } else text = textOf(t, s.result, s.args);
-    lines.push((text.includes('\n') ? `${n} ${shortName(s.name)}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
+    lines.push((text.includes('\n') ? `${n} ${what}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
   }
-  const left = out.total - out.steps.length;
-  if (left > 0) {
-    const from = out.steps.length + 1;
-    lines.push(`Stopped there. ${left === 1 ? `Step ${from} did` : `Steps ${from}-${out.total} did`} not run.`);
+  const skipped = steps.flatMap((s, i) => (s.status === 'stopped' ? [i + 1] : []));
+  if (skipped.length) {
+    lines.push(`Stopped there. ${skipped.length === 1 ? `Step ${skipped[0]} did` : `Steps ${skipped[0]}-${skipped.at(-1)} did`} not run.`);
   }
-  const failed = !!out.steps.at(-1)?.error;
-  return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(failed ? { isError: true } : {}) };
+  const ended = steps.some((s) => s.status !== 'ran');
+  return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(ended ? { isError: true } : {}) };
 }
 
 /** browser_* MCP name -> bare TOOLS key, for policy without loading zod. Derived from the table, so a tool added there is known here. */
