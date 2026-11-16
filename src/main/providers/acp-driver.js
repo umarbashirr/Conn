@@ -7,6 +7,7 @@ const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
 const { modelsFrom } = require('./acp-models');
 const shellEnv = require('../shell-env');
+const { launchSpec } = require('../launch');
 const { DEFAULT_MODE } = require('../modes');
 
 const PROBE_TIMEOUT_MS = 20000;
@@ -22,9 +23,9 @@ function probeVersion(bin, args = ['--version']) {
 
     let child;
     try {
-      const viaShell = /\.(cmd|bat)$/i.test(bin);
-      child = spawn(viaShell ? `"${bin}"` : bin, args, {
-        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
+      const spec = launchSpec(bin, args);
+      child = spawn(spec.command, spec.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: spec.shell, windowsHide: true,
       });
     } catch { return finish(null); }
 

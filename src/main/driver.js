@@ -13,6 +13,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const shellEnv = require('./shell-env');
+const { unwrapShim, launchSpec } = require('./launch');
 
 const PROBE_TIMEOUT_MS = 4000;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -50,25 +51,6 @@ function systemBinary() {
     }
   }
   return null;
-}
-
-// npm's global install on Windows is claude.cmd, a batch wrapper, and Node
-// refuses to spawn a .cmd or .bat without a shell (EINVAL). The SDK spawns
-// the path it is given directly, and running it through cmd.exe instead would
-// mangle the JSON arguments a session passes. So read the wrapper and hand
-// back what it runs: claude.exe from the package, or cli.js, which the SDK
-// runs with node.
-function unwrapShim(p) {
-  if (!p || !/\.(cmd|bat)$/i.test(p)) return p;
-  let text = '';
-  try { text = fs.readFileSync(p, 'utf8'); } catch { return p; }
-  const dir = path.dirname(p);
-  for (const m of text.matchAll(/"%~?dp0%?\\?([^"%]+\.(?:exe|js|mjs|cjs))"/gi)) {
-    const target = path.join(dir, ...m[1].split(/[\\/]/));
-    if (/node\.exe$/i.test(target)) continue;
-    try { if (fs.existsSync(target)) return fs.realpathSync(target); } catch {}
-  }
-  return p;
 }
 
 // An install somewhere PATH does not reach. Settings holds the path; empty
@@ -182,14 +164,10 @@ function probeVersion(bin) {
 
     let child;
     try {
-      // Node refuses to spawn a .cmd or .bat without a shell, and npm's global
-      // install on Windows is exactly that. The SDK spawns it directly, so a
-      // version read here is the only warning before a session tries.
-      const viaShell = /\.(cmd|bat)$/i.test(bin);
-      // A cli.js that unwrapShim found runs under node, as the SDK runs it.
-      const js = /\.[cm]?js$/i.test(bin);
-      child = spawn(viaShell ? `"${bin}"` : js ? 'node' : bin, js ? [bin, '--version'] : ['--version'], {
-        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
+      // See launch.js: a .cmd wrapper cannot be spawned bare on Windows.
+      const spec = launchSpec(bin, ['--version']);
+      child = spawn(spec.command, spec.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: spec.shell, windowsHide: true,
       });
     } catch {
       return finish(null);
@@ -522,7 +500,7 @@ class Driver {
 }
 
 module.exports = {
-  Driver, claudeBinary, systemBinary, preferBinary, unwrapShim,
+  Driver, claudeBinary, systemBinary, preferBinary,
   modelsFor, compareVersions, parseVersion, probeVersion, probeModels, takesThinkingDisplay,
   isLong, withLong, withoutLong, hasLong, withVariants,
   endpoint, CATALOG,

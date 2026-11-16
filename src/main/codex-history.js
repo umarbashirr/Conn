@@ -25,6 +25,7 @@
  * are kept against the thread's updatedAt and so cannot outlive a write.
  */
 const fs = require('fs');
+const { cwdSpellings } = require('./cwd-spellings');
 const os = require('os');
 const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
@@ -104,14 +105,7 @@ function close() {
 /* codex matches the cwd filter exactly, and a project opened through a symlink
    is recorded under whichever spelling started the thread. Asking about both
    costs nothing: the filter takes a list. */
-function cwdFilter(cwd) {
-  const paths = [cwd];
-  try {
-    const real = fs.realpathSync(cwd);
-    if (real !== cwd) paths.push(real);
-  } catch {}
-  return paths;
-}
+const cwdFilter = cwdSpellings;
 
 // codex counts in seconds. The rail sorts and formats in milliseconds, and a
 // raw number here lands every chat in January 1970.

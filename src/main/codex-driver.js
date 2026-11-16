@@ -14,6 +14,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const shellEnv = require('./shell-env');
+const { unwrapShim, launchSpec } = require('./launch');
 const { AppServer } = require('./codex-rpc');
 
 const PROBE_TIMEOUT_MS = 25000;
@@ -68,9 +69,9 @@ function preferBinary(p) {
 
 function codexBinary() {
   if (preferred) {
-    try { if (fs.existsSync(preferred)) return preferred; } catch {}
+    try { if (fs.existsSync(preferred)) return unwrapShim(preferred); } catch {}
   }
-  return systemBinary();
+  return unwrapShim(systemBinary());
 }
 
 const parseVersion = (out) => out.match(/\b(\d+\.\d+\.\d+[\w.-]*)\b/)?.[1] || null;
@@ -83,9 +84,9 @@ function probeVersion(bin) {
 
     let child;
     try {
-      const viaShell = /\.(cmd|bat)$/i.test(bin);
-      child = spawn(viaShell ? `"${bin}"` : bin, ['--version'], {
-        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
+      const spec = launchSpec(bin, ['--version']);
+      child = spawn(spec.command, spec.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: spec.shell, windowsHide: true,
       });
     } catch { return finish(null); }
 
