@@ -246,6 +246,9 @@ function modelFit(width, height, { high = false, fullPage = false } = {}) {
 // How a screenshot result announces itself: what was sent, and where the full
 // file landed. index.js reads the path back to show the picture in the
 // transcript without carrying its bytes over IPC, so the two have to agree.
+// The note is a text block of its own directly before its picture, and only
+// a block that is a note and nothing else is read, with the step number a
+// batch puts in front. Text a page put in a result is never read for a path.
 // The older "WxH saved to path" form still matches, for transcripts made
 // before the model copy existed.
 const shotNote = (r) => {
@@ -253,7 +256,7 @@ const shotNote = (r) => {
   const note = `${m.width}x${m.height} sent, ${r.width}x${r.height} saved to ${r.path}`;
   return m.cropped ? `${note}\nThe picture is the top of the page; the file has all of it.` : note;
 };
-const SHOT_NOTE = /(?:(\d+)x(\d+) sent, )?(\d+)x(\d+) saved to (.+)$/gm;
+const SHOT_NOTE = /^(?:\d+\. )?(?:\d+x\d+ sent, )?\d+x\d+ saved to (.+)(?:\nThe picture is the top of the page; the file has all of it\.)?$/;
 
 const shotImage = (r, read) => {
   const m = r.model || { path: r.path, mime: 'image/png' };
@@ -328,14 +331,16 @@ const NOT_IN_BATCH = new Set(['browser_batch', 'browser_record']);
 
 /**
  * Checks a batch before any of it runs, so a typo in step six does not leave
- * five steps done and the agent unsure where it stands. `table` is built with
- * real zod where the caller has it, and then each step's args are checked
- * against its tool's own schema, the way a single call's are.
+ * five steps done and the agent unsure where it stands. Each step's args are
+ * checked against its tool's own schema, strictly: a single call's schema
+ * is shown to the model, a step's is not, so a misnamed arg is refused with
+ * the names the step takes rather than dropped.
  * @returns {Array<{name: string, args: object, route: string, mapped: object}>}
  */
-function planBatch(actions, { table = TABLE, z = null } = {}) {
+function planBatch(actions, z) {
   if (!Array.isArray(actions) || !actions.length) throw new Error('actions must be a list of at least one step');
   if (actions.length > BATCH_MAX) throw new Error(`a batch runs at most ${BATCH_MAX} steps; this one has ${actions.length}`);
+  const table = browserTools(z);
   const tools = new Map(table.map((t) => [t.name, t]));
   return actions.map((action, i) => {
     const { tool, ...given } = action && typeof action === 'object' ? action : {};
@@ -344,67 +349,97 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
       const can = table.filter((x) => !NOT_IN_BATCH.has(x.name)).map((x) => shortName(x.name));
       throw new Error(`step ${i + 1}: ${JSON.stringify(tool ?? null)} is not a step a batch can run. Nothing ran. Steps: ${can.join(', ')}`);
     }
-    let args = given;
-    if (z) {
-      const parsed = z.object(t.schema).safeParse(given);
-      if (!parsed.success) {
-        const why = parsed.error.issues.map((e) => `${e.path.join('.') || 'args'}: ${e.message}`).join('; ');
-        throw new Error(`step ${i + 1} (${shortName(t.name)}): ${why}. Nothing ran.`);
-      }
-      args = parsed.data;
+    const parsed = z.object(t.schema).strict().safeParse(given);
+    if (!parsed.success) {
+      const short = shortName(t.name);
+      const why = parsed.error.issues.map((e) => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message)).join('; ');
+      const takes = Object.keys(t.schema);
+      throw new Error(`step ${i + 1} (${short}): ${why}. ${short} takes ${takes.length ? takes.join(', ') : 'no args'}. Nothing ran.`);
     }
+    const args = parsed.data;
     return { name: t.name, args, route: t.route ? t.route(args) : t.bridgeTool, mapped: t.map ? t.map(args) : args };
   });
 }
 
+// evaluate's result is whatever the page's script returned, so an `error`
+// there is the page's own data.
+const failedWith = (name, result) => (name !== 'browser_evaluate' && typeof result?.error === 'string' ? result.error : null);
+
 /**
  * Runs planned steps in order through `run`, which is whatever a single call
  * of that step goes through on this transport: its permission check, its
- * lease, its actor. The first step that throws ends the batch; what ran
- * before it is kept. A refusal is told apart from a failure by its code.
+ * lease, its actor. It answers { result, caused }.
+ *
+ * Every step comes back with its `status`:
+ *   ran      it ran
+ *   failed   it threw, or its result carries an `error`, which is how a
+ *            navigate that did not load and a viewport that could not be
+ *            set say so
+ *   refused  a mode, a rule or the person said no; told apart by its code
+ *   stopped  it never ran, because a step before it failed or was refused,
+ *            or `signal` was aborted, which `interrupted` says
+ * The first step that fails or is refused ends the batch; what ran before it
+ * is kept. A step already running when `signal` aborts runs to its end.
  */
-async function runBatch(steps, run) {
-  const done = [];
+async function runBatch(steps, run, signal) {
+  const out = [];
+  let ended = false;
+  let interrupted = false;
   for (const [i, step] of steps.entries()) {
+    const done = (status, rest) => out.push({ name: step.name, args: step.args, status, ...rest });
+    if (!ended && signal?.aborted) ended = interrupted = true;
+    if (ended) { done('stopped'); continue; }
     try {
-      done.push({ name: step.name, args: step.args, ...(await run(step, i)) });
+      const { result, caused } = await run(step, i);
+      const error = failedWith(step.name, result);
+      done(error ? 'failed' : 'ran', { result, caused, ...(error ? { error } : {}) });
+      ended = !!error;
     } catch (e) {
-      done.push({ name: step.name, args: step.args, error: e?.message || String(e), refused: e?.code === 'PERMISSION_DENIED' });
-      break;
+      done(e?.code === 'PERMISSION_DENIED' ? 'refused' : 'failed', { error: e?.message || String(e) });
+      ended = true;
     }
   }
-  return { steps: done, total: steps.length };
+  return { steps: out, interrupted };
 }
 
 /**
- * One result for the whole batch: a numbered line per step, a block under the
- * number for a step that returns a page of text, then the screenshots in
- * order. `out` is what runBatch returned, possibly after a trip over the bridge.
+ * One result for the whole batch: a numbered line per step that ran or ended
+ * it, a block under the number for a step that returns a page of text, and
+ * each screenshot where it ran, as its note in a block of its own and then
+ * its picture. `out` is what runBatch returned, possibly after a trip over
+ * the bridge.
  */
-function batchContent(out, read) {
-  const lines = [];
-  const images = [];
-  for (const [i, s] of out.steps.entries()) {
-    const t = BY_NAME.get(s.name);
+function batchContent({ steps, interrupted }, read) {
+  const content = [];
+  let lines = [];
+  const flush = () => {
+    if (lines.length) content.push({ type: 'text', text: lines.join('\n') });
+    lines = [];
+  };
+  for (const [i, s] of steps.entries()) {
     const n = `${i + 1}.`;
-    if (s.error) {
-      lines.push(`${n} ${shortName(s.name)} ${s.refused ? 'was refused' : 'failed'}: ${s.error}`);
+    const what = shortName(s.name);
+    if (s.status === 'stopped') continue;
+    if (s.status !== 'ran') {
+      lines.push(`${n} ${what} ${s.status === 'refused' ? 'was refused' : 'failed'}: ${s.error}${causedText(s.caused, '   ')}`);
       continue;
     }
-    let text;
+    const t = BY_NAME.get(s.name);
     if (t.format === 'image') {
-      text = shotNote(s.result);
-      images.push(shotImage(s.result, read));
-    } else text = textOf(t, s.result, s.args);
-    lines.push((text.includes('\n') ? `${n} ${shortName(s.name)}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
+      flush();
+      content.push({ type: 'text', text: `${n} ${shotNote(s.result)}` }, shotImage(s.result, read));
+      continue;
+    }
+    const text = textOf(t, s.result, s.args);
+    lines.push((text.includes('\n') ? `${n} ${what}:\n${text}` : `${n} ${text}`) + causedText(s.caused, '   '));
   }
-  const left = out.total - out.steps.length;
-  if (left > 0) {
-    const from = out.steps.length + 1;
-    lines.push(`Stopped there. ${left === 1 ? `Step ${from} did` : `Steps ${from}-${out.total} did`} not run.`);
+  const skipped = steps.flatMap((s, i) => (s.status === 'stopped' ? [i + 1] : []));
+  if (skipped.length) {
+    lines.push(`${interrupted ? 'Stopped: the turn was interrupted.' : 'Stopped there.'} ${skipped.length === 1 ? `Step ${skipped[0]} did` : `Steps ${skipped[0]}-${skipped.at(-1)} did`} not run.`);
   }
-  const failed = !!out.steps.at(-1)?.error;
-  return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(failed ? { isError: true } : {}) };
+  flush();
+  const ended = steps.some((s) => s.status !== 'ran');
+  return { content, ...(ended ? { isError: true } : {}) };
 }
 
 /** browser_* MCP name -> bare TOOLS key, for policy without loading zod. Derived from the table, so a tool added there is known here. */

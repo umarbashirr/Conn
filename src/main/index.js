@@ -353,7 +353,7 @@ const catalogSessions = (dir) => liveSessions().filter((a) => a instanceof Agent
 
 function stopChat(chat) {
   const a = sessions.get(chat);
-  denyBridgeChat(chat);
+  stopBridgeChat(chat);
   if (!a) return false;
   a.stop();
   sessions.delete(chat);
@@ -1023,23 +1023,23 @@ async function openInNewWindow(dir) {
 // off disk, where Chromium can evict it.
 const MAX_TOOL_TEXT = 20000;
 
-// The pictures in a result, in order. A batch can hold several screenshots,
-// each announced on its own line, so every note counts, not just the first.
-// The path is the full file, which is what the transcript shows.
+// The file behind each picture in a result, by the picture's place in it. A
+// screenshot's path is read only from its note, the block right before it,
+// so text a page put in the result cannot name the file. A recording's stills
+// follow its JSON, in order. The path is the full file, which is what the
+// transcript shows.
 function imagePaths(content) {
-  const paths = [];
+  const stills = [];
   for (const b of content) {
-    const text = typeof b?.text === 'string' ? b.text : '';
-    for (const shot of text.matchAll(SHOT_NOTE)) paths.push(shot[5]);
-    if (paths.length) continue;
-    if (text.startsWith('{')) {
-      try {
-        const { keyframes } = JSON.parse(text);
-        if (Array.isArray(keyframes)) return keyframes;
-      } catch {}
-    }
+    if (typeof b?.text !== 'string' || !b.text.startsWith('{')) continue;
+    try {
+      const { keyframes } = JSON.parse(b.text);
+      if (Array.isArray(keyframes)) stills.push(...keyframes);
+    } catch {}
   }
-  return paths;
+  return content.map((b, at) => (b?.type === 'image'
+    ? SHOT_NOTE.exec(content[at - 1]?.text ?? '')?.[1] ?? stills.shift() ?? null
+    : null));
 }
 
 function lighten(msg) {
@@ -1051,14 +1051,13 @@ function lighten(msg) {
     if (block?.type !== 'tool_result' || !Array.isArray(block.content)) return block;
 
     const paths = imagePaths(block.content);
-    let image = 0;
     let hit = false;
-    const inner = block.content.map((b) => {
+    const inner = block.content.map((b, at) => {
       if (b?.type === 'image') {
         hit = true;
         // No path means no way to show it later, so say that rather than
         // silently dropping the block.
-        const file = paths[image++];
+        const file = paths[at];
         return file ? { type: 'image', path: file } : { type: 'text', text: '[screenshot]' };
       }
       if (typeof b?.text === 'string' && b.text.length > MAX_TOOL_TEXT) {
@@ -1200,9 +1199,10 @@ function tabOps(cwd, actor) {
     open: async (url) => {
       const tab = router.open(actor, cwd);
       // The load is an ordinary navigate on the tab just pinned: leased,
-      // announced and brought forward the same way.
-      if (url) await driveTool('navigate', { url }, { cwd, actor });
-      return page(tab);
+      // announced and brought forward the same way. A load that failed says
+      // so, as navigate's own answer does.
+      const loaded = url ? await driveTool('navigate', { url }, { cwd, actor }) : null;
+      return loaded?.error ? { ...page(tab), error: loaded.error } : page(tab);
     },
     select: (tab) => page(router.select(actor, tab)),
     close: (tab) => {
@@ -1260,6 +1260,9 @@ function refusal(tool, verdict) {
 // when the chat changes mode, so a later Plan or Ask starts clean.
 const pageGrants = new Set();
 const bridgePending = new Map();
+// Bridge batches still running, each with its chat, so Stop on the chat ends
+// them between steps: an agent's CLI need not cancel the call it stopped in.
+const bridgeBatches = new Map(); // AbortController -> chat
 
 function modeOfChat(chat) {
   const live = sessions.get(chat);
@@ -1296,17 +1299,22 @@ function settleBridge(id, decision) {
   return true;
 }
 
-function denyBridgeChat(chat) {
+function stopBridgeChat(chat) {
+  for (const [halt, of] of bridgeBatches) if (of === chat) halt.abort();
   for (const id of [...bridgePending.keys()]) {
     if (bridgePending.get(id)?.chat === chat) settleBridge(id, 'deny');
   }
 }
 
-function askBridge(chat, tool, args, reason) {
+// A card whose caller gave up, or whose batch was stopped, is denied. A batch
+// step's card says which step of which batch, since it has no call id the
+// transcript could find its row by.
+function askBridge(chat, tool, args, { reason, signal, batch }) {
   return new Promise((resolve) => {
     const id = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const timer = setTimeout(() => settleBridge(id, 'deny'), 5 * 60 * 1000);
     bridgePending.set(id, { resolve, timer, chat });
+    signal?.addEventListener('abort', () => settleBridge(id, 'deny'), { once: true });
     send('agent:permission', {
       chat,
       id,
@@ -1314,6 +1322,7 @@ function askBridge(chat, tool, args, reason) {
       input: args,
       reason,
       agent: { id: 'bridge', label: 'preview' },
+      batch,
     });
   });
 }
@@ -1323,21 +1332,41 @@ function askBridge(chat, tool, args, reason) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null, { report = false } = {}) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
+  const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
   // asked about and leased exactly as the same call made alone would be.
+  // The CLI weighed its settings rules against the batch and never sees a
+  // step, so they are weighed here: a deny refuses the step, an ask forces
+  // its card. An allow changes nothing, as for a call made alone, which the
+  // window asks about by its mode whatever the CLI allowed.
   if (tool === 'batch') {
-    const steps = planBatch(args?.actions);
-    const out = await runBatch(steps, (step) => runBridgeTool(step.route, step.mapped, from, named, { report: true }));
-    return report ? { result: out, caused: [] } : out;
+    const steps = planBatch(args?.actions, require('zod').z);
+    const project = from || cwdOfChat(chat);
+    const id = `bb${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    const halt = new AbortController();
+    bridgeBatches.set(halt, chat);
+    const stop = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
+    try {
+      const out = await runBatch(steps, (step, i) => {
+        const name = `mcp__conn__${step.name}`;
+        const rule = permissionRules.ruleFor(project, name);
+        if (rule === 'deny') throw refusal(step.route, { reason: `a permission rule in your settings denies ${name}.` });
+        return runBridgeTool(step.route, step.mapped, from, named, {
+          report: true, signal: stop, ask: rule === 'ask', batch: { id, step: i + 1, total: steps.length },
+        });
+      }, stop);
+      return report ? { result: out, caused: [] } : out;
+    } finally {
+      bridgeBatches.delete(halt);
+    }
   }
-  const chat = named || chatForTool(from);
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
-  if (verdict.action === 'ask' && !pageGrants.has(chat)) {
-    const ok = await askBridge(chat, tool, args, verdict.reason);
+  if (ask || (verdict.action === 'ask' && !pageGrants.has(chat))) {
+    const ok = await askBridge(chat, tool, args, { reason: verdict.reason, signal, batch });
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
   return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR), report });
@@ -1681,7 +1710,11 @@ function registerIpc() {
   });
   ipcMain.handle('rules:remove', (_e, { project, ...rule } = {}) => {
     const dir = project ? openDir(project) : null;
-    return permissionRules.remove(dir, rule);
+    const res = permissionRules.remove(dir, rule);
+    // Always on a card wrote the rule and a grant together, so the grant goes
+    // with it. A user rule spans every project, so every chat forgets.
+    if (res.ok) for (const live of liveSessions()) live.grants?.clear();
+    return res;
   });
 
   // --- terminal ---
@@ -1764,7 +1797,7 @@ function registerIpc() {
     }
   });
   ipcMain.handle('agent:interrupt', async (_e, { chat } = {}) => {
-    denyBridgeChat(chat);
+    stopBridgeChat(chat);
     await sessions.get(chat)?.interrupt();
     releaseChatEverywhere(chat);
     return { ok: true };

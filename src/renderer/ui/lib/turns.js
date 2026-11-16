@@ -21,24 +21,41 @@ const settled = (it) => it.kind === 'perm' && it.decided && !it.answers;
    pairs with the nearest unmarked call of its tool, looking back first:
    only codex and the ACP agents reach the bridge's card (a Claude session's
    invoke drives the tool without it), and they announce the call before the
-   bridge asks. Forward is the fallback for a card that got in ahead. */
+   bridge asks. Forward is the fallback for a card that got in ahead.
+
+   A batch step's card names its batch. Every card of one batch moves onto
+   the batch's row, found by forId or, from the bridge, as the nearest
+   unmarked batch call, and the row wears the worst answer among them: a
+   batch with one step denied reads denied. */
+const ANSWERS = ['deny', 'allow', 'always'];
+
 export function attachPerms(items) {
   const marks = new Map();
+  const placed = new Set();
+  const place = (row, perm) => {
+    const had = marks.get(row);
+    if (!had || ANSWERS.indexOf(perm.decided) < ANSWERS.indexOf(had.decided)) marks.set(row, perm);
+    placed.add(perm);
+  };
   const calls = new Set(items.filter(isCall).map((it) => it.id));
   for (const perm of items) {
-    if (settled(perm) && perm.forId && calls.has(perm.forId) && !marks.has(perm.forId)) marks.set(perm.forId, perm);
+    if (settled(perm) && perm.forId && calls.has(perm.forId) && (perm.batch || !marks.has(perm.forId))) place(perm.forId, perm);
   }
 
+  const batchRows = new Map();
   items.forEach((perm, at) => {
     if (!settled(perm) || perm.forId || perm.agent?.id !== 'bridge') return;
-    const label = toolLabel(perm.tool);
-    const fits = (it) => isCall(it) && !marks.has(it.id) && toolLabel(it.name) === label;
-    const row = items.slice(0, at).findLast(fits) ?? items.slice(at + 1).find(fits);
-    if (row) marks.set(row.id, perm);
+    let row = perm.batch ? batchRows.get(perm.batch.id) : undefined;
+    if (row === undefined) {
+      const label = perm.batch ? 'browser_batch' : toolLabel(perm.tool);
+      const fits = (it) => isCall(it) && !marks.has(it.id) && toolLabel(it.name) === label;
+      row = (items.slice(0, at).findLast(fits) ?? items.slice(at + 1).find(fits))?.id ?? null;
+      if (perm.batch) batchRows.set(perm.batch.id, row);
+    }
+    if (row) place(row, perm);
   });
 
-  if (!marks.size) return { marks, rest: items };
-  const placed = new Set(marks.values());
+  if (!placed.size) return { marks, rest: items };
   return { marks, rest: items.filter((it) => !placed.has(it)) };
 }
 

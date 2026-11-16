@@ -134,6 +134,41 @@ const WAIT = 'mcp__preview__browser_wait';
 }
 
 {
+  const BATCH = 'mcp__conn__browser_batch';
+  const items = [
+    call('tf1', 'mcp__conn__browser_fill'), user('u2'), call('tbatch', BATCH),
+    bridge('b1', 'browser_fill', { decided: 'deny', batch: { id: 'bb1', step: 1, total: 2 } }),
+  ];
+  const got = attachPerms(items);
+  assert.deepEqual(pairs(got), { tbatch: 'b1' }, "a bridge card for a batch step marks the batch, not an earlier call of the step's tool");
+  assert.deepEqual(ids(got.rest), ['tf1', 'u2', 'tbatch'], 'and is no longer a line of its own');
+}
+
+{
+  const BATCH = 'mcp__preview__browser_batch';
+  const step = (id, n, decided) => perm(id, 'mcp__preview__browser_click', { forId: 'tbatch', decided, batch: { id: 'tbatch', step: n, total: 3 } });
+  const got = attachPerms([call('tbatch', BATCH), step('p1', 1, 'allow'), step('p3', 3, 'deny')]);
+  assert.deepEqual(pairs(got), { tbatch: 'p3' }, 'a batch whose step 1 was allowed and step 3 denied reads denied');
+  assert.deepEqual(ids(got.rest), ['tbatch'], 'every step card of the batch moves onto its row');
+  const kept = attachPerms([call('tbatch', BATCH), step('p1', 1, 'always'), step('p2', 2, 'allow')]);
+  assert.deepEqual(pairs(kept), { tbatch: 'p2' }, 'allowed beats always allowed, so the row claims no more than every step got');
+}
+
+{
+  const BATCH = 'mcp__conn__browser_batch';
+  const items = [
+    call('ta', BATCH),
+    bridge('b1', 'browser_click', { decided: 'allow', batch: { id: 'bb1', step: 1, total: 2 } }),
+    bridge('b2', 'browser_fill', { decided: 'deny', batch: { id: 'bb1', step: 2, total: 2 } }),
+    call('tb', BATCH),
+    bridge('b3', 'browser_click', { decided: 'allow', batch: { id: 'bb2', step: 1, total: 1 } }),
+  ];
+  const got = attachPerms(items);
+  assert.deepEqual(pairs(got), { ta: 'b2', tb: 'b3' }, 'two batches from the bridge each mark their own row with their worst answer');
+  assert.deepEqual(ids(got.rest), ['ta', 'tb'], 'and none of their cards stays a line');
+}
+
+{
   const items = [user('u1'), call('tb1', 'Bash'), call('tw1', WAIT), { id: 'a1', kind: 'assistant', text: 'ok' }, note('n1')];
   const got = attachPerms(items);
   assert.equal(got.marks.size, 0, 'a list with no perms marks nothing');

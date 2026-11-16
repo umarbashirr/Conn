@@ -225,16 +225,17 @@ function setup(rest) {
   die(`unknown setup target ${target}. Use: conn setup [print|project]`);
 }
 
-// One line per step that ran, then what did not. Each step's own result
-// prints the way --json would print it, on one line.
-function printBatch({ steps, total }) {
+// One line per step that ran or ended the batch, then what did not run. Each
+// step's own result prints the way --json would print it, on one line.
+function printBatch({ steps }) {
   steps.forEach((st, i) => {
-    const what = st.error ? `${st.refused ? 'refused' : 'failed'}: ${st.error}` : JSON.stringify(st.result);
+    if (st.status === 'stopped') return;
+    const what = st.status === 'ran' ? JSON.stringify(st.result) : `${st.status}: ${st.error}`;
     process.stdout.write(`${i + 1}. ${st.name.replace(/^browser_/, '')} ${what}\n`);
   });
-  const left = total - steps.length;
-  if (left) process.stdout.write(`${left === 1 ? `step ${total}` : `steps ${steps.length + 1}-${total}`} did not run\n`);
-  if (steps.at(-1)?.error) process.exitCode = 1;
+  const skipped = steps.flatMap((st, i) => (st.status === 'stopped' ? [i + 1] : []));
+  if (skipped.length) process.stdout.write(`${skipped.length === 1 ? `step ${skipped[0]}` : `steps ${skipped[0]}-${skipped.at(-1)}`} did not run\n`);
+  if (steps.some((st) => st.status !== 'ran')) process.exitCode = 1;
 }
 
 function usage() {

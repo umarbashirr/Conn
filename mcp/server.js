@@ -28,7 +28,9 @@ function connection() {
 
 // Answers { result, caused }: the window adds what a page-changing call left
 // in the console and the network, so the agent need not ask in a call of its own.
-async function call(tool, args = {}) {
+// `signal` is the MCP request's: cancelling it closes the connection, which
+// the window takes as the caller giving up.
+async function call(tool, args = {}, signal) {
   const { url, token } = connection();
   const headers = { 'content-type': 'application/json', 'x-conn-token': token, 'x-conn-cwd': callerCwd(), 'x-conn-report': '1' };
   // Which chat this server speaks for. The app sets it when it starts the
@@ -36,7 +38,7 @@ async function call(tool, args = {}) {
   // falls back to the chat on screen. Chat keys built from folder names are
   // not header-safe as they are.
   if (process.env.CONN_CHAT) headers['x-conn-chat'] = encodeURIComponent(process.env.CONN_CHAT);
-  const res = await fetch(`${url}/tool/${tool}`, { method: 'POST', headers, body: JSON.stringify(args) });
+  const res = await fetch(`${url}/tool/${tool}`, { method: 'POST', headers, body: JSON.stringify(args), signal });
   const body = await res.json().catch(() => ({ error: `bad response (${res.status})` }));
   if (!res.ok || body.error) throw new Error(body.error || `request failed (${res.status})`);
   return { result: body.result, caused: body.caused };
@@ -47,22 +49,22 @@ const server = new McpServer(
   { instructions: 'Controls the preview browser pane next to this terminal. browser_snapshot returns [ref=eN] handles that browser_click and browser_fill accept. Put steps you can plan ahead in one browser_batch call. Action results list new console errors and failed requests.' },
 );
 
-const wrap = (fn) => async (args) => {
-  try { return await fn(args || {}); }
+const wrap = (fn) => async (args, extra) => {
+  try { return await fn(args || {}, extra?.signal); }
   catch (e) { return { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }; }
 };
 
 const table = browserTools(z);
 for (const t of table) {
-  server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a) => {
+  server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a, signal) => {
     // Checked here against each tool's schema, then run by the window one step
     // at a time, each under its own route and its own permission check.
     if (t.format === 'batch') {
-      const steps = planBatch(a.actions, { table, z });
-      const { result } = await call('batch', { actions: steps.map((st) => ({ tool: st.name, ...st.args })) });
+      const steps = planBatch(a.actions, z);
+      const { result } = await call('batch', { actions: steps.map((st) => ({ tool: st.name, ...st.args })) }, signal);
       return batchContent(result, fs.readFileSync);
     }
-    const { result, caused } = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a);
+    const { result, caused } = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a, signal);
     return toolContent(t, result, fs.readFileSync, { args: a, caused });
   }));
 }

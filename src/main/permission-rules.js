@@ -6,12 +6,17 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const shellEnv = require('./shell-env');
 
 const KINDS = ['allow', 'ask', 'deny'];
 
+// Where the CLI keeps the user's settings: CLAUDE_CONFIG_DIR when the
+// environment it is started with sets one, ~/.claude otherwise.
+const configDir = () => shellEnv.env().CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+
 // Each place a rule can live, most personal first.
 function files(project) {
-  const home = path.join(os.homedir(), '.claude', 'settings.json');
+  const home = path.join(configDir(), 'settings.json');
   if (!project) return [{ scope: 'user', file: home }];
   return [
     { scope: 'local', file: path.join(project, '.claude', 'settings.local.json') },
@@ -66,13 +71,19 @@ function remove(project, { scope, kind, rule } = {}) {
   return { ok: true };
 }
 
-// Where an administrator's policy lives. Conn never lists or edits it, but
-// a rule there binds every session all the same.
-const MANAGED = {
-  linux: '/etc/claude-code/managed-settings.json',
-  darwin: '/Library/Application Support/ClaudeCode/managed-settings.json',
-  win32: 'C:\\Program Files\\ClaudeCode\\managed-settings.json',
-};
+// Where an administrator's policy lives: managed-settings.json, then the
+// .json files in managed-settings.d in name order, as the CLI reads them.
+// Conn never lists or edits them, but a rule there binds every session all
+// the same.
+const POLICY = { darwin: '/Library/Application Support/ClaudeCode', win32: 'C:\\Program Files\\ClaudeCode' }[process.platform]
+  || '/etc/claude-code';
+
+function managed() {
+  const dropIns = path.join(POLICY, 'managed-settings.d');
+  let names = [];
+  try { names = fs.readdirSync(dropIns).filter((n) => n.endsWith('.json') && !n.startsWith('.')).sort(); } catch {}
+  return [path.join(POLICY, 'managed-settings.json'), ...names.map((n) => path.join(dropIns, n))];
+}
 
 /**
  * What the rules say about one MCP tool by its full name: 'deny', 'ask',
@@ -86,7 +97,9 @@ function ruleFor(project, tool) {
   const server = tool.split('__').slice(0, 2).join('__');
   const names = new Set([tool, server, `${server}__*`]);
   const found = new Set();
-  const places = [...files(project).map((f) => f.file), MANAGED[process.platform]].filter(Boolean);
+  // remote-settings.json is the CLI's copy of the organisation's
+  // server-managed settings, written as plain JSON each time it fetches them.
+  const places = [...files(project).map((f) => f.file), ...managed(), path.join(configDir(), 'remote-settings.json')];
   for (const file of places) {
     const perms = read(file).json?.permissions;
     if (!perms || typeof perms !== 'object') continue;
