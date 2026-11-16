@@ -57,6 +57,14 @@ const ACP_INSTRUCTIONS = [
   'Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
 ].join(' ');
 
+// Every preface a release has sent, word for word, newest first. A chat keeps
+// the one it was started with, so history has to know them all to strip it.
+const ACP_PREFACES = [
+  ACP_INSTRUCTIONS,
+  'You are working next to a live preview browser. It is a real Chromium view the human can see. Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000). Call browser_show when you want the human to see the pane; it starts hidden and the page keeps working while closed. Call browser_snapshot to perceive the page: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept. Refs are dropped on navigation, so snapshot again after loading a page. After any action that should have changed something, check browser_console and browser_network before concluding it worked. The pane has tabs. browser_tabs lists this chat\'s tabs, which one you are driving and which one the human is looking at. The tab you start on may hold the person\'s own app, so open another with browser_tab_new for anything unrelated, such as documentation or research, rather than navigating away from it. browser_tab_select changes which tab your other browser tools act on. A subagent\'s first browser_navigate opens a tab of its own. These browser_* tools from the conn MCP server drive the preview pane inside this app, which is the browser the human is looking at. Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
+  'You are working next to a live preview browser. It is a real Chromium view the human can see. Use browser_navigate to load a URL (bare ports work: "3000" becomes http://localhost:3000). Call browser_show when you want the human to see the pane; it starts hidden and the page keeps working while closed. Call browser_snapshot to perceive the page: it returns [ref=eN] handles that browser_click, browser_fill and browser_hover accept. Refs are dropped on navigation, so snapshot again after loading a page. After any action that should have changed something, check browser_console and browser_network before concluding it worked. These browser_* tools from the conn MCP server drive the preview pane inside this app, which is the browser the human is looking at. Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
+];
+
 const BROWSER_NAME = /^(?:mcp__(?:preview|conn)__)?browser_\w+$/;
 
 const textOf = (v) => {
@@ -605,6 +613,6 @@ class AcpSession extends EventEmitter {
 }
 
 module.exports = {
-  AcpSession, CLIENT, mcpEnv, toolOf, callInput, textOf, followAgent, ACP_INSTRUCTIONS,
+  AcpSession, CLIENT, mcpEnv, toolOf, callInput, textOf, followAgent, ACP_INSTRUCTIONS, ACP_PREFACES,
   readingOf, readingMessage, turnTokens,
 };
