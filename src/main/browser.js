@@ -8,7 +8,7 @@ const { normalizeUrl, isAllowedUrl, engineOf } = require('./url');
 const { screenshotFilePath } = require('./screenshot-path');
 const { ensurePrivateDir } = require('./private-dir');
 const { Recorder } = require('./recorder');
-const { modelFit } = require('../shared/browser-tools');
+const { modelFit, cut, clip } = require('../shared/browser-tools');
 
 // Electron's default user agent names the app and Electron, and Google's
 // sign-in refuses any browser that says so ("This browser or app may not be
@@ -39,7 +39,6 @@ const MAX_SHOTS = 60;
 // of what they caused it repeats.
 const SETTLE_MS = 1000;
 const CAUSED_ROWS = 5;
-const clip = (v, n = 200) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
 // Electron's own notices land in the page's console from its bundled scripts.
 // They are about the app, never the page, so they are not the page's errors.
 const ELECTRON_SOURCE = /^(?:electron\/|node:electron\/|sandbox_bundle|renderer_init)/;
@@ -383,7 +382,11 @@ class BrowserPane extends EventEmitter {
   // Both are read again on every later turn, so the defaults are a page's
   // worth rather than all of it, and a cut says how much there was so the
   // agent can ask for more on purpose.
-  async text(max) { return this.#js(`window.__conn.text(${Number(max) || 8000})`); }
+  async text(max) {
+    const cap = Number(max) || 8000;
+    const t = await this.#js('window.__conn.text()');
+    return t.length > cap ? `${cut(t, cap)}\n… truncated at ${cap} of ${t.length} characters; pass max for more` : t;
+  }
 
   async html(max) {
     const cap = Number(max) || 20000;
@@ -392,7 +395,7 @@ class BrowserPane extends EventEmitter {
     const h = await this.#js(`(() => { const d = document.documentElement.cloneNode(true);
       d.querySelectorAll('#__conn-cursor, [data-conn-ripple]').forEach((n) => n.remove());
       return d.outerHTML; })()`);
-    return h.length > cap ? `${h.slice(0, cap)}\n<!-- truncated at ${cap} of ${h.length} characters; pass max for more -->` : h;
+    return h.length > cap ? `${cut(h, cap)}\n<!-- truncated at ${cap} of ${h.length} characters; pass max for more -->` : h;
   }
 
   // Until the page has drawn a frame, Chromium has nothing to hit-test a press
@@ -680,10 +683,10 @@ class BrowserPane extends EventEmitter {
     const shown = [...errors, ...logged.filter((c) => c.level === 'warning')].slice(0, CAUSED_ROWS);
     const failed = this.network.filter((n) => n.t >= since);
     const lines = [
-      ...shown.map((c) => { const w = String(c.source || '').replace(/^.*\//, ''); return `console ${c.level}: ${clip(c.message)}${w.startsWith(':') ? '' : ` (${w})`}`; }),
+      ...shown.map((c) => { const w = String(c.source || '').replace(/^.*\//, ''); return `console ${c.level}: ${clip(c.message, 200)}${w.startsWith(':') ? '' : ` (${w})`}`; }),
       ...failed.slice(0, CAUSED_ROWS).map((n) => (n.kind === 'navigation-failed'
         ? `page failed to load: ${n.desc} (${n.code})`
-        : `request failed: ${n.status || n.error} ${n.method || ''} ${clip(n.url)}`.replace(/\s+/g, ' '))),
+        : `request failed: ${n.status || n.error} ${n.method || ''} ${clip(n.url, 200)}`.replace(/\s+/g, ' '))),
     ];
     if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console`);
     if (failed.length > CAUSED_ROWS) lines.push(`${failed.length - CAUSED_ROWS} more failed requests: browser_network`);

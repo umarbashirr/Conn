@@ -9,9 +9,12 @@
 const ROW_CHARS = 300;          // one console message or request URL
 const EVALUATE_CHARS = 10000;   // what a script hands back
 
-const clip = (v, n) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${t.slice(0, n)}…` : t; };
+// The first n characters, one fewer when the nth is the first half of an
+// emoji or other pair: half a pair is not text, and encoders mangle it.
+const cut = (t, n) => t.slice(0, /[\uD800-\uDBFF]/.test(t[n - 1] || '') ? n - 1 : n);
+const clip = (v, n) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t.length > n ? `${cut(t, n)}…` : t; };
 const quote = (v) => JSON.stringify(clip(v, 80));
-const capped = (t, n) => (t.length > n ? `${t.slice(0, n)}\n… truncated at ${n} of ${t.length} characters` : t);
+const capped = (t, n) => (t.length > n ? `${cut(t, n)}\n… truncated at ${n} of ${t.length} characters` : t);
 // A console source is usually a long URL; its file and line say enough, and
 // an inline script has no file to name.
 const where = (src) => { const w = String(src || '').replace(/^.*\//, ''); return w.startsWith(':') ? '' : ` (${w})`; };
@@ -424,7 +427,7 @@ const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.route
 const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: '', grok: '', opencode: '', copilot: '' };
 
 module.exports = {
-  browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE,
+  browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE, cut, clip,
   planBatch, runBatch, batchContent, BATCH_MAX,
   INSTRUCTIONS, ALWAYS_LOADED, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
 };
