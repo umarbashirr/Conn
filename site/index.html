@@ -8,8 +8,8 @@
       name="description"
       content="Conn puts your coding agent next to your shell and a live browser. It edits the code, opens the page and checks its own work. Free and open source for Linux and Windows."
     />
-    <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#F5F2EA" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#08090A" />
     <link rel="icon" href="favicon.png" />
 
     <meta property="og:type" content="website" />
@@ -27,8 +27,10 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js" defer></script>
     <script src="download.js" defer></script>
     <script src="page.js" defer></script>
   </head>
@@ -83,6 +85,14 @@
       <symbol id="i-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15L19.5 12z"/></symbol>
       <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol>
       <symbol id="i-star" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3 6.4 20.2l1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+      <symbol id="i-sidebar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M9 4v16"/></symbol>
+      <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v6H4z"/><path d="M7 10v7h7"/><path d="M14 14h6v6h-6z"/></symbol>
+      <symbol id="i-diff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M6 8.5V14a4 4 0 0 0 4 4h5.5"/><path d="M18 15.5V10a4 4 0 0 0-4-4H8.5"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+      <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+      <symbol id="i-brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v10M8.5 10c1.5 0 3.5 1 3.5 3M15.5 10c-1.5 0-3.5 1-3.5 3"/></symbol>
+      <symbol id="i-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-11.5 7.5"/></symbol>
     </svg>
     <a class="skip" href="#main">Skip to content</a>
 
@@ -93,10 +103,11 @@
           Conn
         </a>
         <ul class="nav-links">
-          <li><a href="#point">Features</a></li>
-          <li><a href="#shell">CLI &amp; MCP</a></li>
+          <li><a href="#loop">How it works</a></li>
+          <li><a href="#features">Features</a></li>
+          <li><a href="#cli">CLI &amp; MCP</a></li>
           <li><a href="#faq">FAQ</a></li>
-          <li><a href="https://github.com/umarbashirr/Conn#readme">Docs</a></li>
+          <li><a href="docs/">Docs</a></li>
         </ul>
         <div class="nav-actions">
           <a class="nav-github" href="https://github.com/umarbashirr/Conn" aria-label="Conn on GitHub">
@@ -112,124 +123,154 @@
 
     <main id="main">
       <section class="hero" aria-labelledby="hero-title">
-        <div class="wrap hero-top">
-          <h1 id="hero-title">Your agent can finally <em>see the page.</em></h1>
-          <div class="hero-side">
-            <p class="lede">An agent, your shell and a live browser in one window. It edits the code, opens the page, and checks its own work.</p>
-            <div class="cta">
-              <a class="dl-button" data-state="rest" data-os="linux" href="https://github.com/umarbashirr/Conn/releases/latest">
-                <span class="dl-sweep" aria-hidden="true"></span>
-                <span class="dl-progress" aria-hidden="true"></span>
-                <span class="dl-lead" aria-hidden="true">
-                  <svg class="dl-logo" focusable="false"><use data-logo href="#logo-linux" /></svg>
-                  <svg class="dl-arrow" focusable="false"><use href="#i-download" /></svg>
-                  <svg class="dl-tray" focusable="false"><use href="#i-download-drop" /></svg>
-                  <svg class="dl-check" focusable="false"><use href="#i-check" /></svg>
-                </span>
-                <span class="dl-label" aria-live="polite">Download for Linux</span>
-              </a>
-              <a class="btn-ghost" href="https://github.com/umarbashirr/Conn">
-                <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#logo-github" /></svg>
-                GitHub
-                <span class="stars" data-stars hidden><svg width="13" height="13" aria-hidden="true" focusable="false"><use href="#i-star" /></svg><span data-stars-count></span></span>
-              </a>
-            </div>
-            <ul class="files">
-              <li data-hero-note hidden></li>
-              <li>v<span data-version>0.21.0</span></li>
-              <li data-for="linux" data-file-size="deb"></li>
-              <li data-for="windows" data-file-size="exe" hidden></li>
-              <li data-for="windows other" hidden><a data-file="deb" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Linux</a></li>
-              <li data-for="linux other"><a data-file="exe" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Windows</a></li>
-              <li><a data-file="appimage" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">AppImage</a></li>
-              <li>MIT</li>
-            </ul>
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="wrap hero-copy">
+          <a class="pill" href="https://github.com/umarbashirr/Conn/releases/latest" data-hero>
+            <span class="pill-tag">New</span>
+            <span>v<span data-version>0.22.0</span> is out</span>
+            <svg width="12" height="12" aria-hidden="true" focusable="false"><use href="#i-chevron" /></svg>
+          </a>
+          <h1 id="hero-title" data-hero-title>Your agent can finally <span class="grad">see the page.</span></h1>
+          <p class="lede" data-hero>An agent, your shell and a live browser in one window. It edits the code, opens the page and checks its own work.</p>
+          <div class="cta" data-hero>
+            <a class="dl-button" data-state="rest" data-os="linux" href="https://github.com/umarbashirr/Conn/releases/latest">
+              <svg class="dl-logo" aria-hidden="true" focusable="false"><use data-logo href="#logo-linux" /></svg>
+              <span class="dl-label" aria-live="polite">Download for Linux</span>
+            </a>
+            <a class="btn-ghost" href="https://github.com/umarbashirr/Conn">
+              <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#logo-github" /></svg>
+              GitHub
+              <span class="stars" data-stars hidden><svg width="12" height="12" aria-hidden="true" focusable="false"><use href="#i-star" /></svg><span data-stars-count></span></span>
+            </a>
           </div>
+          <ul class="files" data-hero>
+            <li data-hero-note hidden></li>
+            <li data-for="linux" data-file-size="deb"></li>
+            <li data-for="windows" data-file-size="exe" hidden></li>
+            <li data-for="windows other" hidden><a data-file="deb" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Linux</a></li>
+            <li data-for="linux other"><a data-file="exe" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">Windows</a></li>
+            <li><a data-file="appimage" data-absent-href="#download" href="https://github.com/umarbashirr/Conn/releases/latest">AppImage</a></li>
+            <li>MIT, free</li>
+          </ul>
         </div>
 
-        <figure class="demo wrap-wide" data-demo data-phase="done">
+        <figure class="demo wrap-wide" data-demo>
           <figcaption class="sr-only">
             An animated Conn window. Someone asks the agent to fix a Create account button that is
-            shorter than the email field. The agent reads and edits the signup file, the dev server
-            in the terminal reloads, the agent opens the page in the browser, clicks the button and
-            takes a screenshot. The button grows from 39 to 44 pixels and lines up with the field.
+            shorter than the email field. The agent reads and edits the signup file and the dev server
+            in the terminal reloads. Conn offers to open the local server, the agent opens the page in
+            the browser tab, clicks the button and takes a screenshot. The button grows from 39 to 44
+            pixels and lines up with the field.
           </figcaption>
           <ol class="phases" aria-hidden="true">
             <li data-phase-label="change"><span>1</span>Edits the code</li>
             <li data-phase-label="look"><span>2</span>Opens the page</li>
             <li data-phase-label="verify"><span>3</span>Checks its work</li>
           </ol>
-          <div class="win" aria-hidden="true">
-            <div class="win-bar">
-              <span class="win-dots"><i></i><i></i><i></i></span>
-              <span class="win-title"><svg width="12" height="12" focusable="false"><use href="#i-folder" /></svg>shop</span>
-              <span class="win-spacer"></span>
-            </div>
-            <div class="win-body">
-              <section class="pane pane-agent">
-                <header class="pane-head">
-                  <svg width="13" height="13" focusable="false"><use href="#i-bot" /></svg>
-                  Fix the signup button
-                  <span class="pane-tag"><svg width="11" height="11" focusable="false"><use href="#logo-claude" /></svg>Claude</span>
-                </header>
-                <div class="thread">
-                  <p class="msg-user">The Create account button is shorter than the email field. Fix it and check it in the browser.</p>
-                  <p class="msg-agent" data-at="1">The input is <code>h-11</code> and the button is <code>py-2</code>, so 44px against 39px. Matching them.</p>
-                  <ul class="tools">
-                    <li data-at="2"><svg width="12" height="12" focusable="false"><use href="#i-file-text" /></svg><b>Read</b><code>src/routes/signup.tsx</code></li>
-                    <li data-at="3"><svg width="12" height="12" focusable="false"><use href="#i-file-pen" /></svg><b>Edit</b><code>signup.tsx</code><span class="diff"><ins>+1</ins><del>−1</del></span></li>
-                    <li data-at="5"><svg width="12" height="12" focusable="false"><use href="#i-globe" /></svg><b>Navigate</b><code>localhost:5173/signup</code></li>
-                    <li data-at="6"><svg width="12" height="12" focusable="false"><use href="#i-mouse" /></svg><b>Click</b><code>button "Create account"</code></li>
-                    <li data-at="7"><svg width="12" height="12" focusable="false"><use href="#i-camera" /></svg><b>Screenshot</b><code>1280×800</code></li>
-                  </ul>
-                  <p class="msg-agent" data-at="8">Both are 44px and line up in the screenshot. No console errors.</p>
-                </div>
-                <div class="composer">
-                  <span>Ask for a change…</span>
-                  <span class="composer-mode">Auto</span>
-                  <span class="composer-send"><svg width="12" height="12" focusable="false"><use href="#i-send" /></svg></span>
-                </div>
-              </section>
+          <div class="demo-stage">
+            <div class="app" aria-hidden="true">
+              <div class="app-bar">
+                <svg width="13" height="13" focusable="false"><use href="#i-sidebar" /></svg>
+                <span class="app-menu"><span>File</span><span>Edit</span><span>View</span><span>Help</span></span>
+                <span class="app-tools">
+                  <svg width="12" height="12" focusable="false"><use href="#i-globe" /></svg>
+                  <svg width="12" height="12" focusable="false"><use href="#i-files" /></svg>
+                  <svg width="12" height="12" focusable="false"><use href="#i-diff" /></svg>
+                  <svg width="12" height="12" focusable="false"><use href="#i-square-terminal" /></svg>
+                  <svg width="12" height="12" focusable="false"><use href="#i-bot" /></svg>
+                  <i class="sep"></i>
+                  <svg width="12" height="12" focusable="false"><use href="#i-moon" /></svg>
+                </span>
+                <span class="app-win"><i>–</i><i>□</i><i>×</i></span>
+              </div>
+              <div class="app-body">
+                <aside class="app-side">
+                  <p class="side-item"><svg width="13" height="13" focusable="false"><use href="#i-file-pen" /></svg>New chat</p>
+                  <p class="side-item"><svg width="13" height="13" focusable="false"><use href="#i-search" /></svg>Search<kbd>Ctrl K</kbd></p>
+                  <p class="side-item"><svg width="13" height="13" focusable="false"><use href="#i-history" /></svg>Usage</p>
+                  <p class="side-label">Projects<svg width="11" height="11" focusable="false"><use href="#i-plus" /></svg></p>
+                  <p class="side-item"><svg width="13" height="13" focusable="false"><use href="#i-folder" /></svg>shop<time>now</time></p>
+                  <p class="side-chat is-on"><i></i>Fix the signup button</p>
+                  <p class="side-chat"><i></i>Add dark mode toggle</p>
+                  <p class="side-chat"><i></i>Checkout totals off by…</p>
+                  <p class="side-item"><svg width="13" height="13" focusable="false"><use href="#i-folder" /></svg>docs<time>3d</time></p>
+                </aside>
 
-              <section class="pane pane-term">
-                <header class="pane-head">
-                  <svg width="13" height="13" focusable="false"><use href="#i-square-terminal" /></svg>
-                  npm run dev
-                  <span class="live-dot"></span>
-                </header>
+                <section class="app-chat">
+                  <header class="chat-title">Fix the signup button</header>
+                  <div class="chat-scroll">
+                    <div class="chat-thread" data-thread>
+                      <p class="bubble" data-d="user">The Create account button is shorter than the email field. Fix it and check it in the browser.</p>
+                      <p class="row-fold" data-d="think"><svg class="chev" width="10" height="10" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-brain" /></svg>Thought for 2s</p>
+                      <p class="say" data-d="say1">The input is <code>h-11</code> and the button is <code>py-2</code>, so 44px against 39px. Matching them.</p>
+                      <p class="row-fold" data-d="read"><svg class="chev" width="10" height="10" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-list" /></svg>Explored 1 file</p>
+                      <p class="row-fold" data-d="edit"><svg class="chev" width="10" height="10" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-file-pen" /></svg>Edit <code>src/routes/signup.tsx</code><span class="diff"><ins>+1</ins><del>−1</del></span></p>
+                      <p class="row-fold" data-d="browse"><svg class="chev" width="10" height="10" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-list" /></svg>Used the browser <b data-browse-n>1 time</b><time data-browse-t>0:01</time></p>
+                      <p class="row-fold" data-d="shot"><svg class="chev" width="10" height="10" focusable="false"><use href="#i-chevron" /></svg><svg width="13" height="13" focusable="false"><use href="#i-camera" /></svg>Screenshot<time>0:03</time><span class="thumb"></span></p>
+                      <p class="say" data-d="say2">Both are 44px and line up in the screenshot. No console errors.</p>
+                      <p class="working" data-d="working"><span class="spark"></span>Working…</p>
+                    </div>
+                  </div>
+                  <div class="composer">
+                    <p class="composer-text"><span data-typed></span><span class="caret"></span><span class="ph" data-ph>Plan, build, or ask about this project</span></p>
+                    <div class="composer-row">
+                      <span class="cbtn"><svg width="12" height="12" focusable="false"><use href="#i-plus" /></svg></span>
+                      <span class="cmode"><svg width="11" height="11" focusable="false"><use href="#i-zap" /></svg>Auto <kbd>⇧Tab</kbd></span>
+                      <span class="cmodel"><svg width="11" height="11" focusable="false"><use href="#logo-claude" /></svg>Opus 5.5<svg width="10" height="10" focusable="false"><use href="#i-chevron-down" /></svg></span>
+                      <span class="csend" data-send><svg width="12" height="12" focusable="false"><use href="#i-send" /></svg></span>
+                    </div>
+                  </div>
+                  <p class="chat-foot"><span><svg width="11" height="11" focusable="false"><use href="#i-folder" /></svg>shop</span><span><svg width="11" height="11" focusable="false"><use href="#i-branch" /></svg>main</span><span>2 skills</span></p>
+                </section>
+
+                <section class="app-pane">
+                  <div class="tabs">
+                    <span class="tab" data-tab="term"><svg width="11" height="11" focusable="false"><use href="#i-square-terminal" /></svg>zsh</span>
+                    <span class="tab" data-tab="web"><svg width="11" height="11" focusable="false"><use href="#i-globe" /></svg>Northwind<i>×</i></span>
+                    <span class="tab-add">+</span>
+                  </div>
+                  <div class="pane-view view-term" data-view="term">
 <pre class="term"><span class="t-p">~/shop $</span> npm run dev
 
 <span class="t-dim">VITE v7.1 ready in 412 ms</span>
 
-<span class="t-dim">➜</span> Local: <span class="t-link">localhost:5173</span>
-<span data-at="4">
-<span class="t-ok">[vite] hmr update</span>
-<span class="t-dim">src/routes/signup.tsx</span></span></pre>
-              </section>
-
-              <section class="pane pane-browser">
-                <header class="pane-head urlbar">
-                  <svg width="12" height="12" focusable="false"><use href="#i-back" /></svg>
-                  <svg width="12" height="12" focusable="false"><use href="#i-reload" /></svg>
-                  <span class="address">localhost:5173/signup</span>
-                </header>
-                <div class="page">
-                  <div class="su-card">
-                    <p class="su-brand"><span class="su-logo"></span>Northwind</p>
-                    <p class="su-title">Create your account</p>
-                    <span class="su-label">Email</span>
-                    <span class="su-input">you@example.com</span>
-                    <span class="su-button">
-                      Create account
-                      <i class="su-pick"></i>
-                      <b class="su-size"><span class="size-old">264×39</span><span class="size-new">264×44</span></b>
-                    </span>
-                    <span class="su-foot">Already have an account? Sign in</span>
+<span class="t-dim">➜</span> Local: <span class="t-link">http://localhost:5173/</span>
+<span data-d="hmr"><span class="t-ok">[vite] hmr update</span> <span class="t-dim">/src/routes/signup.tsx</span></span></pre>
                   </div>
-                  <svg class="cursor" width="22" height="22" focusable="false"><use href="#i-cursor" /></svg>
-                  <span class="flash"></span>
-                </div>
-              </section>
+                  <div class="pane-view view-web" data-view="web">
+                    <div class="urlbar">
+                      <svg width="12" height="12" focusable="false"><use href="#i-back" /></svg>
+                      <svg width="12" height="12" focusable="false"><use href="#i-chevron" /></svg>
+                      <svg width="12" height="12" focusable="false"><use href="#i-reload" /></svg>
+                      <span class="address">localhost:5173/signup</span>
+                      <span class="agent-chip" data-agent-chip><span class="spark"></span>Agent</span>
+                    </div>
+                    <div class="page">
+                      <div class="load-bar" data-load></div>
+                      <div class="su-card">
+                        <p class="su-brand"><span class="su-logo"></span>Northwind</p>
+                        <p class="su-title">Create your account</p>
+                        <span class="su-label">Email</span>
+                        <span class="su-input">you@example.com</span>
+                        <span class="su-button" data-su-button>
+                          Create account
+                          <i class="su-pick" data-pick-box></i>
+                          <b class="su-size" data-size>264×39</b>
+                        </span>
+                        <span class="su-foot">Already have an account? Sign in</span>
+                      </div>
+                      <svg class="cursor" data-cursor width="20" height="20" focusable="false"><use href="#i-cursor" /></svg>
+                      <span class="flash" data-flash></span>
+                    </div>
+                  </div>
+                  <div class="toast" data-toast>
+                    <p><b>Local server detected</b><span>127.0.0.1:5173</span></p>
+                    <span class="toast-btns"><b data-toast-open>Open</b><i>Always</i><i>Ignore</i></span>
+                  </div>
+                </section>
+              </div>
+              <div class="app-status"><span>– 100% +</span></div>
             </div>
           </div>
           <button class="demo-toggle" type="button" data-demo-toggle hidden>
@@ -240,89 +281,160 @@
         </figure>
       </section>
 
-      <section class="band" aria-labelledby="band-title">
-        <div class="wrap band-inner">
-          <h2 id="band-title">Bring the agent you already pay for.</h2>
-          <ul class="cli-list">
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-claude" /></svg>Claude Code</li>
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-codex" /></svg>Codex</li>
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-cursor" /></svg>Cursor</li>
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-grok" /></svg>Grok</li>
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-opencode" /></svg>OpenCode</li>
-            <li><svg width="22" height="22" aria-hidden="true" focusable="false"><use href="#logo-copilot" /></svg>Copilot</li>
-          </ul>
-          <p class="band-note">No API key, no new plan. Conn runs the CLI you're already logged into.</p>
-        </div>
-      </section>
-
-      <section class="row" id="point" aria-labelledby="point-title">
-        <div class="wrap row-grid">
-          <div class="row-copy">
-            <span class="row-n">01</span>
-            <h2 id="point-title">Point at it. <em>Don't describe it.</em></h2>
-            <p>Click any element in the preview and it lands in your message with its selector, size and a screenshot.</p>
-            <p class="row-keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>E</kbd></p>
-          </div>
-          <div class="row-visual pick reveal" aria-hidden="true">
-            <div class="pick-page">
-              <span class="pick-line w70"></span>
-              <span class="pick-line w45"></span>
-              <span class="pick-field"></span>
-              <span class="pick-btn">Get started<i></i><b>#go · 129×39</b></span>
-              <svg class="pick-cursor" width="22" height="22" focusable="false"><use href="#i-cursor" /></svg>
-            </div>
-            <div class="pick-composer">
-              <span class="pick-chip"><svg width="11" height="11" focusable="false"><use href="#i-pointer" /></svg>button "Get started"</span>
-              <span class="pick-text">make this the same height as the field</span>
-            </div>
+      <section class="logos" aria-labelledby="logos-title">
+        <div class="wrap">
+          <h2 id="logos-title" class="eyebrow-center">Bring the agent you already pay for. <span>No API key, no new plan.</span></h2>
+          <div class="marquee" aria-hidden="false">
+            <ul class="marquee-track">
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-claude" /></svg>Claude Code</li>
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-codex" /></svg>Codex</li>
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-cursor" /></svg>Cursor</li>
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-grok" /></svg>Grok</li>
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-opencode" /></svg>OpenCode</li>
+              <li><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#logo-copilot" /></svg>Copilot</li>
+            </ul>
           </div>
         </div>
       </section>
 
-      <section class="row row-flip" id="modes" aria-labelledby="modes-title">
-        <div class="wrap row-grid">
-          <div class="row-copy">
-            <span class="row-n">02</span>
-            <h2 id="modes-title">You decide <em>how much it can do.</em></h2>
-            <p>Four permission modes, the same for every agent. Try them.</p>
-            <p class="row-keys"><kbd>Shift</kbd><kbd>Tab</kbd></p>
+      <section class="loop" id="loop" aria-labelledby="loop-title">
+        <div class="wrap">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow"><span class="dot"></span>How it works</p>
+            <h2 id="loop-title">One loop. <span class="muted">Change, look, verify.</span></h2>
+            <p>Most agents stop at "it should work now." Conn's agent sits next to a shell and a live browser, so it runs the app and checks the result before it says it's done.</p>
           </div>
-          <div class="row-visual modes reveal" data-modes>
-            <div class="mode-tabs" role="tablist" aria-label="Permission modes">
-              <button role="tab" id="mode-plan" aria-controls="mode-plan-panel" aria-selected="false" tabindex="-1" type="button">Plan</button>
-              <button role="tab" id="mode-ask" aria-controls="mode-ask-panel" aria-selected="true" type="button">Ask</button>
-              <button role="tab" id="mode-auto" aria-controls="mode-auto-panel" aria-selected="false" tabindex="-1" type="button">Auto</button>
-              <button role="tab" id="mode-full" aria-controls="mode-full-panel" aria-selected="false" tabindex="-1" type="button">Full</button>
-            </div>
-            <div class="mode-panel" role="tabpanel" id="mode-plan-panel" aria-labelledby="mode-plan" tabindex="0" hidden>
-              <p class="mode-says">Reads and looks. Changes nothing.</p>
-              <div class="mode-call is-blocked"><code>Edit src/app.tsx</code><span>Refused</span></div>
-            </div>
-            <div class="mode-panel" role="tabpanel" id="mode-ask-panel" aria-labelledby="mode-ask" tabindex="0">
-              <p class="mode-says">Asks before each edit, command or page change.</p>
-              <div class="mode-call is-ask"><code>npm test -- signup</code><span class="mode-btns"><b>Allow</b><i>Always</i><i>Deny</i></span></div>
-            </div>
-            <div class="mode-panel" role="tabpanel" id="mode-auto-panel" aria-labelledby="mode-auto" tabindex="0" hidden>
-              <p class="mode-says">Just works, but stops on the dangerous stuff.</p>
-              <div class="mode-call is-ok"><code>npm run build</code><span>Ran</span></div>
-              <div class="mode-call is-ask"><code>sudo rm -rf /var/www</code><span>Asks first</span></div>
-            </div>
-            <div class="mode-panel" role="tabpanel" id="mode-full-panel" aria-labelledby="mode-full" tabindex="0" hidden>
-              <p class="mode-says">Asks for nothing. Use your own sandbox.</p>
-              <div class="mode-call is-ok"><code>anything</code><span>Ran</span></div>
-            </div>
+          <ol class="steps" data-steps>
+            <li class="step">
+              <div class="step-num">01</div>
+              <svg class="step-icon" width="22" height="22" aria-hidden="true" focusable="false"><use href="#i-code" /></svg>
+              <h3>Edits the code</h3>
+              <p>Reads the file, makes the change, and the dev server in the terminal reloads on its own.</p>
+            </li>
+            <li class="step">
+              <div class="step-num">02</div>
+              <svg class="step-icon" width="22" height="22" aria-hidden="true" focusable="false"><use href="#i-globe" /></svg>
+              <h3>Opens the page</h3>
+              <p>Navigates the built-in browser, clicks, types and reads the accessibility tree like a user would.</p>
+            </li>
+            <li class="step">
+              <div class="step-num">03</div>
+              <svg class="step-icon" width="22" height="22" aria-hidden="true" focusable="false"><use href="#i-check-circle" /></svg>
+              <h3>Checks its work</h3>
+              <p>Takes a screenshot, measures, reads the console. If it's wrong, it goes around again.</p>
+            </li>
+          </ol>
+          <div class="steps-line" aria-hidden="true"><span data-steps-fill></span></div>
+        </div>
+      </section>
+
+      <section class="features" id="features" aria-labelledby="features-title">
+        <div class="wrap">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow"><span class="dot"></span>Features</p>
+            <h2 id="features-title">Built for agents <span class="muted">that look before they leap.</span></h2>
+          </div>
+
+          <div class="stack">
+            <article class="card stack-card" data-stack>
+              <div class="card-copy"><p class="stack-n">01 / 03</p>
+                <h3>Point at it. Don't describe it.</h3>
+                <p>Click any element in the preview and it lands in your message with its selector, size and a screenshot.</p>
+                <p class="keys"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>E</kbd></p>
+              </div>
+              <div class="pick" aria-hidden="true" data-pick>
+                <div class="pick-page">
+                  <span class="pick-line w70"></span>
+                  <span class="pick-line w45"></span>
+                  <span class="pick-field"></span>
+                  <span class="pick-btn">Get started<i></i><b>#go · 129×39</b></span>
+                  <svg class="pick-cursor" width="22" height="22" focusable="false"><use href="#i-cursor" /></svg>
+                </div>
+                <div class="pick-composer">
+                  <span class="pick-chip"><svg width="11" height="11" focusable="false"><use href="#i-pointer" /></svg>button "Get started"</span>
+                  <span class="pick-text">make this the same height as the field</span>
+                </div>
+              </div>
+            </article>
+            <article class="card stack-card" data-stack>
+              <div class="card-copy"><p class="stack-n">02 / 03</p>
+                <h3>You decide how much it can do.</h3>
+                <p>Four permission modes, the same for every agent. Try them.</p>
+                <p class="keys"><kbd>Shift</kbd><kbd>Tab</kbd></p>
+              </div>
+              <div class="modes" data-modes>
+                <div class="mode-tabs" role="tablist" aria-label="Permission modes">
+                  <span class="mode-thumb" aria-hidden="true" data-mode-thumb></span>
+                  <button role="tab" id="mode-plan" aria-controls="mode-plan-panel" aria-selected="false" tabindex="-1" type="button">Plan</button>
+                  <button role="tab" id="mode-ask" aria-controls="mode-ask-panel" aria-selected="true" type="button">Ask</button>
+                  <button role="tab" id="mode-auto" aria-controls="mode-auto-panel" aria-selected="false" tabindex="-1" type="button">Auto</button>
+                  <button role="tab" id="mode-full" aria-controls="mode-full-panel" aria-selected="false" tabindex="-1" type="button">Full</button>
+                </div>
+                <div class="mode-panel" role="tabpanel" id="mode-plan-panel" aria-labelledby="mode-plan" tabindex="0" hidden>
+                  <p class="mode-says">Reads and looks. Changes nothing.</p>
+                  <div class="mode-call is-blocked"><code>Edit src/app.tsx</code><span>Refused</span></div>
+                </div>
+                <div class="mode-panel" role="tabpanel" id="mode-ask-panel" aria-labelledby="mode-ask" tabindex="0">
+                  <p class="mode-says">Asks before each edit, command or page change.</p>
+                  <div class="mode-call is-ask"><code>npm test -- signup</code><span class="mode-btns"><b>Allow</b><i>Always</i><i>Deny</i></span></div>
+                </div>
+                <div class="mode-panel" role="tabpanel" id="mode-auto-panel" aria-labelledby="mode-auto" tabindex="0" hidden>
+                  <p class="mode-says">Just works, but stops on the dangerous stuff.</p>
+                  <div class="mode-call is-ok"><code>npm run build</code><span>Ran</span></div>
+                  <div class="mode-call is-ask"><code>sudo rm -rf /var/www</code><span>Asks first</span></div>
+                </div>
+                <div class="mode-panel" role="tabpanel" id="mode-full-panel" aria-labelledby="mode-full" tabindex="0" hidden>
+                  <p class="mode-says">Asks for nothing. Use your own sandbox.</p>
+                  <div class="mode-call is-ok"><code>anything</code><span>Ran</span></div>
+                </div>
+              </div>
+            </article>
+            <article class="card stack-card stack-more" data-stack>
+              <div class="card-copy">
+                <p class="stack-n">03 / 03</p>
+                <h3>And the small things that add up.</h3>
+                <p>The parts you stop noticing because they just work.</p>
+              </div>
+              <ul class="mini-grid">
+            <li class="mini">
+              <svg class="card-icon" width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-zap" /></svg>
+              <h3>Dev servers open themselves</h3>
+              <p>A local URL in the terminal becomes a one-click preview.</p>
+            </li>
+            <li class="mini">
+              <svg class="card-icon" width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-history" /></svg>
+              <h3>Shared with <code>claude --resume</code></h3>
+              <p>Start a chat in the terminal, finish it here.</p>
+            </li>
+            <li class="mini">
+              <svg class="card-icon" width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-video" /></svg>
+              <h3>Records the page</h3>
+              <p>A video of the flow when a screenshot won't do.</p>
+            </li>
+            <li class="mini">
+              <svg class="card-icon" width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-folders" /></svg>
+              <h3>Eight projects, one window</h3>
+              <p>Each keeps its own chats, shells and tabs. Pin the ones you use most.</p>
+            </li>
+              </ul>
+            </article>
           </div>
         </div>
       </section>
 
-      <section class="row" id="shell" aria-labelledby="shell-title">
-        <div class="wrap row-grid">
-          <div class="row-copy">
-            <span class="row-n">03</span>
-            <h2 id="shell-title">Any shell can <em>drive the browser.</em></h2>
+      <section class="cli" id="cli" aria-labelledby="cli-title">
+        <div class="wrap cli-grid">
+          <div class="section-head left" data-reveal>
+            <p class="eyebrow"><span class="dot"></span>CLI &amp; MCP</p>
+            <h2 id="cli-title">Any shell can <span class="muted">drive the browser.</span></h2>
             <p>Scripts, tests and other agents get the same browser through <code>conn</code>, or through MCP with <code>conn setup project</code>.</p>
+            <ul class="checks">
+              <li><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>Accessibility snapshots with stable refs</li>
+              <li><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>Click, fill, screenshot, record</li>
+              <li><svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-check" /></svg>Same pane you're looking at</li>
+            </ul>
           </div>
-          <figure class="row-visual terminal reveal" data-type>
+          <figure class="terminal" data-type>
             <figcaption><span class="win-dots" aria-hidden="true"><i></i><i></i><i></i></span>zsh · ~/shop</figcaption>
 <pre><code><span class="tl"><span class="t-p">$</span> conn go 3000</span>
 <span class="tl t-dim">loaded localhost:3000/signup</span>
@@ -336,58 +448,56 @@
         </div>
       </section>
 
-      <section class="extras" aria-labelledby="extras-title">
-        <div class="wrap">
-          <h2 id="extras-title" class="sr-only">More in Conn</h2>
-          <ul class="extra-list">
-            <li class="reveal"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-zap" /></svg><h3>Dev servers open themselves</h3><p>A local URL in the terminal becomes a one-click preview.</p></li>
-            <li class="reveal"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-history" /></svg><h3>Shared with <code>claude --resume</code></h3><p>Start a chat in the terminal, finish it here.</p></li>
-            <li class="reveal"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-video" /></svg><h3>Records the page</h3><p>A video of the flow when a screenshot won't do.</p></li>
-            <li class="reveal"><svg width="20" height="20" aria-hidden="true" focusable="false"><use href="#i-folders" /></svg><h3>Eight projects, one window</h3><p>Each keeps its own chats, shells and tabs.</p></li>
-          </ul>
-        </div>
+      <section class="stats" aria-label="Conn at a glance">
+        <ul class="wrap stat-list">
+          <li data-stat><b data-count="6">6</b><span>agent CLIs supported</span></li>
+          <li data-stat><b data-count="4">4</b><span>permission modes</span></li>
+          <li data-stat><b data-count="8">8</b><span>projects per window</span></li>
+          <li data-stat><b data-count="0">0</b><span>API keys needed</span></li>
+        </ul>
       </section>
 
       <section class="download" id="download" aria-labelledby="download-title">
         <div class="wrap">
-          <div class="download-head">
+          <div class="section-head" data-reveal>
+            <p class="eyebrow"><span class="dot"></span>Download</p>
             <h2 id="download-title">Get Conn.</h2>
-            <p>Version <span data-version>0.21.0</span> for 64-bit Linux and Windows, plus a phone companion for Android. No macOS build yet.</p>
+            <p>Version <span data-version>0.22.0</span> for 64-bit Linux and Windows, plus a phone companion for Android. No macOS build yet.</p>
           </div>
           <ul class="downloads">
-            <li class="dl-card" data-platform="linux">
+            <li class="dl-card card" data-platform="linux" data-card>
               <span class="badge">Your system</span>
               <svg class="dl-card-logo" width="26" height="26" aria-hidden="true" focusable="false"><use href="#logo-linux" /></svg>
               <h3>Linux</h3>
               <p>Debian and Ubuntu</p>
-              <code class="dl-file" data-file-name="deb">conn-0.21.0-amd64.deb</code>
+              <code class="dl-file" data-file-name="deb">conn-0.22.0-amd64.deb</code>
               <a class="dl-card-button" data-file="deb" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
                 <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="deb"></span></span>
               </a>
             </li>
-            <li class="dl-card">
+            <li class="dl-card card" data-card>
               <svg class="dl-card-logo" width="26" height="26" aria-hidden="true" focusable="false"><use href="#logo-linux" /></svg>
               <h3>AppImage</h3>
               <p>Any other distro</p>
-              <code class="dl-file" data-file-name="appimage">conn-0.21.0-x86_64.AppImage</code>
+              <code class="dl-file" data-file-name="appimage">conn-0.22.0-x86_64.AppImage</code>
               <a class="dl-card-button" data-file="appimage" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
                 <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="appimage"></span></span>
               </a>
             </li>
-            <li class="dl-card" data-platform="windows">
+            <li class="dl-card card" data-platform="windows" data-card>
               <span class="badge">Your system</span>
               <svg class="dl-card-logo" width="24" height="24" aria-hidden="true" focusable="false"><use href="#logo-windows" /></svg>
               <h3>Windows</h3>
               <p>10 and 11</p>
-              <code class="dl-file" data-file-name="exe">conn-0.21.0-x64.exe</code>
+              <code class="dl-file" data-file-name="exe">conn-0.22.0-x64.exe</code>
               <a class="dl-card-button" data-file="exe" href="https://github.com/umarbashirr/Conn/releases/latest">
                 <svg width="15" height="15" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
                 <span><span data-absent-label="Not in this release">Download</span><span class="size" data-file-size="exe"></span></span>
               </a>
             </li>
-            <li class="dl-card">
+            <li class="dl-card card" data-card>
               <svg class="dl-card-logo" width="24" height="24" aria-hidden="true" focusable="false"><use href="#logo-android" /></svg>
               <h3>Android</h3>
               <p>Phone companion</p>
@@ -398,7 +508,7 @@
               </a>
             </li>
           </ul>
-          <div class="installs">
+          <div class="installs" data-reveal>
             <div class="install">
               <p class="install-label">Linux terminal</p>
               <div class="command-row">
@@ -428,21 +538,24 @@
 
       <section class="faq" id="faq" aria-labelledby="faq-title">
         <div class="wrap faq-grid">
-          <h2 id="faq-title">Questions</h2>
+          <div class="section-head left" data-reveal>
+            <p class="eyebrow"><span class="dot"></span>FAQ</p>
+            <h2 id="faq-title">Questions</h2>
+          </div>
           <div class="faq-list">
-            <details>
+            <details data-reveal>
               <summary>Do I need an API key?<span class="faq-icon" aria-hidden="true"></span></summary>
               <p>No. Conn runs the agent CLI you already have, with its own login. If <code>claude --version</code> works in your terminal, it works in Conn.</p>
             </details>
-            <details>
+            <details data-reveal>
               <summary>How is this different from an editor agent?<span class="faq-icon" aria-hidden="true"></span></summary>
               <p>Editor agents sit next to your code. Conn's agent sits next to a shell and a live browser, so it can run the app and look at the result before it says it's done.</p>
             </details>
-            <details>
+            <details data-reveal>
               <summary>Is Auto mode a sandbox?<span class="faq-icon" aria-hidden="true"></span></summary>
               <p>No. It stops on a short list of dangerous commands, which is a convenience, not isolation. For real isolation, run the CLI in an OS-level sandbox.</p>
             </details>
-            <details>
+            <details data-reveal>
               <summary>What does it cost?<span class="faq-icon" aria-hidden="true"></span></summary>
               <p>Nothing. Conn is open source under the MIT license.</p>
             </details>
@@ -451,14 +564,16 @@
       </section>
 
       <section class="final" aria-labelledby="final-title">
-        <div class="wrap final-inner">
-          <h2 id="final-title">Let it check <em>its own work.</em></h2>
+        <div class="final-glow" aria-hidden="true"></div>
+        <div class="wrap final-inner" data-reveal>
+          <svg class="final-mark" width="56" height="56" aria-hidden="true" focusable="false"><use href="#mark" /></svg>
+          <h2 id="final-title">Let it check <span class="grad">its own work.</span></h2>
           <div class="cta">
             <a class="btn-primary" href="#download">
               <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-download" /></svg>
               Download Conn
             </a>
-            <a class="btn-ghost on-ink" href="https://github.com/umarbashirr/Conn">
+            <a class="btn-ghost" href="https://github.com/umarbashirr/Conn">
               <svg width="16" height="16" aria-hidden="true" focusable="false"><use href="#i-star" /></svg>
               Star on GitHub
               <span class="stars" data-stars hidden><span data-stars-count></span></span>
@@ -477,7 +592,7 @@
         <ul>
           <li><a href="https://github.com/umarbashirr/Conn">GitHub</a></li>
           <li><a href="https://github.com/umarbashirr/Conn/releases">Releases</a></li>
-          <li><a href="https://github.com/umarbashirr/Conn#readme">Docs</a></li>
+          <li><a href="docs/">Docs</a></li>
           <li><a href="https://opensource.org/license/mit">MIT license</a></li>
         </ul>
       </div>

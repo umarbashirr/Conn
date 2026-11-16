@@ -216,6 +216,13 @@ browser, wired in already: no MCP config, no restart, no setup step.
   until you delete them in the CLI. Pick one and the
   thread replays, tool calls and screenshots included, and that chat is live again for the next thing
   you type. Switching chats does not stop one that is still running.
+- **Pinned projects**: pin a project from its **...** menu in the rail and it stays above the
+  others, even after you close and reopen the folder. When the window is full, an unpinned folder
+  is closed first.
+- **Mark up a picture**: click an attached image to draw on it with **Pen** or **Box** before you
+  send. The marks are saved into the file the agent gets. **Clear** brings back the original.
+- **Model**: with nothing picked, a chat runs your account's default model. Only a model you pick in
+  the picker is remembered.
 - **Tool calls** collapse to one line each. Click one to see its input and result, including
   screenshots inline.
 
@@ -244,6 +251,17 @@ screenshot of just that area:
   contains: button "Alpha" (e1), button "Bravo" (e2)
   screenshot: /tmp/conn-shots-1000/pick-1794488561216.png
 ```
+
+**Fewer calls per check.** The agent can send up to 15 browser steps in one `browser_batch` call and
+get one numbered result back. Each step still asks for permission the way it would on its own, and
+the first step that fails or is refused ends the batch. **Stop** stops a running batch. Every action
+that changes the page reports, in its own result, the console errors and failed requests it caused,
+so the agent does not need to check the console after each step. Screenshots reach the model as a
+small JPEG copy. The full-size PNG stays on disk.
+
+**Signing in and searching.** Google sign-in and other sign-in popups work in the pane. The address
+bar completes from your history and bookmarks and suggests searches. Pick Google, DuckDuckGo or Bing
+in Settings.
 
 **Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
 layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
@@ -389,7 +407,7 @@ mode, and neither does this.
 
 ## Using it from another agent
 
-The panel is not the only way in. Any agent that speaks MCP can have the same 22 browser tools:
+The panel is not the only way in. Any agent that speaks MCP can have the same browser tools, `browser_batch` included:
 
 ```sh
 conn setup project      # writes ./.mcp.json
