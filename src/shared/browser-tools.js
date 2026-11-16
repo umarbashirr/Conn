@@ -135,10 +135,11 @@ function browserTools(z) {
     },
     {
       name: 'browser_console', bridgeTool: 'console', label: 'Console', title: 'Read the console',
-      description: `Console messages since the last navigation, the last ${READ.rows} unless limit says.`,
-      schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional() },
+      description: `Console messages since the last navigation, the last ${READ.rows} unless limit says; full keeps long ones whole.`,
+      schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional(), full: z.boolean().optional() },
       map: (a) => ({ ...a, limit: a.limit ?? READ.rows }),
-      render: (rows) => rows.filter((r) => !electronOwn(r)).map((r) => `[${r.level}] ${clip(r.message, ROW_CHARS)}${where(r.source)}`).join('\n') || '(console is empty)',
+      render: (rows, a) => rows.filter((r) => !electronOwn(r))
+        .map((r) => `[${r.level}] ${a.full ? r.message : clip(r.message, ROW_CHARS)}${where(r.source)}`).join('\n') || '(console is empty)',
     },
     {
       name: 'browser_network', bridgeTool: 'network', label: 'Network', title: 'Read failed requests',
@@ -301,7 +302,7 @@ function causedText(report, indent = '') {
   const shown = [...logged.filter((r) => r.level === 'error'), ...logged.filter((r) => r.level !== 'error')].slice(0, REPORT_ROWS);
   const failed = rows.filter((r) => r.kind === 'request');
   const lines = [...shown, ...failed.slice(0, REPORT_ROWS)].map((r) => reportLine(r, report.since));
-  if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console`);
+  if (logged.length > shown.length) lines.push(`${logged.length - shown.length} more console messages: browser_console {"full":true}`);
   if (failed.length > REPORT_ROWS) lines.push(`${failed.length - REPORT_ROWS} more failed requests: browser_network`);
   return `\n${lines.map((l) => indent + l).join('\n')}`;
 }
