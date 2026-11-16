@@ -45,11 +45,30 @@ function systemBinary() {
       try {
         // Resolve it: a shim points at the real install, and the version probe
         // and the settings page should name the same file the SDK will spawn.
-        if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
+        if (fs.existsSync(candidate)) return unwrapShim(fs.realpathSync(candidate));
       } catch {}
     }
   }
   return null;
+}
+
+// npm's global install on Windows is claude.cmd, a batch wrapper, and Node
+// refuses to spawn a .cmd or .bat without a shell (EINVAL). The SDK spawns
+// the path it is given directly, and running it through cmd.exe instead would
+// mangle the JSON arguments a session passes. So read the wrapper and hand
+// back what it runs: claude.exe from the package, or cli.js, which the SDK
+// runs with node.
+function unwrapShim(p) {
+  if (!p || !/\.(cmd|bat)$/i.test(p)) return p;
+  let text = '';
+  try { text = fs.readFileSync(p, 'utf8'); } catch { return p; }
+  const dir = path.dirname(p);
+  for (const m of text.matchAll(/"%~?dp0%?\\?([^"%]+\.(?:exe|js|mjs|cjs))"/gi)) {
+    const target = path.join(dir, ...m[1].split(/[\\/]/));
+    if (/node\.exe$/i.test(target)) continue;
+    try { if (fs.existsSync(target)) return fs.realpathSync(target); } catch {}
+  }
+  return p;
 }
 
 // An install somewhere PATH does not reach. Settings holds the path; empty
@@ -63,7 +82,7 @@ function preferBinary(p) {
 
 function claudeBinary() {
   if (preferred) {
-    try { if (fs.existsSync(preferred)) return preferred; } catch {}
+    try { if (fs.existsSync(preferred)) return unwrapShim(preferred); } catch {}
   }
   return systemBinary();
 }
@@ -167,7 +186,9 @@ function probeVersion(bin) {
       // install on Windows is exactly that. The SDK spawns it directly, so a
       // version read here is the only warning before a session tries.
       const viaShell = /\.(cmd|bat)$/i.test(bin);
-      child = spawn(viaShell ? `"${bin}"` : bin, ['--version'], {
+      // A cli.js that unwrapShim found runs under node, as the SDK runs it.
+      const js = /\.[cm]?js$/i.test(bin);
+      child = spawn(viaShell ? `"${bin}"` : js ? 'node' : bin, js ? [bin, '--version'] : ['--version'], {
         stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
       });
     } catch {
@@ -501,7 +522,7 @@ class Driver {
 }
 
 module.exports = {
-  Driver, claudeBinary, systemBinary, preferBinary,
+  Driver, claudeBinary, systemBinary, preferBinary, unwrapShim,
   modelsFor, compareVersions, parseVersion, probeVersion, probeModels, takesThinkingDisplay,
   isLong, withLong, withoutLong, hasLong, withVariants,
   endpoint, CATALOG,

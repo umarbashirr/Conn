@@ -64,7 +64,8 @@ function run(bin, args, cwd) {
     let out = '';
     let child;
     try {
-      child = spawn(bin, args, { cwd, env: shellEnv.env(), stdio: ['ignore', 'pipe', 'pipe'] });
+      const viaShell = /\.(cmd|bat)$/i.test(bin);
+      child = spawn(viaShell ? `"${bin}"` : bin, args, { cwd, env: shellEnv.env(), stdio: ['ignore', 'pipe', 'pipe'], shell: viaShell });
     } catch (e) {
       return resolve({ code: -1, out: e.message });
     }
