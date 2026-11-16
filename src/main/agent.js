@@ -377,7 +377,7 @@ class AgentSession extends EventEmitter {
     this.pending.delete(id);
     const updatedInput = input && typeof input === 'object' ? input : entry.input;
     // Always on a browser tool covers that tool when a batch runs it too,
-    // for as long as this session lives.
+    // until the person picks another mode or removes a rule in Settings.
     if (decision === 'always' && entry.tool?.startsWith('mcp__preview__browser_')) this.grants.add(entry.tool);
     if (decision === 'allow') entry.resolve({ behavior: 'allow', updatedInput });
     else if (decision === 'always') {
@@ -604,6 +604,7 @@ class AgentSession extends EventEmitter {
   async setMode(mode) {
     if (!isMode(mode)) return this.mode;
     this.mode = mode;
+    this.grants.clear();
     this.permissionMode = SDK_MODE[mode];
     this.preface = null;
     try { await this.query?.setPermissionMode(this.permissionMode); } catch {}

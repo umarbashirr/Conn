@@ -1703,7 +1703,11 @@ function registerIpc() {
   });
   ipcMain.handle('rules:remove', (_e, { project, ...rule } = {}) => {
     const dir = project ? openDir(project) : null;
-    return permissionRules.remove(dir, rule);
+    const res = permissionRules.remove(dir, rule);
+    // Always on a card wrote the rule and a grant together, so the grant goes
+    // with it. A user rule spans every project, so every chat forgets.
+    if (res.ok) for (const live of liveSessions()) live.grants?.clear();
+    return res;
   });
 
   // --- terminal ---
