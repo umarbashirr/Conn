@@ -235,6 +235,50 @@ try {
       check(`conn-batch-${tool}-misnamed-arg-refused`, viaCli.isError && says.test(viaCli.text), J(viaCli));
     }
   }
+
+  {
+    // Always on a step's card lets that tool through later batches without
+    // one. The stand-in agent records answers without acting on them, so the
+    // Always is put in place here; the mode switch and the rule removal are
+    // the composer's and the Settings page's own calls.
+    const CLICK = 'mcp__preview__browser_click';
+    const cardsFor = (setup) => drive.evaluate(s, `(async () => {
+      const a = globalThis.__agent;
+      ${setup}
+      const hs = new Map(a.browserHandlers(req('zod').z).map((h) => [h.name, h]));
+      const cards = [];
+      const answer = (c) => { cards.push(c.tool); const e = a.pending.get(c.id); a.pending.delete(c.id); e.resolve({ behavior: 'deny', message: 'declined' }); };
+      a.on('permission', answer);
+      try { await hs.get('browser_batch').handler({ actions: [{ tool: 'click', target: '#apply' }] }, { _meta: { 'claudecode/toolUseId': 'g-' + Date.now() } }); }
+      finally { a.off('permission', answer); }
+      return cards;
+    })()`, { main: true, awaitPromise: true });
+    const modeIs = () => drive.evaluate(s, 'globalThis.__agent.mode', { main: true });
+    const switchTo = async (mode) => {
+      await drive.evaluate(s, `document.querySelector('#agent-root [contenteditable="true"]').focus()`);
+      for (let i = 0; i < 6; i++) {
+        await drive.key(s, 'Shift+Tab');
+        await sleep(150);
+        if (await modeIs() === mode) return true;
+      }
+      return false;
+    };
+
+    await switchTo('ask');
+    const granted = await cardsFor(`a.grants.add(${J(CLICK)});`);
+    check('always-skips-the-step-card', granted.length === 0, J(granted));
+    const switched = await switchTo('ask');
+    const afterMode = await cardsFor('');
+    check('mode-change-forgets-always', switched && afterMode.includes(CLICK), J({ switched, afterMode }));
+
+    const local = path.join(s.project, '.claude', 'settings.local.json');
+    fs.writeFileSync(local, J({ permissions: { allow: [CLICK] } }));
+    await cardsFor(`a.grants.add(${J(CLICK)});`);
+    const removed = await drive.evaluate(s, `window.conn.rules.remove(${J(s.project)}, { scope: 'local', kind: 'allow', rule: ${J(CLICK)} })`, { awaitPromise: true });
+    const afterRule = await cardsFor('');
+    check('rule-removal-forgets-always', removed?.ok && afterRule.includes(CLICK), J({ removed, afterRule }));
+    fs.rmSync(local);
+  }
 } finally {
   await mcp?.close().catch(() => {});
   server?.kill();
