@@ -122,6 +122,30 @@ try {
     check(`${name}-batch-runs-past-hooks-on-other-tools`, !r.isError && r.left === RAN, J(r));
   }
   fs.rmSync(settings);
+
+  // A skill or agent declares hooks in its frontmatter, which the CLI runs
+  // while that skill or agent is at work. The window cannot tell when that
+  // is, so it holds a batch to them always.
+  const declare = (file, matchers) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `---\nname: guard\ndescription: Guards the preview browser.\nhooks:\n  PreToolUse:\n${matchers.map((m) => `    - matcher: "${m}"\n      hooks:\n        - type: command\n          command: "echo blocked-by-skill >&2; exit 2"\n`).join('')}---\nDo the browser steps you are asked for.\n`);
+  };
+  for (const [kind, file] of [['skill', path.join(s.project, '.claude', 'skills', 'guard', 'SKILL.md')], ['agent', path.join(s.project, '.claude', 'agents', 'guard.md')]]) {
+    declare(file, ['mcp__preview__browser_evaluate', 'mcp__conn__browser_evaluate']);
+    for (const name of ['in-process', 'bridge-claude-code']) {
+      const r = await runs[name]();
+      check(`${name}-${kind}-hook-refuses-the-batch`, r.isError && WATCHED.test(r.text) && r.text.includes(`in ${kind} guard (${file})`), J(r));
+      check(`${name}-${kind}-hook-leaves-the-page`, r.left === UNTOUCHED, J(r));
+    }
+    const other = await runs['bridge-other-agent']();
+    check(`bridge-other-agent-batch-runs-past-${kind}-hooks`, !other.isError && other.left === RAN, J(other));
+    declare(file, ELSEWHERE);
+    for (const name of ['in-process', 'bridge-claude-code']) {
+      const r = await runs[name]();
+      check(`${name}-batch-runs-past-${kind}-hooks-on-other-tools`, !r.isError && r.left === RAN, J(r));
+    }
+    fs.rmSync(file);
+  }
 } finally {
   for (const c of clients) await c.close().catch(() => {});
   server?.kill();
