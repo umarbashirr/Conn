@@ -172,7 +172,7 @@ class AgentSession extends EventEmitter {
     const forId = extra?._meta?.['claudecode/toolUseId'] || null;
     const signal = extra?.signal ? AbortSignal.any([halt, extra.signal]) : halt;
     const out = await runBatch(steps, async (step, i) => {
-      const refused = await this.#stepRefusal(step, actor, forId, `step ${i + 1} of ${steps.length} in a batch`, signal);
+      const refused = await this.#stepRefusal(step, actor, { id: forId, step: i + 1, total: steps.length }, signal);
       if (refused) throw Object.assign(new Error(refused), { code: 'PERMISSION_DENIED' });
       return this.invoke(step.route, step.mapped, actor, { report: true });
     }, signal);
@@ -186,7 +186,7 @@ class AgentSession extends EventEmitter {
      The mode is decide() as for any call, and its refusal is not overridden
      by an allow rule, so a step is never let through where the same call
      made alone might not be. */
-  async #stepRefusal(step, actor, forId, where, signal) {
+  async #stepRefusal(step, actor, batch, signal) {
     const tool = `mcp__preview__${step.name}`;
     const rule = ruleFor(this.cwd, tool);
     if (rule === 'deny') return `a permission rule in your settings denies ${tool}.`;
@@ -194,9 +194,10 @@ class AgentSession extends EventEmitter {
     if (verdict.action === 'deny') return verdict.reason || 'This mode refused the action.';
     if (rule !== 'ask' && (verdict.action === 'allow' || rule === 'allow' || this.grants.has(tool))) return null;
     const answer = await this.#ask(tool, step.args, {
-      reason: [verdict.reason, where].filter(Boolean).join('; '),
+      reason: [verdict.reason, `step ${batch.step} of ${batch.total} in a batch`].filter(Boolean).join('; '),
       from: actor,
-      toolUseID: forId,
+      toolUseID: batch.id,
+      batch,
       signal,
     });
     return answer.behavior === 'allow' ? null : answer.message;
@@ -341,8 +342,9 @@ class AgentSession extends EventEmitter {
   }
 
   // A card for the human, answered through decide(). One a stopped batch was
-  // waiting on is denied, as interrupt() denies the rest.
-  #ask(name, input, { suggestions, reason, title, displayName, toolUseID, from, signal }) {
+  // waiting on is denied, as interrupt() denies the rest. A batch step's card
+  // says which step of which batch, so the transcript marks the batch's row.
+  #ask(name, input, { suggestions, reason, title, displayName, toolUseID, from, batch, signal }) {
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     return new Promise((resolve) => {
       this.pending.set(id, { resolve, input, suggestions, tool: name });
@@ -351,6 +353,7 @@ class AgentSession extends EventEmitter {
         id, tool: name, input, reason, title, displayName,
         agent: from && from.id !== 'main' ? from : null,
         forId: toolUseID || null,
+        batch,
       });
     });
   }

@@ -1305,8 +1305,10 @@ function stopBridgeChat(chat) {
   }
 }
 
-// A card whose caller gave up, or whose batch was stopped, is denied.
-function askBridge(chat, tool, args, reason, signal) {
+// A card whose caller gave up, or whose batch was stopped, is denied. A batch
+// step's card says which step of which batch, since it has no call id the
+// transcript could find its row by.
+function askBridge(chat, tool, args, { reason, signal, batch }) {
   return new Promise((resolve) => {
     const id = `b${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const timer = setTimeout(() => settleBridge(id, 'deny'), 5 * 60 * 1000);
@@ -1319,6 +1321,7 @@ function askBridge(chat, tool, args, reason, signal) {
       input: args,
       reason,
       agent: { id: 'bridge', label: 'preview' },
+      batch,
     });
   });
 }
@@ -1328,7 +1331,7 @@ function askBridge(chat, tool, args, reason, signal) {
    this window has never seen is a stale or hand-started server and is refused
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
-async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false } = {}) {
+async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch } = {}) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
@@ -1340,15 +1343,18 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   if (tool === 'batch') {
     const steps = planBatch(args?.actions, require('zod').z);
     const project = from || cwdOfChat(chat);
+    const id = `bb${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const halt = new AbortController();
     bridgeBatches.set(halt, chat);
     const stop = signal ? AbortSignal.any([signal, halt.signal]) : halt.signal;
     try {
-      const out = await runBatch(steps, (step) => {
+      const out = await runBatch(steps, (step, i) => {
         const name = `mcp__conn__${step.name}`;
         const rule = permissionRules.ruleFor(project, name);
         if (rule === 'deny') throw refusal(step.route, { reason: `a permission rule in your settings denies ${name}.` });
-        return runBridgeTool(step.route, step.mapped, from, named, { report: true, signal: stop, ask: rule === 'ask' });
+        return runBridgeTool(step.route, step.mapped, from, named, {
+          report: true, signal: stop, ask: rule === 'ask', batch: { id, step: i + 1, total: steps.length },
+        });
       }, stop);
       return report ? { result: out, caused: [] } : out;
     } finally {
@@ -1359,7 +1365,7 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   const verdict = decide(mode, tool, args);
   if (verdict.action === 'deny') throw refusal(tool, verdict);
   if (ask || (verdict.action === 'ask' && !pageGrants.has(chat))) {
-    const ok = await askBridge(chat, tool, args, verdict.reason, signal);
+    const ok = await askBridge(chat, tool, args, { reason: verdict.reason, signal, batch });
     if (!ok) throw refusal(tool, { reason: `browser_${tool} was not approved.` });
   }
   return driveTool(tool, args, { cwd: from, actor: named ? actorOf(chat) : actorOf(chat, BRIDGE_ACTOR), report });
