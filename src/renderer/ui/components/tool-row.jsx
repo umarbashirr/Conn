@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIcon, AppWindowIcon, ArrowLeftIcon, ArrowRightIcon, ArrowRightLeftIcon, BracesIcon, CameraIcon,
-  ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListChecksIcon, ListIcon, FilePlusIcon, FolderSearchIcon,
+  ChevronRightIcon, ChevronsUpDownIcon, CircleAlertIcon, FilePenIcon, ListChecksIcon, ListIcon, ListOrderedIcon, FilePlusIcon, FolderSearchIcon,
   GlobeIcon, HighlighterIcon, HourglassIcon, InfoIcon, KeyboardIcon, LogsIcon, MonitorSmartphoneIcon,
   MousePointer2Icon, MousePointerClickIcon, MoveVerticalIcon, PanelRightIcon, RotateCwIcon, ScanTextIcon,
   SearchIcon, ShieldCheckIcon, ShieldXIcon, SparklesIcon, SquareIcon, SquarePlusIcon, SquareTerminalIcon, SquareXIcon,
@@ -65,6 +65,7 @@ const ICONS = {
   browser_tab_new: SquarePlusIcon,
   browser_tab_select: ArrowRightLeftIcon,
   browser_tab_close: SquareXIcon,
+  browser_batch: ListOrderedIcon,
   // An Agent call draws as its own container, but the tools for looking in on
   // one still land here.
   Agent: UsersIcon,
@@ -349,6 +350,25 @@ export function InputFields({ input }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+// A batch's input is a list of steps, and each reads the way its own row would,
+// "Fill #coupon = "SAVE10"", rather than as one JSON blob.
+export function BatchSteps({ actions }) {
+  return (
+    <ol data-slot="batch-steps" className="flex flex-col gap-0.5 rounded-lg bg-muted/50 p-2.5 font-mono text-[11px] leading-relaxed">
+      {actions.map((a, i) => {
+        const label = toolLabel(`browser_${String(a?.tool ?? '').replace(/^browser_/, '')}`);
+        return (
+          <li key={i} className="flex min-w-0 gap-2">
+            <span className="shrink-0 tabular-nums text-muted-foreground/70">{i + 1}.</span>
+            <span className="shrink-0 text-foreground/80">{toolName(label)}</span>
+            <span className="truncate text-muted-foreground">{toolSummary(label, a)}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

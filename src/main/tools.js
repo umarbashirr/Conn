@@ -34,6 +34,7 @@ const TOOLS = {
   tabNew: { args: '{ url? }', help: 'Open a tab in this chat and drive it from now on. Loads url when given.' },
   tabSelect: { args: '{ tab }', help: 'Drive one of this chat\'s tabs from now on. Ids come from tabs.' },
   tabClose: { args: '{ tab? }', help: 'Close one of this chat\'s tabs. Omit tab for the one you drive.' },
+  batch: { args: '{ actions: [{ tool, ...args }] }', help: 'Run up to 15 of the tools above in order, each asked and run as if called alone. Stops at the first that fails or is refused.' },
 };
 
 // Tools that act on the chat's set of tabs rather than on a page. They never

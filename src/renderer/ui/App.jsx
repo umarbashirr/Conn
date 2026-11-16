@@ -6,7 +6,7 @@ import { Conversation, ConversationContent, useTurnPin } from '@/components/ai-e
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
 import { DiffView, FileDiffs } from '@/components/diff-view';
 import { RawOutput, TestResults, TestSummary } from '@/components/test-results';
-import { InputFields, InputFold, PermMark, ToolOutput, ToolRow, ToolStrip } from '@/components/tool-row';
+import { BatchSteps, InputFields, InputFold, PermMark, ToolOutput, ToolRow, ToolStrip } from '@/components/tool-row';
 import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
@@ -1108,6 +1108,7 @@ function Item({ item, agent, mark, calls }) {
     const failed = item.state === 'output-error';
     const run = label === 'Bash' && text ? parseTestRun(text) : null;
     const found = label === 'WebSearch' && !failed ? linksOf(item.output) : [];
+    const steps = label === 'browser_batch' && Array.isArray(item.input?.actions) ? item.input.actions : null;
 
     if (label === 'ExitPlanMode' && typeof item.input?.plan === 'string') {
       return (
@@ -1193,7 +1194,8 @@ function Item({ item, agent, mark, calls }) {
           {run && <TestResults run={run} project={agent.project} />}
           {run && <RawOutput text={text} error={failed} project={agent.project} />}
           {!run && failed && text && <ToolOutput text={text} error className="mt-0" project={agent.project} />}
-          {!failed && !run && !found.length && <InputFields input={item.input} />}
+          {steps && <BatchSteps actions={steps} />}
+          {!steps && !failed && !run && !found.length && <InputFields input={item.input} />}
           {!failed && found.length > 0 && <SourceList sources={found} className="mt-1" />}
           {recording && (
             <video
@@ -1211,7 +1213,7 @@ function Item({ item, agent, mark, calls }) {
               src={imageSrc(b)} />
           ))}
           {!failed && !run && text && <ToolOutput text={found.length ? withoutLinks(text) : text} stack={label === 'Bash'} project={agent.project} />}
-          {(failed || run) && <InputFold input={item.input} />}
+          {!steps && (failed || run) && <InputFold input={item.input} />}
         </ToolRow>
       </div>
     );

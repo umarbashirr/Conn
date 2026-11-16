@@ -66,4 +66,35 @@ function remove(project, { scope, kind, rule } = {}) {
   return { ok: true };
 }
 
-module.exports = { list, remove, files };
+// Where an administrator's policy lives. Conn never lists or edits it, but
+// a rule there binds every session all the same.
+const MANAGED = {
+  linux: '/etc/claude-code/managed-settings.json',
+  darwin: '/Library/Application Support/ClaudeCode/managed-settings.json',
+  win32: 'C:\\Program Files\\ClaudeCode\\managed-settings.json',
+};
+
+/**
+ * What the rules say about one MCP tool by its full name: 'deny', 'ask',
+ * 'allow' or null. Deny beats ask beats allow, the order the CLI weighs them
+ * in. A rule can name the tool, or its whole server (`mcp__preview` or
+ * `mcp__preview__*`). This is for the steps of a browser batch, which the CLI
+ * only ever sees as the batch: without it a step would slip past a rule that
+ * names its tool.
+ */
+function ruleFor(project, tool) {
+  const server = tool.split('__').slice(0, 2).join('__');
+  const names = new Set([tool, server, `${server}__*`]);
+  const found = new Set();
+  const places = [...files(project).map((f) => f.file), MANAGED[process.platform]].filter(Boolean);
+  for (const file of places) {
+    const perms = read(file).json?.permissions;
+    if (!perms || typeof perms !== 'object') continue;
+    for (const kind of KINDS) {
+      if ((Array.isArray(perms[kind]) ? perms[kind] : []).some((r) => names.has(r))) found.add(kind);
+    }
+  }
+  return ['deny', 'ask', 'allow'].find((k) => found.has(k)) || null;
+}
+
+module.exports = { list, remove, files, ruleFor };

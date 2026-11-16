@@ -20,6 +20,8 @@ export function plan(text, project) {
     } else if ((m = /^write (.+?): (.*)$/.exec(line))) push('Write', { file_path: at(m[1]), content: m[2].replaceAll('\\n', '\n') });
     else if ((m = /^read (.+)$/.exec(line))) push('Read', { file_path: at(m[1]) });
     else if ((m = /^bash: (.+)$/.exec(line))) push('Bash', { command: m[1], description: 'Run a shell command' });
+    // Any tool by its full name, such as an MCP tool: `tool mcp__preview__browser_batch {"actions":[...]}`.
+    else if ((m = /^tool (\S+) (\{.*\})$/.exec(line))) push(m[1], JSON.parse(m[2]));
     else if ((m = /^wait (\d+(?:\.\d+)?)$/.exec(line))) delay += Number(m[1]) * 1000;
     else if ((m = /^say: (.+)$/.exec(line))) said = m[1];
   }

@@ -63,6 +63,7 @@ export const DOING = {
   browser_forward: 'Going forward',
   browser_reload: 'Reloading the page',
   browser_tab_new: 'Opening a tab',
+  browser_batch: 'Running browser steps',
 };
 
 const DONE = {

@@ -6,10 +6,18 @@ const { randomUUID } = require('crypto');
 const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
-const { browserTools, toolContent, INSTRUCTIONS } = require('../shared/browser-tools');
+const { browserTools, toolContent, planBatch, runBatch, batchContent, INSTRUCTIONS } = require('../shared/browser-tools');
 const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
+const { ruleFor } = require('./permission-rules');
 const shellEnv = require('./shell-env');
+
+// The browser tools whose definitions ride along in every request. The rest
+// are deferred: the CLI lists their names and loads one when it is wanted, and
+// browser_batch can run any of them without loading it. Together these cost
+// no more than the ten that used to be here.
+const CORE = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
+  'browser_screenshot', 'browser_batch', 'browser_show', 'browser_tabs', 'browser_tab_new']);
 
 // How long a browser tool waits to learn which agent called it. The CLI
 // announces the tool_use a beat after it starts running the tool, so the first
@@ -27,6 +35,7 @@ class AgentSession extends EventEmitter {
     this.closed = false;
     this.busy = false;
     this.pending = new Map();          // permission id -> resolve
+    this.grants = new Set();           // browser tools the human chose Always for
     // The mode the composer shows. The SDK is told the closest of its own modes.
     // decide() is what actually gates the call, and it is the same function the
     // other agents use.
@@ -75,19 +84,7 @@ class AgentSession extends EventEmitter {
     const sdk = await import('@anthropic-ai/claude-agent-sdk');
     const { z } = await import('zod');
 
-    const CORE = new Set(['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_fill',
-      'browser_type', 'browser_screenshot', 'browser_console', 'browser_show', 'browser_tabs', 'browser_tab_new']);
-
-    // A session with nothing to invoke has no preview to drive, so it is not
-    // offered the browser tools or told about them.
-    const tools = !this.invoke ? [] : browserTools(z).map((t) =>
-      sdk.tool(t.name, t.description, t.schema, async (args, extra) => {
-        const route = t.route ? t.route(args) : t.bridgeTool;
-        const mapped = t.map ? t.map(args) : args;
-        const result = await this.invoke(route, mapped, await this.#actorFor(extra));
-        return toolContent(t, result, fs.readFileSync, { args });
-      }, { alwaysLoad: CORE.has(t.name) }),
-    );
+    const tools = this.browserHandlers(z).map((h) => sdk.tool(h.name, h.description, h.schema, h.handler, { alwaysLoad: h.alwaysLoad }));
 
     this.preview = tools.length ? sdk.createSdkMcpServer({ name: 'preview', version: '0.1.0', tools }) : null;
     // Conn ships no claude of its own, so this is the whole session. Say it
@@ -140,6 +137,69 @@ class AgentSession extends EventEmitter {
 
     this.#pump();
     return this;
+  }
+
+  /**
+   * The browser tools as the SDK takes them, kept apart from #boot so a check
+   * can call the handlers without a CLI behind them. A session with nothing to
+   * invoke has no preview to drive, so it is not offered the browser tools.
+   */
+  browserHandlers(z) {
+    if (!this.invoke) return [];
+    const table = browserTools(z);
+    return table.map((t) => ({
+      name: t.name,
+      description: t.description,
+      schema: t.schema,
+      alwaysLoad: CORE.has(t.name),
+      handler: async (args, extra) => {
+        const actor = await this.#actorFor(extra);
+        if (t.format === 'batch') return this.#batch(args, extra, actor, { table, z });
+        const route = t.route ? t.route(args) : t.bridgeTool;
+        const mapped = t.map ? t.map(args) : args;
+        const result = await this.invoke(route, mapped, actor);
+        return toolContent(t, result, fs.readFileSync, { args });
+      },
+    }));
+  }
+
+  // The CLI asked about the batch as a whole, and decide() let it through
+  // because a batch does nothing by itself. Each step is asked here instead,
+  // as the CLI would have asked about it called alone, before it runs.
+  async #batch({ actions }, extra, actor, plan) {
+    let steps;
+    try { steps = planBatch(actions, plan); } catch (e) {
+      return { content: [{ type: 'text', text: e.message }], isError: true };
+    }
+    const forId = extra?._meta?.['claudecode/toolUseId'] || null;
+    const out = await runBatch(steps, async (step, i) => {
+      const refused = await this.#stepRefusal(step, actor, forId, `step ${i + 1} of ${steps.length} in a batch`);
+      if (refused) throw Object.assign(new Error(refused), { code: 'PERMISSION_DENIED' });
+      return { result: await this.invoke(step.route, step.mapped, actor) };
+    });
+    return batchContent(out, fs.readFileSync);
+  }
+
+  /* Null when the step may run, or why not. The CLI checks a single call's
+     settings rules before canUseTool ever hears of it, and it never sees a
+     step's name, so the rules are read here: a deny names the step's tool or
+     its server, an ask forces a card, an allow or an earlier Always skips one.
+     The mode is decide() as for any call, and its refusal is not overridden
+     by an allow rule, so a step is never let through where the same call
+     made alone might not be. */
+  async #stepRefusal(step, actor, forId, where) {
+    const tool = `mcp__preview__${step.name}`;
+    const rule = ruleFor(this.cwd, tool);
+    if (rule === 'deny') return `a permission rule in your settings denies ${tool}.`;
+    const verdict = decide(this.mode, tool, step.args);
+    if (verdict.action === 'deny') return verdict.reason || 'This mode refused the action.';
+    if (rule !== 'ask' && (verdict.action === 'allow' || rule === 'allow' || this.grants.has(tool))) return null;
+    const answer = await this.#ask(tool, step.args, {
+      reason: [verdict.reason, where].filter(Boolean).join('; '),
+      from: actor,
+      toolUseID: forId,
+    });
+    return answer.behavior === 'allow' ? null : answer.message;
   }
 
   async *#input() {
@@ -274,12 +334,19 @@ class AgentSession extends EventEmitter {
         message: verdict.reason || 'This mode refused the action.',
       });
     }
+    return this.#ask(name, input, {
+      suggestions, reason: verdict.reason, title, displayName, toolUseID,
+      from: agentID ? this.#actor(agentID) : null,
+    });
+  }
+
+  // A card for the human, answered through decide().
+  #ask(name, input, { suggestions, reason, title, displayName, toolUseID, from }) {
     const id = `p${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-    const from = agentID ? this.#actor(agentID) : null;
     return new Promise((resolve) => {
       this.pending.set(id, { resolve, input, suggestions, tool: name });
       this.emit('permission', {
-        id, tool: name, input, reason: verdict.reason, title, displayName,
+        id, tool: name, input, reason, title, displayName,
         agent: from && from.id !== 'main' ? from : null,
         forId: toolUseID || null,
       });
@@ -307,6 +374,9 @@ class AgentSession extends EventEmitter {
     if (!entry) return false;
     this.pending.delete(id);
     const updatedInput = input && typeof input === 'object' ? input : entry.input;
+    // Always on a browser tool covers that tool when a batch runs it too,
+    // for as long as this session lives.
+    if (decision === 'always' && entry.tool?.startsWith('mcp__preview__browser_')) this.grants.add(entry.tool);
     if (decision === 'allow') entry.resolve({ behavior: 'allow', updatedInput });
     else if (decision === 'always') {
       entry.resolve({ behavior: 'allow', updatedInput, updatedPermissions: entry.suggestions });

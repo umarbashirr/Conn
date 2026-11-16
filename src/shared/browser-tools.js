@@ -15,42 +15,42 @@ function browserTools(z) {
   return [
     {
       name: 'browser_navigate', bridgeTool: 'navigate', label: 'Open page', title: 'Open a URL',
-      description: 'Load a URL in the tab you are driving and show it to the human. Bare ports work: "3000" becomes http://localhost:3000.',
+      description: 'Load a URL in the tab you drive. Bare ports work: "3000" is http://localhost:3000.',
       schema: { url: z.string() },
     },
     {
       name: 'browser_snapshot', bridgeTool: 'snapshot', label: 'Read page', title: 'Snapshot the page',
-      description: 'Accessibility-style outline of what is on screen, with [ref=eN] handles for interaction, including same-origin iframes. Start here, and take a fresh one after every navigation.',
-      schema: {},
+      description: 'Outline of the page, same-origin iframes included, with [ref=eN] handles the other tools take. Refs reset on navigation.',
+      schema: { max: z.number().optional() },
     },
     {
       name: 'browser_text', bridgeTool: 'text', label: 'Read text', title: 'Read page text',
-      description: 'Visible text of the current page.',
+      description: 'Visible text of the page, up to max characters (8000 by default).',
       schema: { max: z.number().optional() },
     },
     {
       name: 'browser_html', bridgeTool: 'html', label: 'Read HTML', title: 'Read page HTML',
-      description: 'Raw outer HTML of the current page, for markup the text and snapshot leave out. `max` caps the characters returned.',
+      description: 'Outer HTML of the page, for markup the snapshot leaves out, up to max characters (20000 by default).',
       schema: { max: z.number().optional() },
     },
     {
       name: 'browser_click', bridgeTool: 'click', label: 'Click', title: 'Click',
-      description: 'Click an element by [ref=eN] handle or CSS selector, using a real mouse event.',
+      description: 'Click an element by ref or CSS selector, with a real mouse event.',
       schema: { target: z.string(), button: z.enum(['left', 'right', 'middle']).optional(), clickCount: z.number().optional() },
     },
     {
       name: 'browser_fill', bridgeTool: 'fill', label: 'Fill', title: 'Fill a field',
-      description: 'Set the value of an input, textarea or contenteditable and fire input/change events.',
+      description: 'Set the value of an input, textarea or contenteditable and fire input and change.',
       schema: { target: z.string(), value: z.string() },
     },
     {
       name: 'browser_type', bridgeTool: 'type', label: 'Type', title: 'Type',
-      description: 'Send real keystrokes, optionally focusing an element first. Use this when the page listens for keydown.',
+      description: 'Send real keystrokes, into target if given. Use it when the page listens for keydown.',
       schema: { text: z.string(), target: z.string().optional(), delay: z.number().optional() },
     },
     {
       name: 'browser_press', bridgeTool: 'press', label: 'Press key', title: 'Press a key',
-      description: 'Press a key or chord, for example "Enter", "Escape", "ctrl+a".',
+      description: 'Press a key or chord: "Enter", "Escape", "ctrl+a".',
       schema: { key: z.string() },
     },
     {
@@ -65,7 +65,7 @@ function browserTools(z) {
     },
     {
       name: 'browser_scroll', bridgeTool: 'scroll', label: 'Scroll', title: 'Scroll',
-      description: 'Scroll by a pixel delta, or scroll an element into view.',
+      description: 'Scroll by dy pixels, or bring target into view.',
       schema: { dy: z.number().optional(), target: z.string().optional() },
       route: (a) => (a.target ? 'scrollTo' : 'scroll'),
       routes: ['scroll', 'scrollTo'],
@@ -78,13 +78,13 @@ function browserTools(z) {
     },
     {
       name: 'browser_record', bridgeTool: 'record', label: 'Record', title: 'Record the page',
-      description: 'Make a video of the preview pane, the page only and without sound. action "start" begins (maxSeconds defaults to 60 and is capped at 120, then it stops by itself and keeps the file). action "stop" returns the video\'s path, its length and size, and three stills (first, middle, last) saved beside it, which you can look at yourself. Click and type between the two to record what you do. name is a file name, not a path.',
+      description: 'Make a video of the page, without sound. action "start" begins (maxSeconds 60 by default, 120 at most, then it stops by itself and keeps the file); "stop" returns its path, length, size and three stills (first, middle, last) you can look at. Act between the two to record it. name is a file name, not a path.',
       schema: { action: z.enum(['start', 'stop']), name: z.string().optional(), maxSeconds: z.number().optional() },
       format: 'recording',
     },
     {
       name: 'browser_console', bridgeTool: 'console', label: 'Console', title: 'Read the console',
-      description: 'Console messages the page logged since the last navigation. Check this after any action that should have worked.',
+      description: 'Console messages since the last navigation, the newest limit of them (20 by default).',
       schema: { level: z.enum(['debug', 'info', 'warning', 'error']).optional(), limit: z.number().optional() },
       render: (rows) => (rows.length ? rows.map((r) => `[${r.level}] ${r.message}  (${r.source})`).join('\n') : '(console is empty)'),
     },
@@ -96,18 +96,18 @@ function browserTools(z) {
     },
     {
       name: 'browser_evaluate', bridgeTool: 'evaluate', label: 'Run script', title: 'Run JavaScript',
-      description: 'Evaluate JavaScript in the page and return the result.',
+      description: 'Run JavaScript in the page and return the result.',
       schema: { code: z.string() },
     },
     {
       name: 'browser_wait', bridgeTool: 'waitFor', label: 'Wait', title: 'Wait',
-      description: 'Wait for a selector to appear, a fixed delay, or the network to go quiet.',
+      description: 'Wait for a selector to appear, ms to pass, or the network to go quiet.',
       schema: { selector: z.string().optional(), ms: z.number().optional(), timeout: z.number().optional() },
       map: (a) => ({ networkIdle: !a.selector && !a.ms, ...a }),
     },
     {
       name: 'browser_viewport', bridgeTool: 'setViewport', label: 'Viewport', title: 'Set viewport',
-      description: 'Emulate a viewport size to check responsive layout. Omit both numbers to clear the emulation.',
+      description: 'Emulate a viewport size for responsive checks. Omit both to clear it.',
       schema: { width: z.number().optional(), height: z.number().optional() },
       route: (a) => (a.width && a.height ? 'setViewport' : 'clearViewport'),
       routes: ['setViewport', 'clearViewport'],
@@ -118,36 +118,47 @@ function browserTools(z) {
     { name: 'browser_state', bridgeTool: 'state', label: 'Page state', title: 'Page state', description: 'Current url, title and loading state.', schema: {} },
     {
       name: 'browser_show', bridgeTool: 'preview', label: 'Show preview', title: 'Show the preview to the human',
-      description: 'Open or close the preview pane in the app window. Open it when you want the person to look at what you just did. The page keeps working while the pane is closed.',
+      description: 'Open or close the preview pane, for when the person should look. The page works while it is closed.',
       schema: { open: z.boolean().optional() },
     },
     {
       name: 'browser_highlight', bridgeTool: 'highlight', label: 'Highlight', title: 'Highlight for the human',
-      description: 'Flash a box around an element so the person watching can see which one you mean.',
+      description: 'Flash a box around an element so the person can see which one you mean.',
       schema: { target: z.string() },
     },
     {
       name: 'browser_tabs', bridgeTool: 'tabs', label: 'Tabs', title: 'List this chat\'s tabs',
-      description: 'The browser tabs of this chat: id, url, title, which one you are driving and which one the human is looking at.',
+      description: 'This chat\'s tabs: id, url, title, which you drive and which the person sees.',
       schema: {},
     },
     {
       name: 'browser_tab_new', bridgeTool: 'tabNew', label: 'New tab', title: 'Open a new tab',
-      description: 'Open a new browser tab in this chat and drive it from now on. Give a url to load it straight away. Use this for anything unrelated to the page you already have open, such as documentation.',
+      description: 'Open a tab in this chat and drive it from now on, loading url if given. Use one for anything unrelated to the open page, such as docs.',
       schema: { url: z.string().optional() },
     },
     {
       name: 'browser_tab_select', bridgeTool: 'tabSelect', label: 'Switch tab', title: 'Switch tabs',
-      description: 'Make one of this chat\'s tabs the one your other browser tools act on. Ids come from browser_tabs.',
+      description: 'Drive another of this chat\'s tabs. Ids come from browser_tabs.',
       schema: { tab: z.string() },
     },
     {
       name: 'browser_tab_close', bridgeTool: 'tabClose', label: 'Close tab', title: 'Close a tab',
-      description: 'Close one of this chat\'s tabs. Omit tab to close the one you are driving. A tab another agent is driving is refused.',
+      description: 'Close one of this chat\'s tabs, by default the one you drive. A tab another agent drives is refused.',
       schema: { tab: z.string().optional() },
+    },
+    {
+      name: 'browser_batch', bridgeTool: 'batch', label: 'Browser steps', title: 'Run several browser steps',
+      description: 'Run up to 15 browser steps in one call, in order. Each action is {tool, ...args}: a browser tool without browser_ (navigate, click, fill, type, press, wait, snapshot, text, screenshot, evaluate...) and its args. Stops at the first step that fails.',
+      schema: { actions: z.array(z.object({ tool: z.string() }).passthrough()).max(BATCH_MAX) },
+      format: 'batch',
     },
   ];
 }
+
+// A batch is one model call doing what took one call per step, so a check of a
+// form (fill, click, wait, read) costs one round trip instead of five. Fifteen
+// covers any such check; past that the agent should look at what it has.
+const BATCH_MAX = 15;
 
 const keyframeBlocks = (result, read) => (result.keyframes || []).map((file) => ({
   type: 'image', data: read(file).toString('base64'), mimeType: 'image/jpeg',
@@ -225,11 +236,101 @@ const INSTRUCTIONS = [
 // Enough of zod's surface to build the table above without loading zod, which
 // the policy code in main has no other use for.
 const zStub = (() => {
-  const any = { optional: () => any };
-  return { string: () => any, number: () => any, boolean: () => any, enum: () => any };
+  const any = { optional: () => any, max: () => any, passthrough: () => any };
+  return { string: () => any, number: () => any, boolean: () => any, enum: () => any, array: () => any, object: () => any };
 })();
 
 const TABLE = browserTools(zStub);
+const BY_NAME = new Map(TABLE.map((t) => [t.name, t]));
+
+// The name a batch step goes by, which is the tool's own name without the
+// prefix every one of them shares.
+const shortName = (name) => name.replace(/^browser_/, '');
+
+/* A batch runs other tools, never itself, and never a recording: one that
+   starts inside a batch outlives it, and stopping one is its own decision. */
+const NOT_IN_BATCH = new Set(['browser_batch', 'browser_record']);
+
+/**
+ * Checks a batch before any of it runs, so a typo in step six does not leave
+ * five steps done and the agent unsure where it stands. `table` is built with
+ * real zod where the caller has it, and then each step's args are checked
+ * against its tool's own schema, the way a single call's are.
+ * @returns {Array<{name: string, args: object, route: string, mapped: object}>}
+ */
+function planBatch(actions, { table = TABLE, z = null } = {}) {
+  if (!Array.isArray(actions) || !actions.length) throw new Error('actions must be a list of at least one step');
+  if (actions.length > BATCH_MAX) throw new Error(`a batch runs at most ${BATCH_MAX} steps; this one has ${actions.length}`);
+  const tools = new Map(table.map((t) => [t.name, t]));
+  return actions.map((action, i) => {
+    const { tool, ...given } = action && typeof action === 'object' ? action : {};
+    const t = tools.get(`browser_${shortName(String(tool ?? ''))}`);
+    if (!t || NOT_IN_BATCH.has(t.name)) {
+      const can = table.filter((x) => !NOT_IN_BATCH.has(x.name)).map((x) => shortName(x.name));
+      throw new Error(`step ${i + 1}: ${JSON.stringify(tool ?? null)} is not a step a batch can run. Nothing ran. Steps: ${can.join(', ')}`);
+    }
+    let args = given;
+    if (z) {
+      const parsed = z.object(t.schema).safeParse(given);
+      if (!parsed.success) {
+        const why = parsed.error.issues.map((e) => `${e.path.join('.') || 'args'}: ${e.message}`).join('; ');
+        throw new Error(`step ${i + 1} (${shortName(t.name)}): ${why}. Nothing ran.`);
+      }
+      args = parsed.data;
+    }
+    return { name: t.name, args, route: t.route ? t.route(args) : t.bridgeTool, mapped: t.map ? t.map(args) : args };
+  });
+}
+
+/**
+ * Runs planned steps in order through `run`, which is whatever a single call
+ * of that step goes through on this transport: its permission check, its
+ * lease, its actor. The first step that throws ends the batch; what ran
+ * before it is kept. A refusal is told apart from a failure by its code.
+ */
+async function runBatch(steps, run) {
+  const done = [];
+  for (const [i, step] of steps.entries()) {
+    try {
+      done.push({ name: step.name, args: step.args, ...(await run(step, i)) });
+    } catch (e) {
+      done.push({ name: step.name, args: step.args, error: e?.message || String(e), refused: e?.code === 'PERMISSION_DENIED' });
+      break;
+    }
+  }
+  return { steps: done, total: steps.length };
+}
+
+/**
+ * One result for the whole batch: a numbered line per step, a block under the
+ * number for a step that returns a page of text, then the screenshots in
+ * order. `out` is what runBatch returned, possibly after a trip over the bridge.
+ */
+function batchContent(out, read) {
+  const lines = [];
+  const images = [];
+  for (const [i, s] of out.steps.entries()) {
+    const t = BY_NAME.get(s.name);
+    const n = `${i + 1}.`;
+    if (s.error) {
+      lines.push(`${n} ${shortName(s.name)} ${s.refused ? 'was refused' : 'failed'}: ${s.error}`);
+      continue;
+    }
+    let text;
+    if (t.format === 'image') {
+      text = shotNote(s.result);
+      images.push(shotImage(s.result, read));
+    } else text = textOf(t, s.result, s.args);
+    lines.push(text.includes('\n') ? `${n} ${shortName(s.name)}:\n${text}` : `${n} ${text}`);
+  }
+  const left = out.total - out.steps.length;
+  if (left > 0) {
+    const from = out.steps.length + 1;
+    lines.push(`Stopped there. ${left === 1 ? `Step ${from} did` : `Steps ${from}-${out.total} did`} not run.`);
+  }
+  const failed = !!out.steps.at(-1)?.error;
+  return { content: [{ type: 'text', text: lines.join('\n') }, ...images], ...(failed ? { isError: true } : {}) };
+}
 
 /** browser_* MCP name -> bare TOOLS key, for policy without loading zod. Derived from the table, so a tool added there is known here. */
 const BRIDGE_TOOL = new Map(TABLE.map((t) => [t.name, t.bridgeTool]));
@@ -249,5 +350,6 @@ const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: ''
 
 module.exports = {
   browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE,
+  planBatch, runBatch, batchContent, BATCH_MAX,
   INSTRUCTIONS, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
 };

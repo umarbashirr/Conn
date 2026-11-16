@@ -53,6 +53,7 @@ const SUMMARY = {
   browser_tab_new: (i) => bareUrl(i.url),
   browser_tab_select: (i) => i.tab,
   browser_tab_close: (i) => i.tab,
+  browser_batch: (i) => (Array.isArray(i.actions) ? i.actions.map((a) => String(a?.tool ?? '?').replace(/^browser_/, '')).join(', ') : ''),
 };
 
 const tail = (p) => String(p || '').split('/').filter(Boolean).slice(-2).join('/');

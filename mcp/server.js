@@ -9,7 +9,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 
 const state = require('../cli/state');
-const { browserTools, toolContent } = require('../src/shared/browser-tools');
+const { browserTools, toolContent, planBatch, batchContent } = require('../src/shared/browser-tools');
 
 // Which project the agent is working in. The window may have several open, so
 // the request has to say. The terminal that started this server exports
@@ -50,8 +50,15 @@ const wrap = (fn) => async (args) => {
   catch (e) { return { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true }; }
 };
 
-for (const t of browserTools(z)) {
+const table = browserTools(z);
+for (const t of table) {
   server.registerTool(t.name, { title: t.title, description: t.description, inputSchema: t.schema }, wrap(async (a) => {
+    // Checked here against each tool's schema, then run by the window one step
+    // at a time, each under its own route and its own permission check.
+    if (t.format === 'batch') {
+      const steps = planBatch(a.actions, { table, z });
+      return batchContent(await call('batch', { actions: steps.map((st) => ({ tool: st.name, ...st.args })) }), fs.readFileSync);
+    }
     const result = await call(t.route ? t.route(a) : t.bridgeTool, t.map ? t.map(a) : a);
     return toolContent(t, result, fs.readFileSync, { args: a });
   }));

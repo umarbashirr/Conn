@@ -10,7 +10,7 @@ const { startMobileGate } = require('./mobile-gate');
 const { runTool, TAB_TOOLS } = require('./tools');
 const { createTabRouter } = require('./tab-router');
 const { AgentSession } = require('./agent');
-const { SHOT_NOTE } = require('../shared/browser-tools');
+const { SHOT_NOTE, planBatch, runBatch } = require('../shared/browser-tools');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
@@ -1317,6 +1317,12 @@ function askBridge(chat, tool, args, reason) {
    screen as it always has. */
 async function runBridgeTool(tool, args, from, named = null) {
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
+  // Each step comes back through here under its own route, so it is judged,
+  // asked about and leased exactly as the same call made alone would be.
+  if (tool === 'batch') {
+    const steps = planBatch(args?.actions);
+    return runBatch(steps, async (step) => ({ result: await runBridgeTool(step.route, step.mapped, from, named) }));
+  }
   const chat = named || chatForTool(from);
   const mode = modeOfChat(chat);
   const verdict = decide(mode, tool, args);

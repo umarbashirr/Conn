@@ -363,7 +363,12 @@ class BrowserPane extends EventEmitter {
   }
   async stop() { this.wc.stop(); return this.state(); }
 
+  // A pane brought into the box by the navigate just before can have no size
+  // for a moment, and a page with no viewport reports every element hidden.
+  // Calls a model round trip apart never saw that; a batch's next step does.
   async snapshot(opts = {}) {
+    await this.#js(`new Promise((r) => { const end = Date.now() + 2000;
+      (function check() { if (innerWidth && innerHeight || Date.now() > end) r(); else setTimeout(check, 50); })(); })`);
     return this.#js(`window.__conn.snapshot(${JSON.stringify(opts)})`);
   }
 
