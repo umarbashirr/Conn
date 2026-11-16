@@ -12,6 +12,7 @@ const { createTabRouter } = require('./tab-router');
 const { AgentSession } = require('./agent');
 const { SHOT_NOTE, planBatch, runBatch } = require('../shared/browser-tools');
 const { claudeBinary, isLong, withLong, withoutLong, hasLong } = require('./driver');
+const { commandLine } = require('./launch');
 const { createRegistry, isProviderId } = require('./providers');
 const { AppServer } = require('./codex-rpc');
 const { AcpRpc } = require('./providers/acp-rpc');
@@ -2202,8 +2203,7 @@ function registerIpc() {
     const server = cat().current(focusedCwd()).mcp.find((s) => s.name === name);
     if (!server) return { error: `${name} is not a server this folder knows about` };
     if (server.type === 'stdio') return { error: `${name} runs as a local process, so there is nothing to sign in to` };
-    const quote = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
-    return { command: `${quote(claudeBinary() || 'claude')} mcp login ${quote(server.runtime)}` };
+    return { command: commandLine(claudeBinary() || 'claude', ['mcp', 'login', server.runtime]) };
   });
 
   // Conn's own remote servers sign in through mcp-remote, which runs the

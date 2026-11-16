@@ -2,6 +2,7 @@
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 const shellEnv = require('../shell-env');
+const { launchSpec, killTree } = require('../launch');
 
 const HANDSHAKE_MS = 20000;
 
@@ -24,12 +25,15 @@ class AcpRpc extends EventEmitter {
   }
 
   async start() {
-    const viaShell = /\.(cmd|bat)$/i.test(this.bin);
-    this.child = spawn(viaShell ? `"${this.bin}"` : this.bin, this.argv, {
+    // See launch.js: an npm .cmd wrapper cannot be spawned bare on Windows,
+    // and through cmd.exe stopping the chat would leave the agent running.
+    const spec = launchSpec(this.bin, this.argv);
+    this.child = spawn(spec.command, spec.args, {
+      windowsHide: true,
       cwd: this.cwd,
       env: { ...shellEnv.env(), ...(this.env || {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
-      shell: viaShell,
+      shell: spec.shell,
       // cursor-agent starts a worker-server that outlives it, and that worker
       // starts language servers of its own. Its own process group lets close()
       // take the whole tree down. Windows has no groups, and detached there
@@ -161,10 +165,7 @@ class AcpRpc extends EventEmitter {
 
   #kill() {
     if (!this.child) return;
-    try {
-      if (process.platform === 'win32') this.child.kill();
-      else process.kill(-this.child.pid, 'SIGTERM');
-    } catch {}
+    killTree(this.child);
   }
 
   close() {

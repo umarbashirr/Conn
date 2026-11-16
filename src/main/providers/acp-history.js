@@ -1,5 +1,6 @@
 'use strict';
 const fs = require('fs');
+const { cwdSpellings } = require('../cwd-spellings');
 const os = require('os');
 const { AcpRpc } = require('./acp-rpc');
 const { CLIENT, ACP_PREFACES, toolOf, callInput, textOf, readingOf, readingMessage } = require('./acp-session');
@@ -103,14 +104,7 @@ const within = (ms, promise) => new Promise((resolve, reject) => {
   promise.then(resolve, reject).finally(() => clearTimeout(timer));
 });
 
-function cwdAndRealpath(cwd) {
-  const paths = [cwd];
-  try {
-    const real = fs.realpathSync(cwd);
-    if (real !== cwd) paths.push(real);
-  } catch {}
-  return paths;
-}
+const cwdAndRealpath = cwdSpellings;
 
 const squash = (t) => t.replace(/\s+/g, ' ').trim();
 

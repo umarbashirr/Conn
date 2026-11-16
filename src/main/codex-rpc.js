@@ -12,6 +12,7 @@
  * line.
  */
 const { spawn } = require('child_process');
+const { launchSpec, killTree } = require('./launch');
 const { EventEmitter } = require('events');
 const shellEnv = require('./shell-env');
 
@@ -40,7 +41,12 @@ class AppServer extends EventEmitter {
     // protocol field: the MCP server carrying the preview tools, mostly.
     for (const kv of this.config) args.push('-c', kv);
 
-    this.child = spawn(this.bin, args, {
+    // See launch.js: codex.cmd from npm cannot be spawned bare on Windows,
+    // and the -c values would not survive cmd.exe's quoting.
+    const spec = launchSpec(this.bin, args);
+    this.child = spawn(spec.command, spec.args, {
+      shell: spec.shell,
+      windowsHide: true,
       cwd: this.cwd,
       // Same reason as the claude side: launched from a desktop entry the app
       // has almost no environment, and codex reads CODEX_HOME and the login
@@ -152,10 +158,7 @@ class AppServer extends EventEmitter {
 
   #killGroup() {
     if (!this.child) return;
-    try {
-      if (process.platform === 'win32') this.child.kill();
-      else process.kill(-this.child.pid, 'SIGTERM');
-    } catch {}
+    killTree(this.child);
   }
 
   static closeAll() {

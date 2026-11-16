@@ -13,6 +13,7 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const shellEnv = require('./shell-env');
+const { unwrapShim, launchSpec } = require('./launch');
 
 const PROBE_TIMEOUT_MS = 4000;
 const TTL_MS = 6 * 60 * 60 * 1000;
@@ -45,7 +46,7 @@ function systemBinary() {
       try {
         // Resolve it: a shim points at the real install, and the version probe
         // and the settings page should name the same file the SDK will spawn.
-        if (fs.existsSync(candidate)) return fs.realpathSync(candidate);
+        if (fs.existsSync(candidate)) return unwrapShim(fs.realpathSync(candidate));
       } catch {}
     }
   }
@@ -63,7 +64,7 @@ function preferBinary(p) {
 
 function claudeBinary() {
   if (preferred) {
-    try { if (fs.existsSync(preferred)) return preferred; } catch {}
+    try { if (fs.existsSync(preferred)) return unwrapShim(preferred); } catch {}
   }
   return systemBinary();
 }
@@ -163,12 +164,10 @@ function probeVersion(bin) {
 
     let child;
     try {
-      // Node refuses to spawn a .cmd or .bat without a shell, and npm's global
-      // install on Windows is exactly that. The SDK spawns it directly, so a
-      // version read here is the only warning before a session tries.
-      const viaShell = /\.(cmd|bat)$/i.test(bin);
-      child = spawn(viaShell ? `"${bin}"` : bin, ['--version'], {
-        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: viaShell,
+      // See launch.js: a .cmd wrapper cannot be spawned bare on Windows.
+      const spec = launchSpec(bin, ['--version']);
+      child = spawn(spec.command, spec.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], env: shellEnv.env(), shell: spec.shell, windowsHide: true,
       });
     } catch {
       return finish(null);

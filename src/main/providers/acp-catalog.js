@@ -8,6 +8,7 @@ const { EventEmitter } = require('events');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
 const shellEnv = require('../shell-env');
+const { launchSpec } = require('../launch');
 const { ANSI } = require('../sniff');
 
 const TTL_MS = 30 * 60 * 1000;
@@ -64,7 +65,8 @@ function run(bin, args, cwd) {
     let out = '';
     let child;
     try {
-      child = spawn(bin, args, { cwd, env: shellEnv.env(), stdio: ['ignore', 'pipe', 'pipe'] });
+      const spec = launchSpec(bin, args);
+      child = spawn(spec.command, spec.args, { cwd, env: shellEnv.env(), stdio: ['ignore', 'pipe', 'pipe'], shell: spec.shell, windowsHide: true });
     } catch (e) {
       return resolve({ code: -1, out: e.message });
     }
