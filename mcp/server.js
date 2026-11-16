@@ -60,7 +60,7 @@ for (const t of table) {
     // Checked here against each tool's schema, then run by the window one step
     // at a time, each under its own route and its own permission check.
     if (t.format === 'batch') {
-      const steps = planBatch(a.actions, { table, z });
+      const steps = planBatch(a.actions, z);
       const { result } = await call('batch', { actions: steps.map((st) => ({ tool: st.name, ...st.args })) }, signal);
       return batchContent(result, fs.readFileSync);
     }

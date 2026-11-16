@@ -331,14 +331,16 @@ const NOT_IN_BATCH = new Set(['browser_batch', 'browser_record']);
 
 /**
  * Checks a batch before any of it runs, so a typo in step six does not leave
- * five steps done and the agent unsure where it stands. `table` is built with
- * real zod where the caller has it, and then each step's args are checked
- * against its tool's own schema, the way a single call's are.
+ * five steps done and the agent unsure where it stands. Each step's args are
+ * checked against its tool's own schema, strictly: a single call's schema
+ * is shown to the model, a step's is not, so a misnamed arg is refused with
+ * the names the step takes rather than dropped.
  * @returns {Array<{name: string, args: object, route: string, mapped: object}>}
  */
-function planBatch(actions, { table = TABLE, z = null } = {}) {
+function planBatch(actions, z) {
   if (!Array.isArray(actions) || !actions.length) throw new Error('actions must be a list of at least one step');
   if (actions.length > BATCH_MAX) throw new Error(`a batch runs at most ${BATCH_MAX} steps; this one has ${actions.length}`);
+  const table = browserTools(z);
   const tools = new Map(table.map((t) => [t.name, t]));
   return actions.map((action, i) => {
     const { tool, ...given } = action && typeof action === 'object' ? action : {};
@@ -347,15 +349,14 @@ function planBatch(actions, { table = TABLE, z = null } = {}) {
       const can = table.filter((x) => !NOT_IN_BATCH.has(x.name)).map((x) => shortName(x.name));
       throw new Error(`step ${i + 1}: ${JSON.stringify(tool ?? null)} is not a step a batch can run. Nothing ran. Steps: ${can.join(', ')}`);
     }
-    let args = given;
-    if (z) {
-      const parsed = z.object(t.schema).safeParse(given);
-      if (!parsed.success) {
-        const why = parsed.error.issues.map((e) => `${e.path.join('.') || 'args'}: ${e.message}`).join('; ');
-        throw new Error(`step ${i + 1} (${shortName(t.name)}): ${why}. Nothing ran.`);
-      }
-      args = parsed.data;
+    const parsed = z.object(t.schema).strict().safeParse(given);
+    if (!parsed.success) {
+      const short = shortName(t.name);
+      const why = parsed.error.issues.map((e) => (e.path.length ? `${e.path.join('.')}: ${e.message}` : e.message)).join('; ');
+      const takes = Object.keys(t.schema);
+      throw new Error(`step ${i + 1} (${short}): ${why}. ${short} takes ${takes.length ? takes.join(', ') : 'no args'}. Nothing ran.`);
     }
+    const args = parsed.data;
     return { name: t.name, args, route: t.route ? t.route(args) : t.bridgeTool, mapped: t.map ? t.map(args) : args };
   });
 }

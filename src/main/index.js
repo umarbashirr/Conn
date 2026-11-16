@@ -1338,7 +1338,7 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   // its card. An allow changes nothing, as for a call made alone, which the
   // window asks about by its mode whatever the CLI allowed.
   if (tool === 'batch') {
-    const steps = planBatch(args?.actions);
+    const steps = planBatch(args?.actions, require('zod').z);
     const project = from || cwdOfChat(chat);
     const halt = new AbortController();
     bridgeBatches.set(halt, chat);

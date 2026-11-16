@@ -152,7 +152,7 @@ class AgentSession extends EventEmitter {
         // Read before the wait below, or a Stop during it is missed.
         const halt = this.halt.signal;
         const actor = await this.#actorFor(extra);
-        if (t.format === 'batch') return this.#batch(args, extra, actor, { table, z }, halt);
+        if (t.format === 'batch') return this.#batch(args, extra, actor, z, halt);
         const route = t.route ? t.route(args) : t.bridgeTool;
         const mapped = t.map ? t.map(args) : args;
         const { result, caused } = await this.invoke(route, mapped, actor, { report: true });
@@ -164,9 +164,9 @@ class AgentSession extends EventEmitter {
   // The CLI asked about the batch as a whole, and decide() let it through
   // because a batch does nothing by itself. Each step is asked here instead,
   // as the CLI would have asked about it called alone, before it runs.
-  async #batch({ actions }, extra, actor, plan, halt) {
+  async #batch({ actions }, extra, actor, z, halt) {
     let steps;
-    try { steps = planBatch(actions, plan); } catch (e) {
+    try { steps = planBatch(actions, z); } catch (e) {
       return { content: [{ type: 'text', text: e.message }], isError: true };
     }
     const forId = extra?._meta?.['claudecode/toolUseId'] || null;
