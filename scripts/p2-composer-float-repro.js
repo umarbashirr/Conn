@@ -180,15 +180,14 @@ async function main() {
     check('the box stays above the agent\'s overlay', top, 'float not on top');
     await snap('10-agent-under-the-box');
 
-    // A card raised while the chat is away shows on the box, and the box's own
-    // button goes back to it, with a draft typed in the box.
+    // A card raised while the chat is away is answered back in the chat, with
+    // the draft typed in the box carried there.
     await click(s, `css=${INPUT}`, { native: true });
     await type(s, 'Typed in the box');
     await perm(s, { tool: 'Edit', id: 'p-float' });
-    check('a waiting card shows on the box', await until(() => inFloat(`!!document.querySelector('button[aria-label^="Waiting for your answer"]')`)), 'no waiting state');
     await snap('11-waiting-for-answer');
-    await click(s, 'Open the chat', { native: true });
-    check('the box\'s own button opens the chat', await until(async () => !(await floatBox()) && !!(await evaluate(s, `!!document.querySelector('#agent-root ${INPUT}')`))), 'still floating');
+    await fullWidth('Back to the chat');
+    check('leaving full width opens the chat', await until(async () => !(await floatBox()) && !!(await evaluate(s, `!!document.querySelector('#agent-root ${INPUT}')`))), 'still floating');
     check('the draft typed in the box is in the chat', (await evaluate(s, `document.querySelector('#agent-root ${INPUT}').textContent`)) === 'Typed in the box', 'draft lost');
     await snap('12-back-in-chat');
     await click(s, 'Allow');

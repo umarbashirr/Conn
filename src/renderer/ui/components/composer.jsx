@@ -457,16 +457,18 @@ function ModeMenu({ agent }) {
    mode's name, then the model's. The icons stay, and the titles keep the full
    names. The model's name changes with the model, the effort and the window, so
    no fixed width says when it stops fitting. Each fold is tried in turn instead,
-   and the first one with nothing cut stays. */
+   and the first one with nothing cut stays. Floating over a page, the box is
+   kept to icons whatever the room. */
 const isCut = (bar) => bar.scrollWidth > bar.clientWidth
   || [...bar.querySelectorAll('[data-fold]')].some((el) => !el.hidden && el.scrollWidth > el.clientWidth);
 
-function useFold(ref) {
+function useFold(ref, iconsOnly) {
   useLayoutEffect(() => {
     const bar = ref.current;
     const fit = () => {
       const words = [...bar.querySelectorAll('[data-fold]')].sort((a, b) => a.dataset.fold - b.dataset.fold);
-      for (const el of words) el.hidden = false;
+      for (const el of words) el.hidden = iconsOnly;
+      if (iconsOnly) return;
       for (const el of words) {
         if (!isCut(bar)) return;
         el.hidden = true;
@@ -481,7 +483,7 @@ function useFold(ref) {
     const words = new MutationObserver(fit);
     words.observe(bar, { childList: true, characterData: true, subtree: true });
     return () => { room.disconnect(); words.disconnect(); };
-  }, [ref]);
+  }, [ref, iconsOnly]);
 }
 
 const MIC_BUTTON = 'shrink-0 rounded-full text-muted-foreground';
@@ -1033,32 +1035,9 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
 // What sits above the floating box has the page under it, not the chat.
 const FLOAT_CARD = 'rounded-xl border bg-background p-2 shadow-sm';
 
-/* Where the floating box starts: the chat's state in an icon, and the way back
-   to it. A card waiting on an answer outranks a running turn. */
-function FloatStatus({ agent, asks }) {
-  const chord = formatChord(currentKey('previewFull'));
-  const state = asks ? 'Waiting for your answer' : agent.busy ? 'Working' : agent.title || 'No messages yet';
-  const label = `${state}. Open the chat${chord ? ` (${chord})` : ''}`;
-  return (
-    <div className="flex h-[42px] flex-none items-center self-end pl-1.5">
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        title={label}
-        aria-label={label}
-        onClick={() => runCommand('previewFull', false)}
-        className={cn('relative rounded-full', asks ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
-        {asks ? <HandIcon className="size-4" /> : <MessageSquareIcon className="size-4" />}
-        {agent.busy && !asks && <span className="absolute top-1.5 right-1.5 size-1.5 animate-pulse rounded-full bg-emerald-500" />}
-      </Button>
-    </div>
-  );
-}
-
 export function Composer({
   agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onMarks, onSubmit, inputRef: input, dictation,
-  roomy = false, onSuggest, float = false, asks = false,
+  roomy = false, onSuggest, float = false,
 }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
@@ -1077,7 +1056,7 @@ export function Composer({
   const [rows, setRows] = useState([]);
   const box = useRef(null);
   const toolbar = useRef(null);
-  useFold(toolbar);
+  useFold(toolbar, float);
 
   // Dropping onto the composer is the gesture people try first, so the whole
   // box is the target and it says so while something is over it.
@@ -1258,6 +1237,43 @@ export function Composer({
       onRemove={() => drop(a.id)} />
   ));
 
+  const attachMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          title="Attach a file, or add something from the preview"
+          className="rounded-full text-muted-foreground">
+          <PlusIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuItem onSelect={pickFiles}>
+          <PaperclipIcon className="size-4 text-muted-foreground" />
+          Attach files…
+          <span className="ml-auto text-muted-foreground text-xs">or drop them here</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => window.pickElement?.()}>
+          <CrosshairIcon className="size-4 text-muted-foreground" />
+          Point at an element
+          <span className="ml-auto font-mono text-muted-foreground text-xs">^⇧E</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => window.conn.browser.action('screenshot', { fullPage: true })}>
+          <CameraIcon className="size-4 text-muted-foreground" />
+          Screenshot the page
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem disabled={agent.folderless} onSelect={() => window.connChat?.design()}>
+          <PaletteIcon className="size-4 text-muted-foreground" />
+          Design a UI
+          <span className="ml-auto font-mono text-muted-foreground text-xs">$canvas</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
     <div id="composer" className={float ? 'w-full' : 'conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4'}>
       {/* Finding it by id rather than holding the object means removing an
@@ -1334,7 +1350,8 @@ export function Composer({
             {!float && attachments.length > 0 && (
               <PromptInputHeader className="gap-1.5 px-4 pt-3 pb-0">{chips}</PromptInputHeader>
             )}
-            {float && <FloatStatus agent={agent} asks={asks} />}
+            {/* Floating, the attach menu leads the one row. */}
+            {float && <div className="flex h-[42px] flex-none items-center self-end pl-1.5">{attachMenu}</div>}
             <TokenInput
               ref={input}
               value={text}
@@ -1346,7 +1363,7 @@ export function Composer({
               aria-expanded={menu}
               aria-controls={menu ? 'composer-mentions' : undefined}
               aria-activedescendant={menu ? `mention-${cursor}` : undefined}
-              placeholder={placeholderFor(agent, queueState)}
+              placeholder={float && !agent.busy ? 'Message' : placeholderFor(agent, queueState)}
               // Mid-chat most replies are a line, so the empty box stays short.
               // A new chat leads with it and keeps the room.
               // Floating, it is one line until the draft is longer, and stops
@@ -1363,40 +1380,7 @@ export function Composer({
               buttons down by the last line. */}
           <PromptInputFooter className={float ? 'h-[42px] w-auto min-w-0 shrink py-0 pr-1.5 pl-0' : 'px-3 pb-3'}>
             <PromptInputTools ref={toolbar} className="min-w-0 flex-1 gap-1.5">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon-sm"
-                    title="Attach a file, or add something from the preview"
-                    className="rounded-full text-muted-foreground">
-                    <PlusIcon className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onSelect={pickFiles}>
-                    <PaperclipIcon className="size-4 text-muted-foreground" />
-                    Attach files…
-                    <span className="ml-auto text-muted-foreground text-xs">or drop them here</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => window.pickElement?.()}>
-                    <CrosshairIcon className="size-4 text-muted-foreground" />
-                    Point at an element
-                    <span className="ml-auto font-mono text-muted-foreground text-xs">^⇧E</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => window.conn.browser.action('screenshot', { fullPage: true })}>
-                    <CameraIcon className="size-4 text-muted-foreground" />
-                    Screenshot the page
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem disabled={agent.folderless} onSelect={() => window.connChat?.design()}>
-                    <PaletteIcon className="size-4 text-muted-foreground" />
-                    Design a UI
-                    <span className="ml-auto font-mono text-muted-foreground text-xs">$canvas</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {!float && attachMenu}
 
               <ModeMenu agent={agent} />
 

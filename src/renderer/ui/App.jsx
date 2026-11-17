@@ -717,8 +717,7 @@ export default function App() {
       inputRef={input}
       dictation={dictation}
       roomy={empty && !float}
-      float={!!float}
-      asks={waiting.length > 0} />
+      float={!!float} />
   );
 
   return (
