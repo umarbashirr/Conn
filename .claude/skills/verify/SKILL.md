@@ -62,15 +62,15 @@ Pass the instance with `--session <session>` on each command below.
 | `perm [tool]` | Announces a tool call and asks permission for it, like the agent does. The tool is `Edit`, `Write` or `Bash`. `--input <json>`, `--id <id>`, `--agent <json>` and `--bare` (no call row) adjust it. Prints the permission id. |
 | `decided [id]` | With an id, prints the decision the app sent back (`allow`, `always` or `deny`) and exits 1 if there is none after 3 seconds. Without one, prints every decision. |
 | `invoke <tool> [json]` | Calls one browser tool as the agent would. The second argument is one JSON object of the tool's arguments, and it is left out when the tool takes none. See Browser tools. `--actor <json>` acts as a subagent. |
-| `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. |
+| `click <target>` | A real mouse click. A bare name matches a visible button, link, tab or menu item by its text, `aria-label` or title. `css=<selector>` and `xy=<x>,<y>` also work. It waits up to 3 seconds for the target. The target is looked for in the window, then in the floating chat box (see Full width), and the keyboard moves into whichever it lands in. `--native` clicks through the X server instead, so the window system picks the view under the pointer the way it does for a person. It needs an instance booted with `--xvfb`, and `python3`. |
 | `hover <target>` | Moves the mouse onto the target without clicking, with the same targets as `click`. Use it to show what a row shows on hover. |
 | `drag <x0> <y0> <x1> <y1>` | A real mouse drag. It presses at the first point, moves to the second in 20 steps, and releases, all as mouse events. Use it on dividers, for example `drag 944 450 824 450` pulls the column divider 120 px left. Find a divider with `js "[...document.querySelectorAll('[role=separator]')].map((e) => JSON.stringify(e.getBoundingClientRect()))"`. |
-| `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. |
-| `type <text>` | Types into the focused element. `--enter` presses Enter after. Use `-` to read from stdin. |
+| `key <chord>` | A real key press, such as `Ctrl+Shift+B`, `Enter`, `Escape` or `Alt+Down`. It goes where the keyboard is: the floating chat box when it has focus, else the window. |
+| `type <text>` | Types into the focused element, in the floating chat box when it has focus. `--enter` presses Enter after. Use `-` to read from stdin. |
 | `shot` | Saves a PNG of the whole window as a person sees it, with the browser pane's page drawn in at its real bounds, and prints its path. `--out <file>` names it and creates its folder, `--css <selector>` crops to one element, `--no-preview` leaves the pane's page out. |
 | `bounds` | Prints the box the renderer last sent for the preview (`ipc`), the native preview's real box (`nativeView`), and the `#paneslot` rectangle (`paneslot`). `match` is true when `ipc` is within 1 px of `paneslot`, and `nativeViewMatch` says the same of `nativeView`. Exits 1 unless `match` is true. |
 | `record` | Records the window, with the browser pane's page in it, for `--seconds <n>` (default 10) to `--out <file.mp4>`. `--no-preview` leaves the pane's page out. |
-| `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. Use it for read-only checks. |
+| `js <expression>` | Runs JavaScript in the page and prints the result. `--main` runs it in the main process, where `electron` and `req` are in scope. `--float` runs it in the floating chat box's document. Use it for read-only checks. |
 | `sessions` | Lists the instances this checkout's driver booted, with each one's path, start time, ports, and whether a process still runs. It needs no `--session`. |
 | `stop` | Ends the instance. See Cleanup. |
 
@@ -141,6 +141,10 @@ Changes lists only uncommitted edits. The project starts clean, so edit a file i
 node .claude/skills/verify/drive.mjs js --session <session> "new Promise(async (done) => { for (let i = 0; i < 40; i++) { if (document.querySelector('section#right').innerText.includes('index.html')) return done(true); await new Promise((r) => setTimeout(r, 250)); } done(false); })"
 ```
 
+### Full width
+
+The browser pane's own menu (`click css=button:has(svg.lucide-ellipsis-vertical)`, then `click "Preview at full width"`) collapses the chat, and the chat box floats over the bottom of the page. It is a separate native view stacked on the page, showing a window the shell opened on itself and titled `Conn composer`, so `document.querySelector` in `js` cannot see it. Use `js --float` for that. `click`, `key` and `type` reach it on their own. A click beside the box reaches the page, so prove which view took a click with `click --native`, and check the page's side of it with `js --main` on the page's web contents. `scripts/p2-composer-float-repro.js` drives all of it.
+
 ### The shop fixture
 
 `fixtures/shop` is a cart page with a coupon field (`#coupon`) and an Apply button (`#apply`). `SAVE10` takes $4.00 off a $40.00 total. Its `server.mjs` serves the page on a free port and prints `Local: http://localhost:<port>/`, the line Conn's terminal watches for to offer the page in the browser. To run it the way a person would:
@@ -200,7 +204,7 @@ A proof shows the action and the state it caused, not only the last screen. Foll
 
 Two things about pictures.
 
-- The browser pane is a native view laid over the window, which a plain capture of the window leaves out. `shot` and `record` take the pane's page from the main process and lay it over the window at the pane's real bounds, using `sharp` from the checkout's `node_modules`, so one image or video shows the page above the terminal. Only the view the shell placed in the box counts, so a view the app borrows for a moment to screenshot a hidden tab is never drawn. They leave the page out when a person would not see it, which is when no pane is open, the shell has hidden it behind a menu (the shell paints its own still there), or it is parked off the window. Pass `--no-preview` to leave it out anyway. `invoke screenshot` returns the page alone and prints the PNG path.
+- The browser pane is a native view laid over the window, which a plain capture of the window leaves out. `shot` and `record` take the pane's page from the main process and lay it over the window at the pane's real bounds, using `sharp` from the checkout's `node_modules`, so one image or video shows the page above the terminal. Only the view the shell placed in the box counts, so a view the app borrows for a moment to screenshot a hidden tab is never drawn. They leave the page out when a person would not see it, which is when no pane is open, the shell has hidden it behind a menu (the shell paints its own still there), or it is parked off the window. Pass `--no-preview` to leave it out anyway. The floating chat box is drawn on top too, wherever it is. `invoke screenshot` returns the page alone and prints the PNG path.
 - `record` blocks for the whole duration, so start it in the background and drive while it runs. Here `reply.txt` is any text file of about 1,500 characters, which at 250 ms per 40-character chunk streams for about 10 seconds.
 
 ```

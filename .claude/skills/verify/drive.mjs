@@ -97,15 +97,19 @@ async function using(open, fn) {
 }
 
 const connectPage = (s) => connect(s.cdp, (t) => t.type === 'page' && /index\.html/.test(t.url));
+// At full width the chat box floats over the page in a window the shell opens
+// on itself, titled Conn composer. Its clicks and keys go to that window.
+const connectFloat = (s) => connect(s.cdp, (t) => t.type === 'page' && t.title === 'Conn composer');
 const connectMain = (s) => connect(s.inspect, (t) => t.type === 'node');
 const page = (s, fn) => using(connectPage(s), fn);
 const main = (s, fn) => using(connectMain(s), fn);
 
 const mainPrefix = (s) => `const req = process.getBuiltinModule('module').createRequire(${J(path.join(s.root, 'src/main/index.js'))}); const electron = req('electron');`;
 
-export const evaluate = (s, expression, { main: inMain = false, awaitPromise = false } = {}) => (inMain
-  ? main(s, (c) => c.run(`(() => { ${mainPrefix(s)} return (${expression}); })()`, awaitPromise))
-  : page(s, (c) => c.run(expression, awaitPromise)));
+export const evaluate = (s, expression, { main: inMain = false, float = false, awaitPromise = false } = {}) => {
+  if (inMain) return main(s, (c) => c.run(`(() => { ${mainPrefix(s)} return (${expression}); })()`, awaitPromise));
+  return using(float ? connectFloat(s) : connectPage(s), (c) => c.run(expression, awaitPromise));
+};
 
 function assertMadeByBoot(s) {
   const dir = s?.dir;
@@ -161,7 +165,10 @@ const standIn = (claude) => `(() => {
   View.prototype.setVisible = function setVisibleAndRemember(v) { this.__shown = v; return setVisible.call(this, v); };
   // Only the view the shell last placed in the box. To screenshot a tab parked behind
   // another, the app shows its view as a 1x1 at 0,0 for the length of the capture,
-  // and that is not a box the shell placed.
+  // and that is not a box the shell placed. The chat box floating over a full-width
+  // page is a view of its own too, the one window the shell opened, and is drawn
+  // wherever it is. Children come in stacking order, so it lands on top.
+  const isFloat = (view) => !!view.webContents?.opener;
   const shownViews = () => {
     const windows = BrowserWindow.getAllWindows();
     const win = windows.find((w) => /index\.html/.test(w.webContents.getURL())) || windows[0];
@@ -172,9 +179,30 @@ const standIn = (claude) => `(() => {
       const b = view.getBounds();
       const inWindow = b.width > 0 && b.height > 0 && b.x < width && b.y < height && b.x + b.width > 0 && b.y + b.height > 0;
       const wc = view.webContents;
-      return placed && near(b, placed) && inWindow && view.__shown !== false && wc && !wc.isDestroyed();
+      return ((placed && near(b, placed)) || isFloat(view)) && inWindow && view.__shown !== false && wc && !wc.isDestroyed();
     });
     return { width, height, views };
+  };
+  globalThis.__floatBox = () => {
+    const view = shownViews().views.find(isFloat);
+    return view ? { ...view.getBounds(), zoom: view.webContents.getZoomFactor() } : null;
+  };
+  // Whether the keyboard is in the floating box. A click sent over CDP focuses a
+  // document without moving the keyboard, so after one, document.hasFocus() can
+  // say yes in both. Main knows where the keys will really go.
+  globalThis.__floatFocused = () => !!shownViews().views.find(isFloat)?.webContents.isFocused();
+  // A click moves the keyboard into the view it lands in. One sent over CDP
+  // does not, so click does this first.
+  globalThis.__focusView = (float) => {
+    const windows = BrowserWindow.getAllWindows();
+    const win = windows.find((w) => /index\.html/.test(w.webContents.getURL())) || windows[0];
+    (float ? shownViews().views.find(isFloat)?.webContents : win.webContents)?.focus();
+  };
+  globalThis.__display = () => ({ DISPLAY: process.env.DISPLAY, XAUTHORITY: process.env.XAUTHORITY });
+  globalThis.__contentOrigin = () => {
+    const windows = BrowserWindow.getAllWindows();
+    const { x, y } = (windows.find((w) => /index\.html/.test(w.webContents.getURL())) || windows[0]).getContentBounds();
+    return { x, y };
   };
   globalThis.__previewBoxes = () => shownViews().views.map((view) => view.getBounds());
   globalThis.__preview = async (format) => {
@@ -211,7 +239,7 @@ export async function boot({ root = ROOT, xvfb = false, claude = false } = {}) {
   if (!fs.existsSync(path.join(root, 'build', 'renderer', 'index.html'))) throw new Error('no renderer build: run `npx vite build` first');
   const began = Date.now();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-verify-'));
-  const s = { dir, root, driver: HERE, startedAt: new Date().toISOString(), home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata'), claude };
+  const s = { dir, root, driver: HERE, startedAt: new Date().toISOString(), home: path.join(dir, 'home'), project: path.join(dir, 'shop'), userData: path.join(dir, 'userdata'), claude, xvfb };
   fs.mkdirSync(path.join(s.home, '.conn'), { recursive: true });
   fs.cpSync(FIXTURE, s.project, { recursive: true });
   const git = (...args) => execFileSync('git', ['-c', 'user.name=verify', '-c', 'user.email=verify@conn.invalid', '-c', 'commit.gpgsign=false', ...args],
@@ -335,7 +363,9 @@ const untilDrawn = (s) => evaluate(s, 'new Promise((r) => setTimeout(() => reque
 async function ensureChat(s, prompt = 'Hello') {
   if (s.claude) throw new Error('this instance runs the real claude CLI; type a prompt into the composer instead of say, perm or invoke');
   if (await evaluate(s, '!!globalThis.__agent', { main: true })) return;
-  await evaluate(s, `document.querySelector('#composer [contenteditable="true"]').focus()`);
+  // The app's own way in, which also moves the keyboard into the floating box.
+  await evaluate(s, 'window.connChat.focusComposer()');
+  await until(() => evaluate(s, `!!document.activeElement?.matches('#composer [contenteditable="true"]')`), 2000);
   await type(s, prompt);
   await key(s, 'Enter');
   if (!await until(() => evaluate(s, '!!globalThis.__agent', { main: true }), 8000)) throw new Error('the composer did not start a chat');
@@ -423,9 +453,12 @@ function chord(spec) {
   return { key, code, windowsVirtualKeyCode, modifiers, ...(printable && { text: key }) };
 }
 
+// Keys go where the keyboard is: the floating box when it has focus, else the window.
+const keyboard = async (s) => (await evaluate(s, 'globalThis.__floatFocused()', { main: true }) ? connectFloat(s) : connectPage(s));
+
 export async function key(s, spec) {
   const e = chord(spec);
-  await page(s, async (c) => {
+  await using(keyboard(s), async (c) => {
     await c.send('Input.dispatchKeyEvent', { type: 'keyDown', ...e });
     await c.send('Input.dispatchKeyEvent', { type: 'keyUp', ...e, text: undefined });
   });
@@ -433,7 +466,7 @@ export async function key(s, spec) {
 }
 
 export async function type(s, text, { enter = false } = {}) {
-  await page(s, (c) => c.send('Input.insertText', { text }));
+  await using(keyboard(s), (c) => c.send('Input.insertText', { text }));
   if (enter) await key(s, 'Enter');
   else await untilDrawn(s);
 }
@@ -463,26 +496,62 @@ const targetOf = (t) => {
   return at ? { at: [Number(at[1]), Number(at[2])] } : { text: t };
 };
 
-const locate = async (c, target, wait, verb) => {
-  const hit = await until(() => c.run(`(${locateInPage})(${J(targetOf(target))})`), wait);
-  if (!hit) throw new Error(`nothing to ${verb} for ${target}`);
-  return hit;
-};
+// The window first, then the floating box. Returns the connection that found it,
+// open, and whether that is the box.
+async function locate(s, target, wait, verb) {
+  let found = null;
+  await until(async () => {
+    for (const open of [connectPage, connectFloat]) {
+      const c = await open(s).catch(() => null);
+      if (!c) continue;
+      const hit = await c.run(`(${locateInPage})(${J(targetOf(target))})`).catch(() => null);
+      if (hit) { found = { c, hit: { ...hit, float: open === connectFloat } }; return true; }
+      c.close();
+    }
+    return false;
+  }, wait);
+  if (!found) throw new Error(`nothing to ${verb} for ${target}`);
+  return found;
+}
 
-export const click = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
-  const hit = await locate(c, target, wait, 'click');
-  const events = [['mouseMoved', { button: 'none', buttons: 0 }], ['mousePressed', { button: 'left', buttons: 1, clickCount: 1 }], ['mouseReleased', { button: 'left', buttons: 0, clickCount: 1 }]];
-  for (const [type, rest] of events) await c.send('Input.dispatchMouseEvent', { type, x: hit.x, y: hit.y, ...rest });
+/* --native: the click goes through the X server instead of into one web
+   contents, so the window system and Chromium pick the view under the pointer,
+   as they do for a person. That is the only way to show which of the stacked
+   views a point belongs to. Hidden displays only, since on a real one it
+   would move the person's own mouse. */
+async function nativeClick(s, c, hit) {
+  if (!s.xvfb) throw new Error('--native needs an instance booted with --xvfb');
+  const inMain = (expression) => evaluate(s, expression, { main: true });
+  const display = await inMain('globalThis.__display()');
+  const origin = await inMain('globalThis.__contentOrigin()');
+  const box = hit.float ? await inMain('globalThis.__floatBox()') : { x: 0, y: 0 };
+  // CSS pixels in that document, to window pixels, to the screen.
+  const ratio = await c.run('devicePixelRatio');
+  const x = Math.round(origin.x + box.x + hit.x * ratio);
+  const y = Math.round(origin.y + box.y + hit.y * ratio);
+  execFileSync('python3', ['-I', path.join(HERE, 'xinput.py'), String(x), String(y)], { env: { ...process.env, ...display }, stdio: 'inherit' });
+}
+
+export async function click(s, target, { wait = 3000, native = false } = {}) {
+  const { c, hit } = await locate(s, target, wait, 'click');
+  try {
+    if (native) await nativeClick(s, c, hit);
+    else {
+      await evaluate(s, `globalThis.__focusView(${hit.float})`, { main: true });
+      const events = [['mouseMoved', { button: 'none', buttons: 0 }], ['mousePressed', { button: 'left', buttons: 1, clickCount: 1 }], ['mouseReleased', { button: 'left', buttons: 0, clickCount: 1 }]];
+      for (const [type, rest] of events) await c.send('Input.dispatchMouseEvent', { type, x: hit.x, y: hit.y, ...rest });
+    }
+  } finally { c.close(); }
   await sleep(250);
   return hit;
-});
+}
 
-export const hover = (s, target, { wait = 3000 } = {}) => page(s, async (c) => {
-  const hit = await locate(c, target, wait, 'hover');
-  await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y, button: 'none', buttons: 0 });
+export async function hover(s, target, { wait = 3000 } = {}) {
+  const { c, hit } = await locate(s, target, wait, 'hover');
+  try { await c.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: hit.x, y: hit.y, button: 'none', buttons: 0 }); } finally { c.close(); }
   await sleep(250);
   return hit;
-});
+}
 
 export const drag = (s, x0, y0, x1, y1, { steps = 20 } = {}) => page(s, async (c) => {
   const at = (type, x, y, rest) => c.send('Input.dispatchMouseEvent', { type, x, y, ...rest });
@@ -683,7 +752,7 @@ export async function record(s, { seconds = 10, out = path.join(SHOTS, `${path.b
   return out;
 }
 
-const BOOLEAN = new Set(['smoke', 'xvfb', 'claude', 'open', 'bare', 'main', 'enter', 'no-preview']);
+const BOOLEAN = new Set(['smoke', 'xvfb', 'claude', 'open', 'bare', 'main', 'float', 'enter', 'no-preview', 'native']);
 
 function parse(argv) {
   const pos = [];
@@ -731,9 +800,9 @@ const COMMANDS = {
   async invoke({ s, pos, flags }) {
     console.log(J(await invoke(s, pos[1], pos[2] ? JSON.parse(pos[2]) : {}, flags.actor ? JSON.parse(flags.actor) : undefined), null, 2));
   },
-  async click({ s, pos }) {
-    const hit = await click(s, pos[1]);
-    console.log(`clicked ${hit.label ? `"${hit.label}" ` : ''}at ${hit.x},${hit.y}`);
+  async click({ s, pos, flags }) {
+    const hit = await click(s, pos[1], { native: !!flags.native });
+    console.log(`clicked ${hit.label ? `"${hit.label}" ` : ''}at ${hit.x},${hit.y}${hit.float ? ' in the floating chat box' : ''}${flags.native ? ' through X' : ''}`);
     if (hit.covered) console.error(`warning: a <${hit.covered}> is on top of that point`);
   },
   async hover({ s, pos }) {
@@ -758,7 +827,7 @@ const COMMANDS = {
     console.log(await record(s, { seconds: Number(flags.seconds) || 10, fps: Number(flags.fps) || 10, out: flags.out, preview: !flags['no-preview'], bound: Number(flags.bound) || undefined }));
   },
   async js({ s, pos, flags }) {
-    const v = await evaluate(s, pos[1], { main: !!flags.main, awaitPromise: true });
+    const v = await evaluate(s, pos[1], { main: !!flags.main, float: !!flags.float, awaitPromise: true });
     console.log(typeof v === 'string' ? v : J(v, null, 2));
   },
   async stop({ s }) { await stop(s); console.log('stopped'); },
