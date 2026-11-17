@@ -378,9 +378,12 @@ const NOT_IN_BATCH = new Set(['browser_batch', 'browser_record']);
  * the names the step takes rather than dropped. `watched` takes a step's tool
  * name and answers where a PreToolUse hook that watches it is set, or null,
  * and a step it names is refused: see hookWatch in permission-rules.js.
+ * `kept` takes the same name and answers which skill's or agent's tool list
+ * takes the tool away from the caller, or null, and a step it names is
+ * refused too: see toolLists there.
  * @returns {Array<{name: string, args: object, route: string, mapped: object}>}
  */
-function planBatch(actions, z, watched = () => null) {
+function planBatch(actions, z, watched = () => null, kept = () => null) {
   if (!Array.isArray(actions) || !actions.length) throw new Error('actions must be a list of at least one step');
   if (actions.length > BATCH_MAX) throw new Error(`a batch runs at most ${BATCH_MAX} steps; this one has ${actions.length}`);
   const table = browserTools(z);
@@ -401,6 +404,8 @@ function planBatch(actions, z, watched = () => null) {
     }
     const hook = watched(t.name);
     if (hook) throw new Error(`step ${i + 1} (${shortName(t.name)}): a PreToolUse hook in ${hook} watches ${t.name} and cannot see a batch's steps. Call ${t.name} on its own so your hook can see it. Nothing ran.`);
+    const list = kept(t.name);
+    if (list) throw new Error(`step ${i + 1} (${shortName(t.name)}): ${t.name} is taken away by ${list}, so a batch cannot run it either. Call it on its own if you have it. Nothing ran.`);
     const args = parsed.data;
     return { name: t.name, args, route: t.route ? t.route(args) : t.bridgeTool, mapped: t.map ? t.map(args) : args };
   });

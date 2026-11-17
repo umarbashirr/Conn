@@ -9,7 +9,7 @@ const path = require('path');
 const { browserTools, toolContent, planBatch, runBatch, batchContent, INSTRUCTIONS, ALWAYS_LOADED } = require('../shared/browser-tools');
 const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
-const { ruleFor, hookWatch } = require('./permission-rules');
+const { ruleFor, hookWatch, toolLists } = require('./permission-rules');
 const shellEnv = require('./shell-env');
 
 // How long a browser tool waits to learn which agent called it. The CLI
@@ -164,12 +164,14 @@ class AgentSession extends EventEmitter {
   // The CLI asked about the batch as a whole, and decide() let it through
   // because a batch does nothing by itself. Each step is asked here instead,
   // as the CLI would have asked about it called alone, before it runs. A step
-  // one of the CLI's PreToolUse hooks watches refuses the whole batch.
+  // one of the CLI's PreToolUse hooks watches, or that a skill's list or the
+  // calling subagent's own takes away, refuses the whole batch.
   async #batch({ actions }, extra, actor, z, halt) {
     let steps;
     try {
       const watch = hookWatch(this.cwd);
-      steps = planBatch(actions, z, (name) => watch(`mcp__preview__${name}`));
+      const lists = toolLists(this.cwd, (agent) => agent === actor.type);
+      steps = planBatch(actions, z, (name) => watch(`mcp__preview__${name}`), (name) => lists(`mcp__preview__${name}`));
     } catch (e) {
       return { content: [{ type: 'text', text: e.message }], isError: true };
     }
