@@ -885,8 +885,6 @@ window.conn.onCommand(({ name, open, chat, tab }) => {
 
 window.addEventListener('resize', () => { resizeActive(); syncBounds(); });
 wire(() => new ResizeObserver(() => syncBounds()).observe($('#paneslot')));
-// The composer docks under a full-width terminal and grows as a draft does.
-wire(() => new ResizeObserver(() => resizeActive()).observe($('#terms')));
 
 // ---------------------------------------------------------------- keys
 

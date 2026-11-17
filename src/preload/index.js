@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld('conn', {
     onUrl: on('term:url'),
   },
 
+  // The chat box floating over a full-width page: where its view goes, in
+  // window pixels (null hides it), moving the keyboard into it, and closing it.
+  composer: {
+    float: (place) => ipcRenderer.send('composer:float', place),
+    focus: () => ipcRenderer.send('composer:focus'),
+    close: (name) => ipcRenderer.send('composer:close', name),
+  },
+
   browser: {
     setBounds: (b) => ipcRenderer.send('browser:bounds', b),
     setVisible: (v) => ipcRenderer.send('browser:visible', v),

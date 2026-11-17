@@ -5,6 +5,7 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { PortalHost } from "@/lib/portal-host"
 
 function DropdownMenu({
   ...props
@@ -30,7 +31,7 @@ function DropdownMenuContent({
   ...props
 }) {
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={React.useContext(PortalHost)}>
       <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
@@ -197,7 +198,7 @@ function DropdownMenuSubContent({
   // menu, which makes it the containing block for this fixed-position popper:
   // left inside, the submenu is clipped by the parent and scrolls it.
   return (
-    <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.Portal container={React.useContext(PortalHost)}>
       <DropdownMenuPrimitive.SubContent
         data-slot="dropdown-menu-sub-content"
         className={cn(

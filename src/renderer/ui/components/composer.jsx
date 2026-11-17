@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { branchNameError } from '../../../shared/branch-name';
 import { useProject, shortPath } from '../useProject';
 import { fromBlob, fromPaths, sizeLabel, toAttachments } from '@/lib/attachments';
+import { runCommand } from '../../app.js';
 
 // How freely the agent may act. Shift+Tab walks this list. The same four apply
 // to every agent; main/modes.js is what enforces them.
@@ -473,7 +474,9 @@ function useFold(ref) {
     };
     fit();
     // Room changes with the pane, and words change with the mode and the model.
-    const room = new ResizeObserver(fit);
+    // The bar's own window measures it: floating over a page, the bar is in
+    // another document, and an observer from this one never hears it change.
+    const room = new bar.ownerDocument.defaultView.ResizeObserver(fit);
     room.observe(bar);
     const words = new MutationObserver(fit);
     words.observe(bar, { childList: true, characterData: true, subtree: true });
@@ -1027,9 +1030,35 @@ function QueuedItem({ item, index, onEdit, onDrop, onSendNow, onSendNext }) {
   );
 }
 
+// What sits above the floating box has the page under it, not the chat.
+const FLOAT_CARD = 'rounded-xl border bg-background p-2 shadow-sm';
+
+/* Where the floating box starts: the chat's state in an icon, and the way back
+   to it. A card waiting on an answer outranks a running turn. */
+function FloatStatus({ agent, asks }) {
+  const chord = formatChord(currentKey('previewFull'));
+  const state = asks ? 'Waiting for your answer' : agent.busy ? 'Working' : agent.title || 'No messages yet';
+  const label = `${state}. Open the chat${chord ? ` (${chord})` : ''}`;
+  return (
+    <div className="flex h-[42px] flex-none items-center self-end pl-1.5">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        title={label}
+        aria-label={label}
+        onClick={() => runCommand('previewFull', false)}
+        className={cn('relative rounded-full', asks ? 'text-amber-700 dark:text-amber-300' : 'text-muted-foreground')}>
+        {asks ? <HandIcon className="size-4" /> : <MessageSquareIcon className="size-4" />}
+        {agent.busy && !asks && <span className="absolute top-1.5 right-1.5 size-1.5 animate-pulse rounded-full bg-emerald-500" />}
+      </Button>
+    </div>
+  );
+}
+
 export function Composer({
   agent, settings, catalog, text, setText, attachments, setAttachments, onNote, onMarks, onSubmit, inputRef: input, dictation,
-  roomy = false, onSuggest,
+  roomy = false, onSuggest, float = false, asks = false,
 }) {
   const window_ = useProject();
   // The folder this chat runs in, which is the one the message about to be typed
@@ -1221,8 +1250,16 @@ export function Composer({
     }
   }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
+  const chips = attachments.map((a) => (
+    <Attachment
+      key={a.id}
+      item={a}
+      onOpen={() => setPreviewing(a.id)}
+      onRemove={() => drop(a.id)} />
+  ));
+
   return (
-    <div id="composer" className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
+    <div id="composer" className={float ? 'w-full' : 'conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4'}>
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}
@@ -1233,7 +1270,7 @@ export function Composer({
         onOpenChange={(open) => { if (!open) setPreviewing(null); }} />
 
       {agent.queued.length > 0 && (
-        <div className="mb-2 px-1">
+        <div className={cn('mb-2 px-1', float && FLOAT_CARD)}>
           <div className="mb-1 flex items-center gap-2 text-muted-foreground text-xs">
             <span>{agent.queued.length} queued</span>
             <span className="opacity-70">{QUEUE_NOTE[queueState]}</span>
@@ -1252,6 +1289,10 @@ export function Composer({
           </div>
         </div>
       )}
+
+      {/* The floating box stays one line high, so what it is sending rides
+          above it instead of inside. */}
+      {float && attachments.length > 0 && <div className={cn('mb-2 flex w-fit max-w-full flex-wrap gap-1.5', FLOAT_CARD)}>{chips}</div>}
 
       {/* PromptInput puts className on the form, so the box itself is reached
           through its slot. The wrapper is what the mention menu hangs off. */}
@@ -1284,21 +1325,16 @@ export function Composer({
             '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:ring-0!',
             '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:border-foreground/25!',
             '[&_[data-slot=input-group]:has([data-slot=input-group-control]:focus-visible)]:shadow-md',
+            // Over a page: one row, opaque, and lifted off whatever is under it.
+            float && '[&_[data-slot=input-group]]:flex-row! [&_[data-slot=input-group]]:items-end [&_[data-slot=input-group]]:rounded-3xl [&_[data-slot=input-group]]:bg-background! [&_[data-slot=input-group]]:shadow-md',
           )}>
           <PromptInputBody>
             {/* Inside the box, above what you are typing: an attachment belongs
                 to this message, so it sits in the same container as the text. */}
-            {attachments.length > 0 && (
-              <PromptInputHeader className="gap-1.5 px-4 pt-3 pb-0">
-                {attachments.map((a) => (
-                  <Attachment
-                    key={a.id}
-                    item={a}
-                    onOpen={() => setPreviewing(a.id)}
-                    onRemove={() => drop(a.id)} />
-                ))}
-              </PromptInputHeader>
+            {!float && attachments.length > 0 && (
+              <PromptInputHeader className="gap-1.5 px-4 pt-3 pb-0">{chips}</PromptInputHeader>
             )}
+            {float && <FloatStatus agent={agent} asks={asks} />}
             <TokenInput
               ref={input}
               value={text}
@@ -1313,14 +1349,19 @@ export function Composer({
               placeholder={placeholderFor(agent, queueState)}
               // Mid-chat most replies are a line, so the empty box stays short.
               // A new chat leads with it and keeps the room.
+              // Floating, it is one line until the draft is longer, and stops
+              // growing at about six.
               className={cn(
-                'px-4 pb-2 text-[13.5px]',
-                roomy ? 'min-h-[76px]' : 'min-h-[52px]',
-                attachments.length > 0 ? 'pt-2' : 'pt-3.5',
+                'text-[13.5px]',
+                float ? 'min-h-0 min-w-40 flex-1 basis-0 max-h-44 px-1.5 py-[11px] leading-[20px]'
+                  : cn('px-4 pb-2', roomy ? 'min-h-[76px]' : 'min-h-[52px]', attachments.length > 0 ? 'pt-2' : 'pt-3.5'),
               )} />
           </PromptInputBody>
 
-          <PromptInputFooter className="px-3 pb-3">
+          {/* One line of the floating box's input is 42px, and so are the
+              ends, so a short draft sits centred and a long one keeps the
+              buttons down by the last line. */}
+          <PromptInputFooter className={float ? 'h-[42px] w-auto min-w-0 shrink py-0 pr-1.5 pl-0' : 'px-3 pb-3'}>
             <PromptInputTools ref={toolbar} className="min-w-0 flex-1 gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1383,7 +1424,7 @@ export function Composer({
             <MicButton dictation={dictation} />
 
             <PromptInputSubmit
-              className="size-9 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+              className={cn(float ? 'size-8' : 'size-9', 'shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30')}
               disabled={!agent.busy && !text.trim() && !attachments.length}
               status={agent.busy ? 'streaming' : undefined}
               title={agent.busy ? (stopChord ? `Stop (${stopChord})` : 'Stop') : undefined}
@@ -1394,7 +1435,9 @@ export function Composer({
         </PromptInput>
       </div>
 
-      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 px-1 text-[11px] text-muted-foreground">
+      {/* Folder, branch, skills and usage belong to the chat, which is where
+          the way back from the floating box leads. */}
+      {!float && <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 px-1 text-[11px] text-muted-foreground">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Pill className="h-6 max-w-full px-1.5 text-[11px]">
@@ -1466,7 +1509,7 @@ export function Composer({
         <span className="ml-auto">
           <UsageMeter usage={agent.usage} chat={agent.activeKey} />
         </span>
-      </div>
+      </div>}
 
     </div>
   );

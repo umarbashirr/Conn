@@ -820,7 +820,7 @@ body { display: flex; flex-direction: column; }
    above make this selector outrank anything a theme can say, so a button that
    happened to have no data-slot ancestor was one the Brutalist theme could not
    put a border on. Carrying the slot is the same claim as sitting under one. */
-button:not(:is(#agent-root, #composer-dock) button):not([data-slot] button):not([data-slot]) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
+button:not(:is(#agent-root, #composer-float) button):not([data-slot] button):not([data-slot]) { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 .dim { color: var(--fg-dim); }
 
 kbd {
@@ -961,11 +961,14 @@ section#agent { position: relative; display: flex; flex-direction: column; backg
    settings is what the body text ends up at; --chat-scale is that over the
    13px this has always been. */
 #agent-root { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* The composer docked under a full-width column is still the chat's. */
-#agent-root, #composer-dock {
+/* The composer floating over a full-width page is still the chat's. The float
+   sets the box's width, so the scale goes on what is inside it. */
+#agent-root, #composer-float > * {
   zoom: var(--chat-scale, 1);
   font-family: var(--chat-font, inherit);
 }
+/* A narrow floating box would wrap its hint onto a second line. */
+#composer-float .conn-input::before { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* --------------------------------------------------------- preview pane */
 

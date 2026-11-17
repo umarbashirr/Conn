@@ -45,7 +45,7 @@ import Welcome from './Welcome';
 import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
 import { syncPaneCover, watchPaneOverlays } from './pane-cover';
-import { ComposerDock } from './composer-dock';
+import { ComposerFloat, useComposerFloat } from './composer-float';
 import {
   activateTab,
   activeKind,
@@ -250,7 +250,8 @@ export default function Shell() {
   const rail = usePanelRef();
   const agent = usePanelRef();
   const right = usePanelRef();
-  const [dock, setDock] = useState(null);
+  // The chat collapses at full width, and its box floats over the column.
+  const float = useComposerFloat(full);
 
   const holdPanelsToStore = () => {
     const panes = [
@@ -325,7 +326,7 @@ export default function Shell() {
             <ResizablePanel id="agent" panelRef={agent} collapsible minSize={paneFloor}>
               <section id="agent">
                 <div id="agent-root">
-                  <ComposerDock.Provider value={full ? dock : null}><App /></ComposerDock.Provider>
+                  <ComposerFloat.Provider value={float}><App /></ComposerFloat.Provider>
                 </div>
                 <Welcome />
               </section>
@@ -346,10 +347,6 @@ export default function Shell() {
                 <CanvasView />
                 <WorktreesView />
                 <Terminals />
-                {/* A strip the column gives up, not a layer over it: the page is
-                    a native view drawn above this document, so a box laid over
-                    it would be hidden. #paneslot ends where this starts. */}
-                {full && <div id="composer-dock" ref={setDock} className="flex-none border-t border-[var(--line)] bg-background text-foreground" />}
               </section>
             </ResizablePanel>
           </ResizablePanelGroup>
