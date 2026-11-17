@@ -1362,12 +1362,16 @@ async function runBridgeTool(tool, args, from, named = null, { report = false, s
   // step, so they are weighed here: a deny refuses the step, an ask forces
   // its card. An allow changes nothing, as for a call made alone, which the
   // window asks about by its mode whatever the CLI allowed. When Claude Code
-  // is the caller, a step one of its PreToolUse hooks watches refuses the
-  // whole batch. Other agents run no Claude hooks.
+  // is the caller, a step one of its PreToolUse hooks watches, or that a
+  // skill's or an agent's tool list takes away, refuses the whole batch. The
+  // window cannot tell which agent is calling, so every agent's list binds.
+  // Other agents run no Claude hooks and read no Claude lists.
   if (tool === 'batch') {
     const project = from || cwdOfChat(chat);
-    const watch = claudeCode ? permissionRules.hookWatch(project) : null;
-    const steps = planBatch(args?.actions, require('zod').z, watch ? (name) => watch(`mcp__conn__${name}`) : undefined);
+    const conn = (test) => (name) => test(`mcp__conn__${name}`);
+    const steps = claudeCode
+      ? planBatch(args?.actions, require('zod').z, conn(permissionRules.hookWatch(project)), conn(permissionRules.toolLists(project, () => true)))
+      : planBatch(args?.actions, require('zod').z);
     const id = `bb${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
     const halt = new AbortController();
     bridgeBatches.set(halt, chat);

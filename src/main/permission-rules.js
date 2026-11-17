@@ -225,20 +225,74 @@ function frontmatter(block) {
 
 // What each file declares, kept by its mtime and size so a batch reads again
 // only a file that changed. Its folder's mtime would miss an edit made in place.
+// Only a frontmatter that can hold hooks or a tool list is parsed.
 const declared = new Map();
-function declaredHooks({ kind, file }) {
+function declaration({ kind, file }) {
   let stat;
-  try { stat = fs.statSync(file); } catch { return []; }
+  try { stat = fs.statSync(file); } catch { return null; }
   const stamp = `${stat.mtimeMs}:${stat.size}`;
   if (declared.get(file)?.stamp !== stamp) {
     let block;
     try { block = FENCE.exec(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))?.[1]; } catch {}
-    const meta = block?.includes('PreToolUse') ? frontmatter(block) : {};
-    const name = meta.name || (kind === 'skill' ? path.basename(path.dirname(file)) : path.basename(file, '.md'));
-    declared.set(file, { stamp, watches: preToolUse(meta.hooks, `${kind} ${name} (${file})`) });
+    const meta = /PreToolUse|tools/i.test(block ?? '') ? frontmatter(block) : {};
+    const name = String(meta.name || (kind === 'skill' ? path.basename(path.dirname(file)) : path.basename(file, '.md')));
+    declared.set(file, { stamp, name, meta });
   }
-  return declared.get(file).watches;
+  return declared.get(file);
 }
+
+function declaredHooks(d) {
+  const found = declaration(d);
+  return found ? preToolUse(found.meta.hooks, `${d.kind} ${found.name} (${d.file})`) : [];
+}
+
+/* A tool list as the CLI reads it, as tried against its own runs: a YAML
+   list, or a string of names split on commas and spaces. An agent's entry
+   names its tool whatever follows it in parentheses, a skill's only bare. */
+function entries(value, agent) {
+  const all = Array.isArray(value) ? value.map(String) : typeof value === 'string' ? value.match(/[^\s,(]+(\([^)]*\))?/g) || [] : [];
+  return all.map((e) => (agent ? e.trim().replace(/\(.*\)$/, '') : e.trim()));
+}
+
+// Whether a list names an MCP tool: by its full name, by its server as
+// mcp__<server> or mcp__<server>__*, or as mcp__*. Case counts.
+function named(list, tool) {
+  const server = tool.split('__').slice(0, 2).join('__');
+  return list.some((e) => e === tool || e === server || e === `${server}__*` || e === 'mcp__*');
+}
+
+/* The lists one file declares. A skill or command takes away what its
+   disallowed-tools or disallowedTools names; its allowed-tools only grants.
+   An agent has only what its tools names, all of them for none or *, less
+   what its disallowedTools names. A plugin's agent is known by the plugin's
+   name and its own. */
+function declaredLists(d) {
+  const found = declaration(d);
+  if (!found) return null;
+  const { meta } = found;
+  const agent = d.kind === 'agent';
+  const tools = agent && meta.tools != null ? entries(meta.tools, true) : null;
+  return {
+    ...d,
+    name: d.plugin ? `${d.plugin}:${found.name}` : found.name,
+    tools: tools?.includes('*') ? null : tools,
+    disallowed: entries(agent ? meta.disallowedTools : meta['disallowed-tools'] ?? meta.disallowedTools, agent),
+  };
+}
+
+// Which of a file's lists takes `tool` away, or null.
+function takes({ kind, name, file, tools, disallowed }, tool) {
+  const list = tools && !named(tools, tool) ? 'tools'
+    : named(disallowed, tool) ? (kind === 'agent' ? 'disallowedTools' : 'disallowed-tools') : null;
+  return list && `the ${list} of ${kind} ${name} (${file})`;
+}
+
+// A plugin's agents and commands. The CLI keeps their tool lists, though it
+// runs none of their hooks.
+const pluginAgents = ({ id, root, manifest }) => [
+  ...markdown(path.join(root, 'agents')).map((file) => ({ kind: 'agent', file, plugin: manifest.name || id.slice(0, id.lastIndexOf('@')) })),
+  ...markdown(path.join(root, 'commands')).map((file) => ({ kind: 'command', file })),
+];
 
 /**
  * The PreToolUse hooks the CLI runs in `project`, as a test of a tool's full
@@ -271,4 +325,37 @@ function hookWatch(project) {
   return (tool) => watches.find((w) => matches(w.matcher, tool))?.source ?? null;
 }
 
-module.exports = { list, remove, files, ruleFor, hookWatch };
+/**
+ * The tool lists of the skills, commands and agents the CLI loads in
+ * `project`, as a test of a browser tool's full name that answers which list
+ * takes it away from the caller, or null. The CLI applies a list to the call
+ * it sees, which for a browser batch is the batch, so a step a list takes
+ * away has to be refused here. Read when a batch is planned, from the same
+ * folders and plugins as hookWatch, a plugin's agents and commands included.
+ * A skill's list binds only while that skill is at work, which Conn cannot
+ * tell, so every skill's binds every caller. An agent's binds that agent
+ * alone, and `binds` picks by name the agents the caller may be. A list that
+ * takes the batch itself away binds no one, since a batch never comes from
+ * under it. Of two agents with one name, the CLI keeps the nearer one's.
+ */
+function toolLists(project, binds) {
+  const plugins = pluginRoots(Object.assign({}, ...settings(project).map((s) => read(s.file).json?.enabledPlugins)));
+  const folders = [...(project ? upToRoot(project).map((d) => path.join(d, '.claude')) : []), configDir()];
+  const seen = new Set();
+  const lists = [...declarers(folders, plugins), ...plugins.flatMap(pluginAgents)].map(declaredLists).filter((l) => {
+    if (!l || l.kind !== 'agent') return !!l;
+    if (seen.has(l.name)) return false;
+    seen.add(l.name);
+    return binds(l.name);
+  });
+  return (tool) => {
+    const batch = `${tool.split('__').slice(0, 2).join('__')}__browser_batch`;
+    for (const l of lists) {
+      const why = !takes(l, batch) && takes(l, tool);
+      if (why) return why;
+    }
+    return null;
+  };
+}
+
+module.exports = { list, remove, files, ruleFor, hookWatch, toolLists };
