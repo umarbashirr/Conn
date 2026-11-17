@@ -54,6 +54,7 @@ const planLimits = require('./plan-limits');
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease, READS } = require('./pane-lease');
 const { ControlOverlay } = require('./control-overlay');
+const { ComposerFloat, FLOAT_NAME } = require('./composer-float');
 const { mcpServerPath, binDir } = require('../../cli/packaged-path');
 const bridgeState = require('../../cli/state');
 
@@ -152,6 +153,8 @@ function leaseFor(tab) {
 // One per window that can show a page: the box in the main window, and the
 // browser's own window when the page has been moved out.
 const overlays = { box: new ControlOverlay(), popout: new ControlOverlay() };
+// The chat box over a full-width page, above the page and its overlay.
+const composerFloat = new ComposerFloat();
 
 // The agent with this page for the rest of its turn, or null. The lease's own
 // idle timeout is about who may go next, not about whether the agent is done,
@@ -178,6 +181,8 @@ function syncOverlays() {
   for (const o of Object.values(overlays)) {
     if (o.tab && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
   }
+  // The person can still talk to the agent while it has the page.
+  composerFloat.raise();
 }
 
 // Whichever driver answers for the provider in use. Both keep the same shape:
@@ -1486,8 +1491,11 @@ async function createWindow() {
 
   // A link that slips past its click handler must not turn the app window into
   // a web page or spawn a bare window. Links open through links:openExternal
-  // or the Browser pane.
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // or the Browser pane. The one window the shell opens itself is the blank
+  // one it floats the chat box in, and that goes in a view, not a window.
+  win.webContents.setWindowOpenHandler(({ frameName, url }) => (frameName.startsWith(`${FLOAT_NAME}-`) && url === 'about:blank'
+    ? { action: 'allow', createWindow: (options) => composerFloat.adopt(win, options.webContents, frameName) }
+    : { action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
 
   // The renderer is a Vite build: the chat pane is React, the shell is not.
@@ -1498,7 +1506,10 @@ async function createWindow() {
   // watching, and reopening one of those chats would resume a second CLI on
   // the same transcript.
   win.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
-    if (isMainFrame && !isSameDocument) for (const chat of [...sessions.keys()]) stopChat(chat);
+    if (!isMainFrame || isSameDocument) return;
+    for (const chat of [...sessions.keys()]) stopChat(chat);
+    // The floating box is drawn by the page that is going away.
+    composerFloat.dispose();
   });
   if (isDev) win.webContents.openDevTools({ mode: 'detach' });
 
@@ -1531,6 +1542,7 @@ async function createWindow() {
 
   win.on('closed', () => {
     overlays.box.dispose();
+    composerFloat.dispose();
     for (const t of terms.values()) t.kill();
     terms.clear();
     fileWatcher?.clear();
@@ -2538,6 +2550,9 @@ function registerIpc() {
   // is over it.
   const inBox = () => (shownTab === poppedTab ? null : paneOf(shownTab, { create: false }));
   ipcMain.on('browser:bounds', (_e, b) => { lastBounds = b; inBox()?.setBounds(b); syncOverlays(); });
+  ipcMain.on('composer:float', (_e, place) => composerFloat.place(place));
+  ipcMain.on('composer:focus', () => composerFloat.focus());
+  ipcMain.on('composer:close', (_e, name) => composerFloat.dispose(name));
   ipcMain.on('browser:visible', (_e, v) => {
     paneCovered = !v;
     inBox()?.setVisible(!paneCovered);

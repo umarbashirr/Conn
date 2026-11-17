@@ -45,6 +45,7 @@ import Welcome from './Welcome';
 import { previewOf, subscribeBrowser, getBrowserVersion } from './browser-store';
 import { getVersion, layout, relayoutNow, setLayout, subscribe } from './layout-store';
 import { syncPaneCover, watchPaneOverlays } from './pane-cover';
+import { ComposerFloat, useComposerFloat } from './composer-float';
 import {
   activateTab,
   activeKind,
@@ -249,6 +250,8 @@ export default function Shell() {
   const rail = usePanelRef();
   const agent = usePanelRef();
   const right = usePanelRef();
+  // The chat collapses at full width, and its box floats over the column.
+  const float = useComposerFloat(full);
 
   const holdPanelsToStore = () => {
     const panes = [
@@ -322,7 +325,9 @@ export default function Shell() {
           <ResizablePanelGroup orientation="horizontal" onLayoutChange={onLayoutChange}>
             <ResizablePanel id="agent" panelRef={agent} collapsible minSize={paneFloor}>
               <section id="agent">
-                <div id="agent-root"><App /></div>
+                <div id="agent-root">
+                  <ComposerFloat.Provider value={float}><App /></ComposerFloat.Provider>
+                </div>
                 <Welcome />
               </section>
             </ResizablePanel>

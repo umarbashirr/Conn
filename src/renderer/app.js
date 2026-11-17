@@ -846,8 +846,7 @@ export function runCommand(name, arg) {
     case 'settings': return window.connChat?.settings?.(arg);
     case 'updates': return window.connChat?.settings?.('updates');
     case 'appearance': return window.connChat?.settings?.('appearance');
-    case 'focusComposer':
-      return document.querySelector('#agent-root [contenteditable="true"]')?.focus();
+    case 'focusComposer': return window.connChat?.focusComposer?.();
     case 'dictate': return window.connChat?.dictate?.();
     case 'jumpPermission': return window.connChat?.jumpPermission?.();
     case 'focusAddress': return openPreview(true);

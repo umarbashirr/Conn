@@ -250,7 +250,16 @@ export const TokenInput = forwardRef(function TokenInput({
   }, [emit, flush, reportQuery]);
 
   useImperativeHandle(ref, () => ({
-    focus: () => boxRef.current?.focus(),
+    // Chromium puts the caret in front of everything when focus arrives without
+    // one, such as into a box that has just moved to the dock. Typing then
+    // lands before the draft, so a box with no caret of its own gets the end.
+    focus: () => {
+      const box = boxRef.current;
+      if (!box) return;
+      const hadCaret = box.contains(box.ownerDocument.getSelection()?.anchorNode);
+      box.focus();
+      if (!hadCaret) placeCaret(box, valueOf(box).length);
+    },
     caret: () => (boxRef.current ? caretOffset(boxRef.current) : null),
     replaceText: (text) => apply(text, text.length),
     // Swap whatever is being typed at the caret for the finished token, and

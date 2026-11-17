@@ -1,4 +1,5 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { ArrowUpCircleIcon, FileDownIcon, HistoryIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
@@ -58,6 +59,8 @@ import { useProject } from './useProject';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
+import { ComposerFloat, focusFloat } from './shell/composer-float.js';
+import { PortalHost } from './lib/portal-host.js';
 import { canvasState, onSelection, select, setBoard } from './shell/canvas-store.js';
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
@@ -277,7 +280,7 @@ function focusIsIdle() {
   const el = document.activeElement;
   if (!el || el === document.body) return true;
   if (el.closest('[role="log"]')) return true;
-  return el.matches('#agent-root [contenteditable="true"]') && !el.textContent.trim();
+  return el.matches('#composer [contenteditable="true"]') && !el.textContent.trim();
 }
 
 const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
@@ -289,6 +292,7 @@ const permTitleId = (id) => `perm-title-${id}`;
 
 export default function App() {
   const agent = useAgent();
+  const float = useContext(ComposerFloat);
   // The Agents tab draws from this chat's state but mounts in the right column.
   useEffect(() => publish(agent));
   // The Canvas shows the chat on screen's board, in the folder that chat runs in.
@@ -486,6 +490,13 @@ export default function App() {
       },
       // Removing the chip lets go of the frames on the board as well.
       deselectFrames: () => select([]),
+      // The chat box, wherever it is: in the chat or floating at full width,
+      // where the keyboard has to be moved into its view as well. With no
+      // float up, main has nothing to focus and does nothing.
+      focusComposer: () => {
+        focusFloat();
+        input.current?.focus();
+      },
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, closeCustomize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
@@ -688,6 +699,27 @@ export default function App() {
     );
   }
 
+  // One composer either way, so a half-typed message, its attachments and the
+  // queue are the same whether the chat or the float is showing it.
+  const composer = (
+    <Composer
+      onSuggest={() => takeStep(shownSteps[0])}
+      agent={agent}
+      settings={settings}
+      catalog={catalog}
+      text={text}
+      setText={setText}
+      attachments={attachments}
+      setAttachments={setAttachments}
+      onNote={setNote}
+      onMarks={setMarks}
+      onSubmit={submit}
+      inputRef={input}
+      dictation={dictation}
+      roomy={empty && !float}
+      float={!!float} />
+  );
+
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
@@ -769,21 +801,10 @@ export default function App() {
 
       <NextSteps steps={shownSteps} onPick={takeStep} />
 
-      <Composer
-        onSuggest={() => takeStep(shownSteps[0])}
-        agent={agent}
-        settings={settings}
-        catalog={catalog}
-        text={text}
-        setText={setText}
-        attachments={attachments}
-        setAttachments={setAttachments}
-        onNote={setNote}
-        onMarks={setMarks}
-        onSubmit={submit}
-        inputRef={input}
-        dictation={dictation}
-        roomy={empty} />
+      {float ? createPortal(
+        <PortalHost.Provider value={float.ownerDocument.body}>{composer}</PortalHost.Provider>,
+        float,
+      ) : composer}
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}

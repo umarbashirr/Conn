@@ -35,7 +35,7 @@ const ICON_BUTTON = 'size-7 rounded-md text-muted-foreground';
 
 function startChatIn(dir) {
   window.connChat?.newChat(dir);
-  requestAnimationFrame(() => document.querySelector('#agent-root [contenteditable="true"]')?.focus());
+  requestAnimationFrame(() => window.connChat?.focusComposer?.());
 }
 
 function Counts({ w, base }) {
