@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, EyeIcon, FileIcon,
   FolderIcon, GitBranchIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
@@ -305,9 +305,11 @@ function ModelPicker({ agent, settings }) {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Pill
+          title={label}
+          aria-label={label}
           className="ml-auto shrink rounded-md px-2 font-medium text-foreground/80 text-xs hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground">
           <ProviderLogo id={row?.provider || agent.provider} />
-          <span className="min-w-0 truncate">{label}</span>
+          <span data-fold="3" className="min-w-0 truncate">{label}</span>
           <ChevronDownIcon className="size-3.5 shrink-0 opacity-60" />
         </Pill>
       </DropdownMenuTrigger>
@@ -411,6 +413,10 @@ function ModeIcon({ mode, className }) {
 }
 
 function ModeMenu({ agent }) {
+  const label = MODE_LABEL[agent.mode] || agent.mode;
+  const chord = currentKey('cycleMode');
+  const name = chord ? `${label} mode (${formatChord(chord)})` : `${label} mode`;
+  const note = MODES.find(([v]) => v === agent.mode)?.[2];
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -419,10 +425,11 @@ function ModeMenu({ agent }) {
           variant="outline"
           size="xs"
           className={cn('h-7 min-w-0 shrink gap-1.5 rounded-full px-2.5 font-normal shadow-none', MODE_TONE[agent.mode])}
-          title={MODES.find(([v]) => v === agent.mode)?.[2]}>
+          aria-label={name}
+          title={note ? `${name}. ${note}` : name}>
           <ModeIcon mode={agent.mode} className="size-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{MODE_LABEL[agent.mode] || agent.mode}</span>
-          <span className="font-mono text-[10px] opacity-60">⇧Tab</span>
+          <span data-fold="2" className="min-w-0 truncate">{label}</span>
+          {chord && <span data-fold="1" className="font-mono text-[10px] opacity-60">{formatChord(chord, { compact: true })}</span>}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-72">
@@ -442,6 +449,36 @@ function ModeMenu({ agent }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/* A squeezed toolbar gives up words rather than cut one in half. Each word that
+   can go wears data-fold, the order it goes in: the Shift+Tab hint, then the
+   mode's name, then the model's. The icons stay, and the titles keep the full
+   names. The model's name changes with the model, the effort and the window, so
+   no fixed width says when it stops fitting. Each fold is tried in turn instead,
+   and the first one with nothing cut stays. */
+const isCut = (bar) => bar.scrollWidth > bar.clientWidth
+  || [...bar.querySelectorAll('[data-fold]')].some((el) => !el.hidden && el.scrollWidth > el.clientWidth);
+
+function useFold(ref) {
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    const fit = () => {
+      const words = [...bar.querySelectorAll('[data-fold]')].sort((a, b) => a.dataset.fold - b.dataset.fold);
+      for (const el of words) el.hidden = false;
+      for (const el of words) {
+        if (!isCut(bar)) return;
+        el.hidden = true;
+      }
+    };
+    fit();
+    // Room changes with the pane, and words change with the mode and the model.
+    const room = new ResizeObserver(fit);
+    room.observe(bar);
+    const words = new MutationObserver(fit);
+    words.observe(bar, { childList: true, characterData: true, subtree: true });
+    return () => { room.disconnect(); words.disconnect(); };
+  }, [ref]);
 }
 
 const MIC_BUTTON = 'shrink-0 rounded-full text-muted-foreground';
@@ -1010,6 +1047,8 @@ export function Composer({
   const [pending, setPending] = useState(null);
   const [rows, setRows] = useState([]);
   const box = useRef(null);
+  const toolbar = useRef(null);
+  useFold(toolbar);
 
   // Dropping onto the composer is the gesture people try first, so the whole
   // box is the target and it says so while something is over it.
@@ -1282,7 +1321,7 @@ export function Composer({
           </PromptInputBody>
 
           <PromptInputFooter className="px-3 pb-3">
-            <PromptInputTools className="min-w-0 flex-1 gap-1.5">
+            <PromptInputTools ref={toolbar} className="min-w-0 flex-1 gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
