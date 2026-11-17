@@ -142,8 +142,9 @@ const LAYERS = [
 ].map((slot) => `[data-slot="${slot}"]`)
   // Streamdown's fullscreen table and diagram portal a window-sized layer onto
   // the body with no slot, and the diagram's carries no attribute at all.
-  // Toasts sit beside the pane and only land on it at full width.
-  .concat('body > .fixed.inset-0', '[data-sonner-toast]')
+  // Toasts sit beside the pane and only land on it at full width, and so does
+  // the composer's @ and / list, which opens upward out of the docked box.
+  .concat('body > .fixed.inset-0', '[data-sonner-toast]', '#composer-mentions')
   .join(',');
 
 const TRIGGERS = [

@@ -60,7 +60,7 @@ import { useUpdates } from '../useSettings';
    focusing it was quietly doing nothing. A new chat you have to click into is
    half a new chat. The frame is for the chat to be on screen first. */
 const focusComposer = () =>
-  requestAnimationFrame(() => document.querySelector('#agent-root [contenteditable="true"]')?.focus());
+  requestAnimationFrame(() => window.connChat?.focusComposer?.());
 
 /* Starting a chat in a folder by name rather than in whichever one the window
    is looking at. The folder is unfolded on the way: a chat whose row lands in a

@@ -182,7 +182,7 @@ Typed into the composer, the steps go on one line separated by ` ;; `, because `
 
 ```
 node .claude/skills/verify/drive.mjs boot --xvfb --claude
-node .claude/skills/verify/drive.mjs js --session <session> "document.querySelector('#agent-root [contenteditable=\"true\"]').focus()"
+node .claude/skills/verify/drive.mjs js --session <session> "document.querySelector('#composer [contenteditable=\"true\"]').focus()"
 node .claude/skills/verify/drive.mjs type --session <session> "edit index.html: <h1>Your cart</h1> => <h1>Your basket</h1>" --enter
 node .claude/skills/verify/drive.mjs click --session <session> Allow
 ```

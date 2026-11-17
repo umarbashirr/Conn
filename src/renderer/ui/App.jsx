@@ -1,6 +1,7 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import { ArrowUpCircleIcon, FileDownIcon, HistoryIcon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
+import { ArrowUpCircleIcon, FileDownIcon, HandIcon, HistoryIcon, Minimize2Icon, PencilIcon, RotateCcwIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Conversation, ConversationContent, useTurnPin } from '@/components/ai-elements/conversation';
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from '@/components/ai-elements/message';
@@ -58,6 +59,7 @@ import { useProject } from './useProject';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
+import { ComposerDock } from './shell/composer-dock.js';
 import { canvasState, onSelection, select, setBoard } from './shell/canvas-store.js';
 import { nextSlot, selectionBrief } from './shell/canvas-schema.js';
 import { MENTIONS, mentionBlocks } from './lib/conn-mentions.js';
@@ -202,15 +204,44 @@ function ThinkingLine({ since }) {
 // number is the point. This one runs the whole turn, including the stretches
 // where a tool row or a subagent is already saying its own piece, so there is
 // never a moment with nothing on screen moving.
-function TurnClock({ since }) {
+function TurnClock({ since, className = 'ml-3' }) {
   useTick(true);
 
   return (
-    <span className="conn-in ml-3 flex items-center gap-1.5 text-muted-foreground text-xs">
+    <span className={`conn-in flex items-center gap-1.5 text-muted-foreground text-xs ${className}`}>
       <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
       working
       {since > 0 && <span className="font-mono tabular-nums">{clock(Date.now() - since)}</span>}
     </span>
+  );
+}
+
+// Above the docked composer, for a chat that is off screen: a card waiting on
+// an answer, the turn's clock while it runs, or else the chat's name. The
+// reply itself is in the chat, so the way back is always here.
+function DockStatus({ agent, asks }) {
+  return (
+    <div className="mx-auto flex h-9 w-full max-w-3xl items-center gap-2 px-5 text-muted-foreground text-xs">
+      {asks ? (
+        <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+          <HandIcon className="size-3.5" />
+          Waiting for your answer
+        </span>
+      ) : agent.busy ? (
+        <TurnClock since={agent.startedAt} className="" />
+      ) : (
+        <span className="truncate">{agent.title}</span>
+      )}
+      <Button
+        variant="ghost"
+        size="xs"
+        className="ml-auto shrink-0 text-muted-foreground"
+        title="Back to the chat (Ctrl+Shift+F)"
+        onClick={() => runCommand('previewFull', false)}>
+        <Minimize2Icon />
+        Open chat
+      </Button>
+    </div>
   );
 }
 
@@ -277,7 +308,7 @@ function focusIsIdle() {
   const el = document.activeElement;
   if (!el || el === document.body) return true;
   if (el.closest('[role="log"]')) return true;
-  return el.matches('#agent-root [contenteditable="true"]') && !el.textContent.trim();
+  return el.matches('#composer [contenteditable="true"]') && !el.textContent.trim();
 }
 
 const allowButton = (id) => document.querySelector(`[data-perm-allow="${CSS.escape(id)}"]`);
@@ -289,6 +320,7 @@ const permTitleId = (id) => `perm-title-${id}`;
 
 export default function App() {
   const agent = useAgent();
+  const dock = useContext(ComposerDock);
   // The Agents tab draws from this chat's state but mounts in the right column.
   useEffect(() => publish(agent));
   // The Canvas shows the chat on screen's board, in the folder that chat runs in.
@@ -486,6 +518,8 @@ export default function App() {
       },
       // Removing the chip lets go of the frames on the board as well.
       deselectFrames: () => select([]),
+      // The chat box, wherever it is: in the chat or docked at full width.
+      focusComposer: () => input.current?.focus(),
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
   }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, closeCustomize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
@@ -688,6 +722,26 @@ export default function App() {
     );
   }
 
+  // One composer either way, so a half-typed message, its attachments and the
+  // queue are the same whether the chat or the dock is showing it.
+  const composer = (
+    <Composer
+      onSuggest={() => takeStep(shownSteps[0])}
+      agent={agent}
+      settings={settings}
+      catalog={catalog}
+      text={text}
+      setText={setText}
+      attachments={attachments}
+      setAttachments={setAttachments}
+      onNote={setNote}
+      onMarks={setMarks}
+      onSubmit={submit}
+      inputRef={input}
+      dictation={dictation}
+      roomy={empty && !dock} />
+  );
+
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
@@ -769,21 +823,13 @@ export default function App() {
 
       <NextSteps steps={shownSteps} onPick={takeStep} />
 
-      <Composer
-        onSuggest={() => takeStep(shownSteps[0])}
-        agent={agent}
-        settings={settings}
-        catalog={catalog}
-        text={text}
-        setText={setText}
-        attachments={attachments}
-        setAttachments={setAttachments}
-        onNote={setNote}
-        onMarks={setMarks}
-        onSubmit={submit}
-        inputRef={input}
-        dictation={dictation}
-        roomy={empty} />
+      {dock ? createPortal(
+        <>
+          <DockStatus agent={agent} asks={waiting.length > 0} />
+          {composer}
+        </>,
+        dock,
+      ) : composer}
 
       {/* Balances the conversation's mt-auto so an empty chat sits centred. */}
       {empty && <div className="mb-auto flex-none" />}

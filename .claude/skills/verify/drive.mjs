@@ -335,7 +335,7 @@ const untilDrawn = (s) => evaluate(s, 'new Promise((r) => setTimeout(() => reque
 async function ensureChat(s, prompt = 'Hello') {
   if (s.claude) throw new Error('this instance runs the real claude CLI; type a prompt into the composer instead of say, perm or invoke');
   if (await evaluate(s, '!!globalThis.__agent', { main: true })) return;
-  await evaluate(s, `document.querySelector('#agent-root [contenteditable="true"]').focus()`);
+  await evaluate(s, `document.querySelector('#composer [contenteditable="true"]').focus()`);
   await type(s, prompt);
   await key(s, 'Enter');
   if (!await until(() => evaluate(s, '!!globalThis.__agent', { main: true }), 8000)) throw new Error('the composer did not start a chat');

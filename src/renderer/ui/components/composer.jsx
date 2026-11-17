@@ -610,7 +610,7 @@ function BranchPicker({ dir, branch }) {
       // The whole point of the worktree is that the next message runs there.
       if (where === 'worktree' && res.dir) {
         window.connChat?.newChat(res.dir);
-        requestAnimationFrame(() => document.querySelector('#agent-root [contenteditable="true"]')?.focus());
+        requestAnimationFrame(() => window.connChat?.focusComposer?.());
       }
     } else if (create) setCreateError(res?.error || 'Could not create that branch.');
     else setError(res?.error || 'Could not switch branch.');
@@ -1222,7 +1222,7 @@ export function Composer({
   }, [menu, rows, cursor, pick, cycleMode, tryRecallPrompt, agent.interrupt, agent.busy, dictation, text, onSuggest]);
 
   return (
-    <div className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
+    <div id="composer" className="conn-seat mx-auto w-full max-w-3xl flex-none px-4 pb-4">
       {/* Finding it by id rather than holding the object means removing an
           attachment while its dialog is up closes the dialog, instead of
           leaving a frozen copy of something that is gone. */}
