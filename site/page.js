@@ -13,6 +13,17 @@
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
+  const toggle = $('[data-theme-toggle]');
+  const themeMeta = $('meta[name="theme-color"]');
+  const setTheme = (t, save) => {
+    root.dataset.theme = t;
+    themeMeta.content = t === 'light' ? '#FFFFFF' : '#08090A';
+    toggle.setAttribute('aria-label', `Switch to ${t === 'light' ? 'dark' : 'light'} mode`);
+    if (save) try { localStorage.setItem('theme', t); } catch {}
+  };
+  setTheme(root.dataset.theme === 'light' ? 'light' : 'dark');
+  toggle.addEventListener('click', () => setTheme(root.dataset.theme === 'light' ? 'dark' : 'light', true));
+
   const header = $('.site-header');
   const onScroll = () => header.toggleAttribute('data-scrolled', scrollY > 8);
   addEventListener('scroll', onScroll, { passive: true });
