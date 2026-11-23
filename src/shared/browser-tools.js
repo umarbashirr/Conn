@@ -498,6 +498,10 @@ const BRIDGE_TOOL = new Map(TABLE.map((t) => [t.name, t.bridgeTool]));
 /** browser_* MCP name -> the name the transcript shows. */
 const BROWSER_LABEL = new Map(TABLE.map((t) => [t.name, t.label]));
 
+/** The title the MCP server gives a tool -> its browser_* name. Copilot asks
+    permission for an MCP tool under that title, as in "Open a URL". */
+const BROWSER_BY_TITLE = new Map(TABLE.map((t) => [t.title, t.name]));
+
 /** Bridge route -> browser_* MCP name. The bridge asks permission under the
     route it runs (browser_waitFor, browser_tabNew), not the tool's own name. */
 const BROWSER_BY_ROUTE = new Map(TABLE.flatMap((t) => [t.bridgeTool, ...(t.routes || [])].map((r) => [r, t.name])));
@@ -511,5 +515,5 @@ const TOOL_PREFIX = { claude: 'mcp__preview__', codex: 'mcp__conn__', cursor: ''
 module.exports = {
   browserTools, keyframeBlocks, toolContent, modelFit, shotNote, SHOT_NOTE, cut,
   planBatch, runBatch, batchContent, BATCH_MAX,
-  INSTRUCTIONS, ALWAYS_LOADED, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, TOOL_PREFIX,
+  INSTRUCTIONS, ALWAYS_LOADED, BRIDGE_TOOL, BROWSER_LABEL, BROWSER_BY_ROUTE, BROWSER_BY_TITLE, TOOL_PREFIX,
 };

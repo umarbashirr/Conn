@@ -33,10 +33,25 @@ function modelsFromHelp(text) {
   return ids.length ? [CATALOG[0], ...ids.map((value) => ({ value, displayName: modelName(value) }))] : null;
 }
 
+// Copilot 1.0.114 drops every stdio MCP server an ACP client sends on
+// session/new ("Rejecting non-http/sse MCP server" in ~/.copilot/logs), and
+// every server Conn hands an agent is stdio. --additional-mcp-config is read in
+// --acp mode too, and lasts as long as the process, which is one chat.
+const mcpArgv = (servers) => (!servers.length ? [] : ['--additional-mcp-config', JSON.stringify({
+  mcpServers: Object.fromEntries(servers.map(({ name, command, args, env }) => [name, {
+    type: 'local',
+    command,
+    args,
+    env: Object.fromEntries(Object.entries(env || {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])),
+    tools: ['*'],
+  }])),
+})]);
+
 const spec = {
   id: 'copilot',
   cli: 'copilot',
   argv: ['--acp', '--stdio'],
+  mcpArgv,
   modes: MODES,
   login: 'copilot login',
   missing: 'No GitHub Copilot CLI on your PATH. Install it with npm install -g @github/copilot, run copilot login, then restart Conn.',
