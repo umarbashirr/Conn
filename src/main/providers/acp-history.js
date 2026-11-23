@@ -118,11 +118,15 @@ function isPrefaceSlice(title) {
 
 const SESSION_ID = /^[A-Za-z0-9_-]{8,128}$/;
 
+// What OpenCode calls a session until its title model answers, and for good
+// when it never does (opencode 2.0.15).
+const PLACEHOLDER = /^New session - \d{4}-\d\d-\d\dT[\d:.]+Z$/;
+
 function rowOf(s, dir) {
   if (!s?.sessionId) return null;
   const at = Date.parse(s.updatedAt) || 0;
   const raw = String(s.title || '');
-  if (isPrefaceSlice(raw)) return { id: s.sessionId, title: '', at, dir };
+  if (isPrefaceSlice(raw) || PLACEHOLDER.test(raw)) return { id: s.sessionId, title: '', at, dir };
   const title = chatTitle(withoutPreface(raw));
   if (!title) return null;
   return { id: s.sessionId, title: title.slice(0, TITLE_MAX), at };
@@ -243,16 +247,21 @@ function createAcpHistory({ spec, label }) {
     return (rows || []).sort((a, b) => b.at - a.at).slice(0, limit);
   }
 
+  // null when the session holds nothing at all.
   async function titleOf(dir, id) {
     if (resolvedTitles.has(id)) return resolvedTitles.get(id);
     const { messages } = await read(dir, id);
+    if (!messages.length) return null;
     const title = firstUserTitle(messages);
     if (title) resolvedTitles.set(id, title);
     return title;
   }
 
+  // A session that read back with nothing said in it is not a chat. Older
+  // Conns left one in each open folder every time they probed OpenCode.
   async function resolveTitles(rows, deadline) {
     const todo = rows.filter((r) => r.dir);
+    const empty = new Set();
     let next = 0;
     const worker = async () => {
       while (next < todo.length) {
@@ -260,7 +269,9 @@ function createAcpHistory({ spec, label }) {
         const left = deadline - Date.now();
         if (left <= 0) return;
         try {
-          row.title = await within(left, titleOf(row.dir, row.id));
+          const title = await within(left, titleOf(row.dir, row.id));
+          if (title === null) empty.add(row);
+          else row.title = title;
         } catch {}
       }
     };
@@ -269,7 +280,7 @@ function createAcpHistory({ spec, label }) {
       row.title ||= `${label} chat`;
       delete row.dir;
     }
-    return rows;
+    return rows.filter((r) => !empty.has(r));
   }
 
   async function listSessions(cwd, limit = 200) {

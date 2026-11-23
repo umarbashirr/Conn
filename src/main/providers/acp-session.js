@@ -6,7 +6,7 @@ const { EventEmitter } = require('events');
 const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
 const { isMode, normalizeMode, decideCodex, browserTool } = require('../modes');
 const { READS } = require('../pane-lease');
-const { INSTRUCTIONS } = require('../../shared/browser-tools');
+const { INSTRUCTIONS, BROWSER_BY_TITLE } = require('../../shared/browser-tools');
 const { classify } = require('../../shared/turn-error');
 const shellEnv = require('../shell-env');
 const { acpFiles } = require('../../shared/unified-diff');
@@ -112,7 +112,9 @@ function toolOf(call) {
     title,
     raw?.name, raw?.tool, raw?.toolName, raw?.mcpTool,
   ].filter((v) => typeof v === 'string' && v);
-  for (const name of named) {
+  // Copilot titles an MCP call server-tool, as in conn-browser_navigate, and
+  // asks permission for it under the title the server gave it, "Open a URL".
+  for (const name of named.map((n) => BROWSER_BY_TITLE.get(n) ?? n.replace(/^conn-(?=browser_)/, ''))) {
     if (browserTool(name) || BROWSER_NAME.test(name)) return name;
   }
   if (acpFiles(call?.content).length) return KIND_TOOL.edit;
@@ -218,9 +220,13 @@ class AcpSession extends EventEmitter {
     this.emit('stderr', `using ${this.spec.cli} binary at ${bin}\n`);
 
     const launch = this.spec.modes[this.mode];
+    // An agent whose spec puts the servers on its command line gets none on
+    // session/new. See copilot.js.
+    const servers = this.#servers();
+    const viaArgv = this.spec.mcpArgv?.(servers);
     this.rpc = new AcpRpc({
       bin,
-      argv: [...(launch.argv || []), ...(this.spec.argv || ['acp'])],
+      argv: [...(launch.argv || []), ...(this.spec.argv || ['acp']), ...(viaArgv || [])],
       cwd: this.cwd,
       env: launch.env,
     });
@@ -245,7 +251,7 @@ class AcpSession extends EventEmitter {
       try { await this.spec.authenticate(this.rpc, init); } catch {}
     }
 
-    const mcpServers = this.#servers();
+    const mcpServers = viaArgv ? [] : servers.map((x) => ({ ...x, env: mcpEnv(x.env) }));
     const params = { cwd: this.cwd, mcpServers, ...(launch.meta ? { _meta: launch.meta } : {}) };
     let res;
     // Loading a session replays it as updates, and the panel already has it.
@@ -289,15 +295,14 @@ class AcpSession extends EventEmitter {
   }
 
   #servers() {
-    const shared = this.shared.map((s) => ({ ...s, env: mcpEnv(s.env) }));
-    if (!this.mcp?.command) return shared;
+    if (!this.mcp?.command) return this.shared;
     const env = { ...(this.mcp.env || {}), ...this.bridgeEnv, CONN_CWD: this.cwd };
     return [{
       name: this.mcp.name || 'conn',
       command: this.mcp.command,
       args: this.mcp.args || [],
-      env: mcpEnv(env),
-    }, ...shared];
+      env,
+    }, ...this.shared];
   }
 
   send(textIn, images = []) {
