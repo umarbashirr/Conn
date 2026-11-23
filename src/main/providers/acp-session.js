@@ -67,6 +67,14 @@ const ACP_PREFACES = [
 
 const BROWSER_NAME = /^(?:mcp__(?:preview|conn)__)?browser_\w+$/;
 
+// Copilot titles an MCP call server-tool, as in conn-browser_navigate, and
+// asks permission for it under the title the server gave it, "Open a URL".
+// The browser tool a name stands for, or null.
+function browserNamed(raw) {
+  const name = BROWSER_BY_TITLE.get(raw) ?? raw.replace(/^conn-(?=browser_)/, '');
+  return browserTool(name) || BROWSER_NAME.test(name) ? name : null;
+}
+
 const textOf = (v) => {
   if (v == null) return '';
   if (typeof v === 'string') return v;
@@ -97,7 +105,9 @@ function callInput(update) {
   if (locations.length && !raw.locations) raw.locations = locations;
   const loc = locations.map((l) => (typeof l === 'string' ? l : l?.path || l?.uri || '')).find(Boolean);
   if (loc && !raw.file_path && !raw.path && !raw.filePath) raw.path = String(loc);
-  if (typeof update?.title === 'string' && update.title && raw.title == null) raw.title = update.title;
+  // A title that only names a browser tool says nothing the row does not.
+  const title = typeof update?.title === 'string' ? update.title : '';
+  if (title && raw.title == null && !browserNamed(title)) raw.title = title;
   // `files` is ours. OpenCode's rawInput has its own, a list of patches.
   const files = acpFiles(update?.content);
   if (files.length) raw.files = files;
@@ -112,10 +122,9 @@ function toolOf(call) {
     title,
     raw?.name, raw?.tool, raw?.toolName, raw?.mcpTool,
   ].filter((v) => typeof v === 'string' && v);
-  // Copilot titles an MCP call server-tool, as in conn-browser_navigate, and
-  // asks permission for it under the title the server gave it, "Open a URL".
-  for (const name of named.map((n) => BROWSER_BY_TITLE.get(n) ?? n.replace(/^conn-(?=browser_)/, ''))) {
-    if (browserTool(name) || BROWSER_NAME.test(name)) return name;
+  for (const n of named) {
+    const name = browserNamed(n);
+    if (name) return name;
   }
   if (acpFiles(call?.content).length) return KIND_TOOL.edit;
   // Grok leaves `kind` empty on the first tool_call and names it in its own
