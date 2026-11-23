@@ -5,6 +5,7 @@ const shellEnv = require('../shell-env');
 const { launchSpec, killTree } = require('../launch');
 
 const HANDSHAKE_MS = 20000;
+const DROP_MS = 5000;
 
 const unclosedAgents = new Set();
 
@@ -185,4 +186,12 @@ class AcpRpc extends EventEmitter {
   }
 }
 
-module.exports = { AcpRpc, HANDSHAKE_MS };
+/* A session opened only to read something off the agent, such as its models or
+   its commands. OpenCode keeps every session it opens and lists it as a chat in
+   that folder, so an agent that can delete one is told to before it goes. */
+async function dropSession(rpc, init, sessionId) {
+  if (!sessionId || !init?.agentCapabilities?.sessionCapabilities?.delete) return;
+  await rpc.request('session/delete', { sessionId }, DROP_MS).catch(() => {});
+}
+
+module.exports = { AcpRpc, HANDSHAKE_MS, dropSession };

@@ -3,7 +3,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
+const { AcpRpc, HANDSHAKE_MS, dropSession } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
 const { modelsFrom } = require('./acp-models');
 const shellEnv = require('../shell-env');
@@ -52,14 +52,16 @@ async function probeModels(bin, spec) {
     cwd,
     env: spec.modes?.[DEFAULT_MODE].env,
   });
+  let init = null;
+  let ses = null;
   try {
     await rpc.start();
-    await rpc.request('initialize', {
+    init = await rpc.request('initialize', {
       protocolVersion: 1,
       clientInfo: CLIENT,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     }, HANDSHAKE_MS);
-    const ses = await rpc.request('session/new', { cwd, mcpServers: [] }, PROBE_TIMEOUT_MS);
+    ses = await rpc.request('session/new', { cwd, mcpServers: [] }, PROBE_TIMEOUT_MS);
     const listed = modelsFrom(ses);
     if (listed.length) return listed;
     return (await spec.discoverModels?.(bin)) || null;
@@ -67,6 +69,7 @@ async function probeModels(bin, spec) {
     if (isAuth(e)) throw e;
     return null;
   } finally {
+    await dropSession(rpc, init, ses?.sessionId);
     rpc.close();
     fs.rm(cwd, { recursive: true, force: true }, () => {});
   }

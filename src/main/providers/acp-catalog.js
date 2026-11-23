@@ -5,7 +5,7 @@ const path = require('path');
 const mcpRegistry = require('../mcp-registry');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
-const { AcpRpc, HANDSHAKE_MS } = require('./acp-rpc');
+const { AcpRpc, HANDSHAKE_MS, dropSession } = require('./acp-rpc');
 const { CLIENT } = require('./acp-session');
 const shellEnv = require('../shell-env');
 const { launchSpec } = require('../launch');
@@ -40,14 +40,16 @@ async function listen({ bin, argv, dir, done }) {
     }
     if (done(heard)) wake();
   });
+  let init = null;
+  let ses = null;
   try {
     await rpc.start();
-    await rpc.request('initialize', {
+    init = await rpc.request('initialize', {
       protocolVersion: 1,
       clientInfo: CLIENT,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
     }, HANDSHAKE_MS);
-    await rpc.request('session/new', { cwd: dir, mcpServers: [] }, SESSION_MS);
+    ses = await rpc.request('session/new', { cwd: dir, mcpServers: [] }, SESSION_MS);
     if (!done(heard)) {
       await new Promise((resolve) => {
         const timer = setTimeout(resolve, LISTEN_MS);
@@ -56,6 +58,7 @@ async function listen({ bin, argv, dir, done }) {
     }
     return heard;
   } finally {
+    await dropSession(rpc, init, ses?.sessionId);
     rpc.close();
   }
 }
