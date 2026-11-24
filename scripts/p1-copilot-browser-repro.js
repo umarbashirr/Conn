@@ -18,7 +18,8 @@ shellEnv.ready = async () => process.env.PATH || '';
 shellEnv.env = () => ({ ...process.env });
 
 const copilot = require(path.join(ROOT, 'src/main/providers/copilot.js'));
-const { toolOf } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+const { toolOf, callInput } = require(path.join(ROOT, 'src/main/providers/acp-session.js'));
+const { toolSummary } = require(path.join(ROOT, 'src/shared/tool-summary.js'));
 const { decideCodex } = require(path.join(ROOT, 'src/main/modes.js'));
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-copilot-mcp-'));
@@ -54,8 +55,22 @@ function checkPermissionTitles() {
   if (!ok) process.exitCode = 1;
 }
 
+// A browser row reads "Read text", not "Read text conn-browser_text": the
+// call's title is Copilot's name for the tool, not something it is doing.
+function checkRowSummaries() {
+  const calls = [
+    { title: 'conn-browser_text', kind: 'other', rawInput: {} },
+    { title: 'conn-browser_navigate', kind: 'other', rawInput: { url: 'http://localhost:3000' } },
+  ];
+  const shown = calls.map((u) => toolSummary(toolOf(u), callInput(u)));
+  const ok = shown[0] === '' && shown[1] === 'localhost:3000';
+  console.log(`${ok ? 'PASS' : 'FAIL'} copilot-browser-rows-hide-tool-name${ok ? '' : `: ${JSON.stringify(shown)}`}`);
+  if (!ok) process.exitCode = 1;
+}
+
 async function main() {
   checkPermissionTitles();
+  checkRowSummaries();
   const row = copilot.create({ cacheDir: tmp, settings: { get: () => ({}) } });
   if (!row.binary()) {
     console.log('SKIP no copilot CLI on PATH');

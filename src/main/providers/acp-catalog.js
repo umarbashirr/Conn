@@ -335,7 +335,7 @@ const SOURCES = {
           found.set(name, { name, scope, type: s.url ? 'http' : 'stdio', target, status: off ? 'disabled' : 'configured', error: null, tools: null });
         }
       }
-      const { out } = await run(bin, ['mcp', 'list'], dir);
+      const { out } = await opencodeMcpList(bin, dir);
       for (const { name, word, detail } of opencodeServers(out)) {
         const status = cursorStatus(word);
         const target = detail[detail.length - 1] || '';
@@ -352,6 +352,25 @@ const SOURCES = {
     addHint: 'opencode mcp add',
   },
 };
+
+/* Since opencode 2.0.15 `mcp list` starts `opencode serve --service`, a
+   detached server of about 280 MB that outlives the command. One Conn started
+   is stopped again; one that was already up belongs to someone's own opencode.
+   A CLI without the service never prints "stopped". The calls take turns, so
+   one folder's stop cannot cut off another folder's list. */
+let mcpListTurn = Promise.resolve();
+function opencodeMcpList(bin, dir) {
+  const turn = mcpListTurn.then(async () => {
+    const before = await run(bin, ['service', 'status'], dir);
+    try {
+      return await run(bin, ['mcp', 'list'], dir);
+    } finally {
+      if (before.out.trim() === 'stopped') await run(bin, ['service', 'stop'], dir);
+    }
+  });
+  mcpListTurn = turn.catch(() => {});
+  return turn;
+}
 
 async function probe({ id, spec, bin, dir }) {
   const src = SOURCES[id];
