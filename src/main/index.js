@@ -2462,24 +2462,26 @@ function registerIpc() {
     try {
       const dir = project && known(project) ? project : focusedCwd();
       const board = canvasIds.get(id);
-      const { gone, removed, left, error } = await deleteChat({
+      const { removed, left } = await deleteChat({
         id,
-        segments: segs,
+        segments: segs.length ? segs : [{ session: id, provider: owners.get(id) }],
         remove: (session, p) => ((isProviderId(p) && rowOf(p)?.history) || ownerOf(session)).deleteSession(dir, session),
       });
+      // The row goes whatever happened. A part its agent would not delete
+      // stays on disk, hidden, so it does not come back as a chat of its own;
+      // the record of what the chat was goes, since it would only name
+      // sessions that are gone or hidden.
       removed.forEach(forgetMarks);
-      if (error) return { error };
-      forgetMarks(id);
-      // A part its agent would not delete stays on disk. With the chat's own
-      // row gone it would show up as a chat of its own, so it is hidden, and
-      // the record stays as the account of what this chat was.
-      for (const l of left) hiddenSessions.set(l.session, true);
-      if (!left.length) chatSegments.forget(id);
+      for (const l of left) {
+        hiddenSessions.set(l.session, true);
+        forgetMarks(l.session);
+      }
+      chatSegments.forget(id);
       // A chat forked onto another model carries the board of the one it came
       // from, and that one is still there to draw on.
       const root = board && !Object.values(canvasIds.all()).includes(board) ? boardRoot(dir, board) : null;
       if (root) await canvas.trashBoard(root);
-      return { ok: gone, ...(left.length && { left: left.map(({ session, provider: p, error }) => ({ session, provider: p, error })) }) };
+      return { ok: true, ...(left.length && { left: left.map(({ session, provider: p, error }) => ({ session, provider: p || owners.get(session) || null, error })) }) };
     } catch (e) {
       return { error: e.message };
     }

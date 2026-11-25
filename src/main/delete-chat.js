@@ -1,31 +1,27 @@
 'use strict';
 /* Deleting a chat that may have run on several agents.
 
-   The other sessions go first, each on its own: one agent failing to delete
-   its part must not stop the rest, and must not take the chat's first session
-   with it before the person has been told. Only a session whose delete threw
-   counts as left behind. A reader that answers false found nothing to delete,
-   which is the same as gone. The first session goes last; if that fails the
-   error comes back with what was removed, and the caller keeps the chat's
-   record, so nothing it still lists comes loose. */
+   The row always goes. Each session is deleted on its own, the chat's first
+   one last, and one agent failing to delete its part stops nothing else: the
+   sessions that could not be deleted come back in `left`, for the caller to
+   hide and to name to the person. A reader that answers false found nothing
+   to delete, which is the same as gone; only a throw counts as left. */
 async function deleteChat({ id, segments = [], remove }) {
-  const rest = [...new Map(segments.filter((s) => s.session !== id).map((s) => [s.session, s.provider])).entries()];
-  const left = [];
+  const sessions = new Map(segments.map((s) => [s.session, s.provider]));
+  const order = [...sessions.keys()].filter((s) => s !== id);
+  order.push(id);
   const removed = [];
-  for (const [session, provider] of rest) {
+  const left = [];
+  for (const session of order) {
+    const provider = sessions.get(session);
     try {
       await remove(session, provider);
       removed.push(session);
     } catch (e) {
-      left.push({ session, provider, error: e?.message || String(e) });
+      left.push({ session, provider: provider || null, error: e?.message || String(e) });
     }
   }
-  try {
-    const gone = await remove(id, segments.find((s) => s.session === id)?.provider);
-    return { gone, removed, left };
-  } catch (e) {
-    return { gone: false, removed, left, error: e?.message || String(e) };
-  }
+  return { removed, left };
 }
 
 module.exports = { deleteChat };

@@ -167,8 +167,10 @@ async function main() {
     check('advertised-close-is-sent-after-the-read', logged(path.join(bin, 'opencode.log')).some((e) => e.method === 'session/close' && e.sessionId === 'opencode-chat-0001'), 'no session/close');
 
     const refused = await call(`window.conn.agent.deleteSession('cursor-chat-0002', ${JSON.stringify(proj)})`);
-    check('delete-errors-cleanly-when-not-advertised', /cannot delete/i.test(refused.ok?.error || ''), JSON.stringify(refused));
-    check('refused-delete-leaves-the-chat-listed', (await rail()).some((r) => r.id === 'cursor-chat-0002'), 'the chat vanished');
+    // A delete always takes the row. What the agent would not delete stays on
+    // disk, hidden, and the answer names it so the person can be told.
+    check('delete-errors-cleanly-when-not-advertised', refused.ok?.ok === true && /cannot delete/i.test(refused.ok?.left?.[0]?.error || '') && refused.ok.left[0].session === 'cursor-chat-0002', JSON.stringify(refused));
+    check('refused-delete-hides-the-chat', !(await rail()).some((r) => r.id === 'cursor-chat-0002'), 'the chat is still listed');
 
     const deleted = await call(`window.conn.agent.deleteSession('opencode-chat-0002', ${JSON.stringify(proj)})`);
     check('delete-succeeds-when-advertised', deleted.ok?.ok === true, JSON.stringify(deleted));
