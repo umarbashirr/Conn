@@ -85,11 +85,16 @@ function entryOf(it) {
   }
 }
 
-// Carried text is copied word for word, except that it cannot close the item
-// it sits in or the handoff around it: a reply quoting either would otherwise
-// let a reader take the rest of the history for the typed message.
-const escape = (body) => String(body).replace(/<\/(item|conn-handoff)\b/gi, '<\\/$1');
-const unescape = (body) => String(body).replace(/<\\\/(item|conn-handoff)\b/gi, '</$1');
+/* Carried text is copied word for word, except that it cannot close the item
+   it sits in or the handoff around it: a reply quoting either would otherwise
+   let a reader take the rest of the history for the typed message. Every `<`,
+   any backslashes, then `/item` or `/conn-handoff` gains one backslash, and
+   reading back takes one off, so text that already had one comes back as it
+   was. */
+const MARKER = /<(\\*)\/(item|conn-handoff)\b/gi;
+const ESCAPED = /<(\\+)\/(item|conn-handoff)\b/gi;
+const escape = (body) => String(body).replace(MARKER, (_, bs, tag) => `<${bs}\\/${tag}`);
+const unescape = (body) => String(body).replace(ESCAPED, (_, bs, tag) => `<${bs.slice(1)}/${tag}`);
 
 /* The entries for `items`, each labelled with who said it. `providerAt(i)`
    names the agent that was running at item index i, so a chain of switches
@@ -222,7 +227,9 @@ function carriedEntries(block) {
   });
 }
 
-const TOOL_STATE = { failed: 'output-error', running: 'output-error' };
+// A call still running when the chat was handed over has no result to show,
+// which is not the same as having failed.
+const TOOL_STATE = { failed: 'output-error' };
 const parsed = (s) => {
   try { return JSON.parse(s); } catch { return s; }
 };
@@ -271,5 +278,5 @@ function carriesHandoff(msg) {
 module.exports = {
   carriesHandoff,
   CAP, IMAGE_TOKENS, FALLBACK_WINDOW, tokens, windowFor, budgetFor, entriesOf, select, buildHandoff, wrapMessage, unwrapHandoff, typedText, labelOf,
-  itemsFromEntries,
+  itemsFromEntries, escape, unescape,
 };
