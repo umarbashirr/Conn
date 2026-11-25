@@ -36,6 +36,7 @@ const check = async (name, fn) => {
 const A = 'aaaaaaaa-1111';
 const B = 'bbbbbbbb-2222';
 const C = 'cccccccc-3333';
+const F_ = 'ffffffff-4444';
 const label = (p) => ({ claude: 'Claude', codex: 'ChatGPT', cursor: 'Cursor' }[p] || p);
 const user = (n, text = `ask ${n}`) => ({ id: `u${n}`, kind: 'user', text });
 const reply = (n, text = `reply ${n}`) => ({ id: `a${n}`, kind: 'assistant', text });
@@ -94,10 +95,10 @@ await check('a message sent mid-switch waits, and the switch checks busy again a
   const send = agentSource.slice(agentSource.indexOf('const sendTo = useCallback'), agentSource.indexOf('const send = useCallback'));
   assert.ok(/switching\.current\.has\(key\)[\s\S]{0,200}queued/.test(send), 'sendTo queues while the chat is switching');
   const sw = agentSource.slice(agentSource.indexOf('const switchChatTo = useCallback'), agentSource.indexOf('const pickModel = useCallback'));
-  const awaitAt = sw.indexOf('await conn().agent.setModel(key, value)');
+  const awaitAt = sw.indexOf('await conn().agent.setModel(key, value, want)');
   assert.ok(awaitAt > 0 && sw.indexOf('?.busy', awaitAt + 1) > awaitAt && /chatsRef\.current\.find\(\(c\) => c\.key === key\)\?\.busy/.test(sw.slice(awaitAt)),
     'busy is read again after the await');
-  assert.ok(/finally \{\s*switching\.current\.delete\(key\)/.test(sw));
+  assert.ok(/finally \{\s*if \(!landed\) switching\.current\.delete\(key\)/.test(sw), 'a refused switch releases the queue at once; a landed one waits for the commit');
 });
 
 // #5 ---------------------------------------------------------------------
@@ -190,28 +191,29 @@ await check('delete removes the other sessions first and reports what it could n
   const segs = [{ provider: 'claude', session: A }, { provider: 'cursor', session: C }, { provider: 'codex', session: B }, { provider: 'claude', session: A }];
   const res = await deleteChat({ id: A, segments: segs, remove });
   assert.deepEqual(gone, [B, A], 'the first session goes last');
-  assert.deepEqual(res.removed, [B]);
+  assert.deepEqual(res.removed, [B, A]);
   assert.deepEqual(res.left.map((l) => [l.session, l.provider]), [[C, 'cursor']]);
   assert.match(res.left[0].error, /outside itself/);
-  assert.equal(res.gone, true);
 });
 
-await check('a failed delete of the first session comes back with what was already removed', async () => {
+await check('a first session that will not go is left like any other, and the rest still go', async () => {
   const res = await deleteChat({
     id: A,
-    segments: [{ provider: 'claude', session: A }, { provider: 'codex', session: B }],
-    remove: async (session) => { if (session === A) throw new Error('busy'); return true; },
+    segments: [{ provider: 'cursor', session: A }, { provider: 'codex', session: B }],
+    remove: async (session) => { if (session === A) throw new Error('refuses'); return true; },
   });
-  assert.equal(res.error, 'busy');
   assert.deepEqual(res.removed, [B]);
+  assert.deepEqual(res.left.map((l) => [l.session, l.provider]), [[A, 'cursor']]);
+  const plain = await deleteChat({ id: C, segments: [{ session: C, provider: 'claude' }], remove: async () => false });
+  assert.deepEqual([plain.removed, plain.left], [[C], []], 'a reader that found nothing to delete is gone, not left');
 });
 
-await check('delete keeps the record and hides what was left behind', () => {
+await check('delete always drops the row and the record, and hides what was left', () => {
   const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
-  const del = main.slice(main.indexOf("ipcMain.handle('agent:deleteSession'"), main.indexOf("ipcMain.on('agent:active'"));
-  assert.ok(/for \(const l of left\) hiddenSessions\.set\(l\.session, true\)/.test(del));
-  assert.ok(/if \(!left\.length\) chatSegments\.forget\(id\)/.test(del));
-  assert.ok(del.indexOf('removed.forEach(forgetMarks)') < del.indexOf('if (error) return { error }'));
+  const del = main.slice(main.indexOf("ipcMain.handle('agent:deleteSession'"), main.indexOf("ipcMain.on('agent:pendingHandoffs'"));
+  assert.ok(/hiddenSessions\.set\(l\.session, true\)/.test(del));
+  assert.ok(/\n      chatSegments\.forget\(id\);/.test(del), 'the record goes unconditionally');
+  assert.ok(/return \{ ok: true/.test(del));
 });
 
 // #3, #4, #12, #15 -------------------------------------------------------
@@ -235,6 +237,94 @@ await check('a forked chat later switched reopens with its own first stretch', (
   const read = { [A]: [{ id: 'x0', kind: 'handoff' }, user(1), reply(1), { id: 'x3', kind: 'handoff' }, user(3)], [B]: [{ id: 'x2', kind: 'handoff' }, user(2)] };
   const put = stitch([{ provider: 'codex', session: A }, { provider: 'claude', session: B }, { provider: 'codex', session: A }], read);
   assert.deepEqual(put.items.map((it) => it.id), ['x0', 'u1', 'a1', 'x2', 'u2', 'x3', 'u3']);
+});
+
+// Round 2 -----------------------------------------------------------------
+
+const { escape, unescape } = require('../src/shared/handoff.js');
+const { modelEntry } = require('../src/shared/model-pick.js');
+
+await check('escaping carried text round-trips any marker-like text and leaves no marker', () => {
+  const parts = ['<', '/', '\\', 'item', 'ITEM', 'conn-handoff', '</item>', '<\\/item', '<\\\\/conn-handoff', 'x', ' ', '>', '\n'];
+  let seed = 7;
+  const rand = (n) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  for (let i = 0; i < 20000; i++) {
+    let s = '';
+    for (let j = rand(14); j > 0; j--) s += parts[rand(parts.length)];
+    const e = escape(s);
+    assert.equal(unescape(e), s, `round trip of ${JSON.stringify(s)}`);
+    assert.ok(!/<\/(item|conn-handoff)\b/i.test(e), `a marker survived in ${JSON.stringify(e)}`);
+  }
+  const h = buildHandoff({ items: [reply(1, 'already escaped: <\\/item> and </item>')], from: 'claude', to: 'codex', window: 200000, fork: true });
+  assert.equal(unwrapHandoff(wrapMessage(h.text, 'x')).entries()[0].body, 'already escaped: <\\/item> and </item>');
+});
+
+await check('a carried call that was still running does not come back as failed', () => {
+  const h = buildHandoff({ items: [{ id: 't1', kind: 'tool', name: 'Bash', input: { command: 'sleep 9' }, state: 'input-available' }], from: 'claude', to: 'codex', window: 200000, fork: true });
+  const [row] = itemsFromEntries(unwrapHandoff(wrapMessage(h.text, 'x')).entries(), 'p:');
+  assert.notEqual(row.state, 'output-error');
+});
+
+await check('a session from the CLI the chat has left is not taken as this chat\'s', () => {
+  const c = { provider: 'copilot', session: null, segments: [{ provider: 'claude', session: A, from: 0 }, { provider: 'copilot', session: null, from: 2, cut: 0 }] };
+  assert.equal(withSession(c, B, 'claude'), c, 'the old CLI finishing up reports in late');
+  assert.equal(withSession(c, C, 'copilot').segments[1].session, C);
+  assert.equal(withSession({ provider: 'codex', session: null, segments: [] }, A, 'claude').session, null);
+});
+
+await check('a switch records where it starts in its session, and reopen follows that', () => {
+  let c = { provider: 'codex', session: F_, forked: true, segments: [], items: [user(1), reply(1)], usage: {} };
+  c = switchChat(c, { provider: 'claude', id: 'h1', label });
+  assert.equal(c.segments[1].cut, 0, 'a fresh session starts at its first handoff');
+  c = { ...withSession(c, B, 'claude'), handoff: null, items: [...c.items, user(2), reply(2)] };
+  c = switchChat(c, { provider: 'codex', id: 'h2', label });
+  assert.equal(c.session, F_);
+  assert.equal(c.segments[2].cut, 1, 'the fork\'s own first handoff is number 0, so coming back is number 1');
+  const saved = persistable(c.segments.map((x, i) => (i === 2 ? x : x)));
+  assert.deepEqual(saved.map((x) => x.cut ?? null), [null, 0, 1]);
+  const read = {
+    [F_]: [{ id: 'c1', kind: 'user', carried: true }, { id: 'x0', kind: 'handoff', fork: true }, user(1), reply(1), { id: 'x3', kind: 'handoff' }, user(3)],
+    [B]: [{ id: 'x2', kind: 'handoff' }, user(2), reply(2)],
+  };
+  assert.deepEqual(stitch(saved, read).items.map((it) => it.id), ['c1', 'x0', 'u1', 'a1', 'x2', 'u2', 'a2', 'x3', 'u3']);
+  const old = stitch(saved.map(({ cut, ...x }) => x), read);
+  assert.deepEqual(old.segments.map((x) => x.cut ?? null), [null, 0, 1], 'a record from before cuts learns them on reopen');
+});
+
+await check('a pick names its CLI, and the name alone is only a fallback', () => {
+  const models = [{ value: 'gpt-6.2-sol', provider: 'copilot' }, { value: 'gpt-6.2-sol', provider: 'codex' }];
+  assert.equal(modelEntry(models, 'gpt-6.2-sol', 'codex').provider, 'codex');
+  assert.equal(modelEntry(models, 'gpt-6.2-sol', 'cursor'), null);
+  assert.equal(modelEntry(models, 'gpt-6.2-sol').provider, 'copilot');
+  const composer = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/composer.jsx'), 'utf8');
+  assert.ok(/onPick\(long && all\.has\(m\.value \+ LONG\) \? m\.value \+ LONG : m\.value, m\.provider\)/.test(composer), 'the picker hands over the row\'s CLI');
+  const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
+  assert.ok(/const nextProvider = isProviderId\(picked\) \? picked :/.test(main), 'main takes the CLI it is given');
+  assert.equal((agentSource.match(/agent\.setModel\([^)]*\)/g) || []).filter((c) => !/, want\)$/.test(c)).length, 0, 'every pick passes its CLI to main');
+});
+
+await check('a refused switch puts back what the next session starts on, busy or not', () => {
+  const sw = agentSource.slice(agentSource.indexOf('const switchChatTo = useCallback'), agentSource.indexOf('const pickModel = useCallback'));
+  assert.ok(/agent\.restoreModel\(key, chat\.usage\?\.model \|\| '', chat\.provider\)/.test(sw));
+  const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
+  const restore = main.slice(main.indexOf("ipcMain.handle('agent:restoreModel'"), main.indexOf("ipcMain.handle('agent:setProvider'"));
+  assert.ok(/chatPrefs\.setProvider\(chat, was\)/.test(restore) && !/busy/.test(restore));
+});
+
+await check('the queue flushes from committed state, and a handoff goes once', () => {
+  const flush = agentSource.slice(agentSource.indexOf('const flushChat = useCallback'), agentSource.indexOf('const decide = useCallback'));
+  assert.ok(/flushChat\(c\.key, c\)/.test(flush) && /committed: chat/.test(flush));
+  assert.ok(/if \(!s\.landing\) continue;/.test(flush), 'a switch counts as landed only once committed');
+  const send = agentSource.slice(agentSource.indexOf('const sendTo = useCallback'), agentSource.indexOf('sendToRef.current = sendTo'));
+  assert.ok(/reading\.current\.has\(key\)/.test(send) && /carried\.current\.add\(owed\.marker\)/.test(send));
+});
+
+await check('a reopened chat knows how full its window was', async () => {
+  await import('./renderer-esm.mjs');
+  const { storedContext } = await import('../src/renderer/ui/lib/usage.js');
+  assert.equal(storedContext({ messages: [{ type: 'assistant', message: { usage: { input_tokens: 10, cache_read_input_tokens: 90 } } }, { type: 'user', message: {} }] }), 100);
+  assert.equal(storedContext({ usage: { message: { usage: { input_tokens: 5, context_window: 1000 } } }, messages: [] }), 5);
+  assert.equal(storedContext({ messages: [] }), 0);
 });
 
 fs.rmSync(home, { recursive: true, force: true });
