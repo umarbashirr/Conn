@@ -62,6 +62,10 @@ const send = async (text) => {
   await type(s, text, { enter: true });
 };
 const waitReply = (needle, ms = 30000) => until(() => page(`document.body.innerText.includes(${JSON.stringify(needle)})`), ms);
+// Copilot here is the real CLI, which never answers "heard: ...", so its turns
+// are waited out by the row that ends every turn instead.
+const turnsEnded = () => page("document.body.innerText.split('\\n').filter((l) => /^(done in |turn ended)/.test(l)).length");
+const waitTurnEnd = async (before, ms = 240000) => until(async () => (await turnsEnded()) > before, ms);
 const openPicker = async () => {
   const at = await page(`(() => { const b = [...document.querySelectorAll('#composer button[data-slot=dropdown-menu-trigger]')].find((e) => /Opus|Sonnet|Haiku|Fable|GPT|Auto|Pick a model/.test(e.innerText)); const r = b.getBoundingClientRect(); return Math.round(r.x + r.width / 2) + ',' + Math.round(r.y + r.height / 2); })()`);
   await click(s, `xy=${at}`);
@@ -124,8 +128,9 @@ try {
   await send('del ALPHA');
   await waitReply('heard: del ALPHA');
   await pick('copilot');
+  const endedDel = await turnsEnded();
   await send('del BRAVO');
-  await waitReply('heard: del BRAVO', 60000);
+  await waitTurnEnd(endedDel);
   await sleep(3000);
   const recs = conn('chat-segments.json');
   const head1 = Object.keys(recs).find((h) => recs[h].some((x) => x.provider === 'copilot'));
@@ -148,8 +153,9 @@ try {
   await pick('copilot');
   const onCopilot = await page("[...document.querySelectorAll('#composer button[data-slot=dropdown-menu-trigger]')].map((e) => e.innerText).join(' ')");
   check('the new chat is on Copilot before its first message', /Auto/.test(onCopilot), onCopilot);
+  const endedHead = await turnsEnded();
   await send('head ALPHA');
-  await waitReply('heard: head ALPHA', 60000);
+  await waitTurnEnd(endedHead);
   await sleep(3000);
   await pick('claude');
   await send('head BRAVO');
