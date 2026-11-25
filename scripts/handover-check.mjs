@@ -60,7 +60,7 @@ const order = [...whole.text.matchAll(/<item id="([^"]+)"/g)].map((m) => m[1]);
 assert.deepEqual(order, ['u1', 'a1', 't1', 't2', 'n2', 'u2', 'a2'], 'picked items go out in the order they happened');
 assert.ok(whole.text.startsWith('<conn-handoff from="Claude" to="ChatGPT" model="gpt-5.5" scope="full" carried="7" total="7">'));
 
-// Priority: latest ask, latest reply, first ask, then newest back until one does not fit.
+// Priority: latest ask, latest reply, first ask, then newest back, skipping any that do not fit.
 const pad = (n) => 'w'.repeat(n * 4);
 const long = [
   { id: 'u1', kind: 'user', text: `goal ${pad(100)}` },
@@ -77,10 +77,16 @@ const cost = (id) => sized.find((e) => e.id === id).tokens;
 const cap = cost('u2') + cost('a2') + cost('u1') + cost('t3') + cost('t2') + 10;
 const tight = buildHandoff({ items: long, from: 'codex', to: 'claude', window: 1000000, cap });
 assert.deepEqual(tight.entries.map((e) => e.id), ['u1', 'u2', 't2', 'a2', 't3']);
-assert.deepEqual(tight.omittedIds, ['a1', 't1'], 'stops at the first that does not fit rather than skipping to older small ones');
+assert.deepEqual(tight.omittedIds, ['a1', 't1'], 'a1 does not fit and t1 has no room left after it');
 assert.ok(tight.text.includes('Left out to fit your context window (2 of 7 items): a1 … t1 (2 items).'), 'an unbroken run is named by its ends');
 for (const e of tight.entries) assert.ok(tight.text.includes(e.text), `entry ${e.id} goes whole`);
 assert.ok(!tight.text.includes(pad(3000)), 'an item that does not fit is left out whole, not cut');
+
+// One that does not fit is skipped and older, smaller ones still go.
+const skip = buildHandoff({ items: long, from: 'codex', to: 'claude', window: 1000000, cap: cap - cost('t2') + cost('t1') });
+assert.deepEqual(skip.entries.map((e) => e.id), ['u1', 't1', 'u2', 'a2', 't3'], 't2 is too big now, and t1 behind it still goes');
+assert.deepEqual(skip.omittedIds, ['a1', 't2']);
+assert.ok(skip.text.includes(': a1, t2.'), 'skipped items are named in the header');
 
 // The first ask and the latest reply beat the middle even when the middle is newer.
 const firstAndLast = buildHandoff({ items: long, from: 'codex', to: 'claude', window: 1000000, cap: cost('u2') + cost('a2') + cost('u1') + 5 });
