@@ -166,7 +166,7 @@ contextBridge.exposeInMainWorld('conn', {
   agent: {
     onActivity: on('agent:activity'),
     // `provider` is which CLI this chat runs on. It rides along on every send
-    // because a chat keeps the one it was made on, whatever the picker says now.
+    // because each chat has its own, whatever the picker last said elsewhere.
     send: (chat, session, text, images, project, provider) =>
       ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
@@ -205,7 +205,9 @@ contextBridge.exposeInMainWorld('conn', {
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     search: (query) => ipcRenderer.invoke('agent:search', { query }),
-    transcript: (id, project, { limit, end } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end }),
+    transcript: (id, project, { limit, end, provider } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider }),
+    // The sessions a chat that changed agent is made of, oldest first.
+    setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
     // Marking a chat done. Nothing is deleted: the rail folds it away and the

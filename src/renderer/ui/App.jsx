@@ -20,7 +20,6 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { Composer } from '@/components/composer';
 import { QuestionCard } from '@/components/question-card';
 import { CustomizePage } from '@/components/customize-page';
-import { ForkDialog } from '@/components/fork-dialog';
 import { ReleaseNotesText, PROVIDERS } from '@/components/settings-panel';
 import { UsagePage } from '@/components/usage-page';
 import { TokenInput } from '@/components/token-input';
@@ -682,7 +681,6 @@ export default function App() {
     return (
       <>
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
-        <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
         <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
         <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
         <CustomizePage
@@ -723,7 +721,6 @@ export default function App() {
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background text-foreground">
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
-      <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
       <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
@@ -1095,6 +1092,26 @@ function AssistantRow({ item }) {
   );
 }
 
+/* Where the chat changed hands. Before the next message goes it only says who
+   to; after, it says how much of the chat went across, because a handoff that
+   had to leave things out should not read as one that carried everything. */
+function HandoffRow({ item }) {
+  const what = item.fork ? `Forked from ${item.from} to ${item.to}` : `${item.from} → ${item.to}`;
+  const carried = item.pending
+    ? 'the next message carries the chat across'
+    : item.total
+      ? `carried ${item.carried} of ${item.total} ${item.total === 1 ? 'item' : 'items'}`
+      : 'nothing new to carry';
+  const label = [what, item.model, carried].filter(Boolean).join(' · ');
+  return (
+    <div data-handoff={item.id} role="separator" aria-label={label} className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground">
+      <span className="h-px flex-1 bg-border" />
+      <span className="truncate">{label}</span>
+      <span className="h-px flex-1 bg-border" />
+    </div>
+  );
+}
+
 function Item({ item, agent, mark, calls }) {
   const onDecide = agent.decide;
 
@@ -1113,6 +1130,8 @@ function Item({ item, agent, mark, calls }) {
   }
 
   if (item.kind === 'user') return <UserRow item={item} agent={agent} />;
+
+  if (item.kind === 'handoff') return <HandoffRow item={item} />;
 
   if (item.kind === 'reasoning') return <ReasoningRow item={item} />;
 

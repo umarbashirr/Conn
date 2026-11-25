@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, EyeIcon, FileIcon,
-  FolderIcon, GitBranchIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
+  FolderIcon, GitBranchIcon, GitForkIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
   PlugZapIcon, PlusIcon, SearchIcon, ShieldOffIcon, SquareIcon, XIcon, ZapIcon,
 } from 'lucide-react';
 
@@ -290,6 +290,7 @@ function ModelPicker({ agent, settings }) {
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
   const nested = groups.length > 1;
+  const forkable = groups.filter((g) => !g.locked && g.rows.length);
   const { on: long, capable } = agent.longContext || {};
 
   // A model the list has not heard of still has to name itself on the trigger:
@@ -373,6 +374,29 @@ function ModelPicker({ agent, settings }) {
             </DropdownMenuSub>
           );
         })}
+        {/* Picking a model above moves this chat. Forking leaves it where it is
+            and carries the conversation into a new chat instead. */}
+        {agent.items.length > 0 && forkable.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="gap-2">
+                <GitForkIcon className="size-3.5" />
+                Fork to a New Chat
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-72 max-w-none">
+                {forkable.map((g) => (nested ? (
+                  <DropdownMenuSub key={g.id}>
+                    <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-72 max-w-none">
+                      <ModelItems rows={g.rows} current="" onPick={agent.forkTo} />
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : <ModelItems key={g.id} rows={g.rows} current="" onPick={agent.forkTo} />))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
         <DropdownMenuSeparator />
         {agent.efforts?.length > 0 && (
           <Segmented

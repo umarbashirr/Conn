@@ -4,7 +4,9 @@
 const STORE_KEY = 'conn.drafts';
 const WAIT_MS = 400;
 
-export const storageKeyOf = (chat) => chat?.session || (chat?.project ? `new:${chat.project}` : null);
+// A chat that changed agent is on another session now, but it is still the chat
+// its first session names, so the draft stays put across the switch.
+export const storageKeyOf = (chat) => chat?.segments?.[0]?.session || chat?.session || (chat?.project ? `new:${chat.project}` : null);
 
 // Two unsent chats in one folder map to the same key, and only the first one
 // open owns it.

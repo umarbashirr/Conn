@@ -27,6 +27,9 @@ const editors = require('./editors');
 const files = require('./files');
 const canvas = require('./canvas');
 const canvasIds = require('./canvas-ids');
+const chatSegments = require('./chat-segments');
+const { collapseRows } = require('../shared/chat-segments');
+const { unwrapHandoff } = require('../shared/handoff');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
@@ -202,7 +205,8 @@ async function sessionsIn(dir) {
   }));
   const out = lists.flat();
   for (const r of out) owners.set(r.id, r.provider);
-  return out.sort((a, b) => (b.at || 0) - (a.at || 0)).map((s) => {
+  // A chat that changed agent is one row, under the session it started on.
+  return collapseRows(out, chatSegments.all()).map((s) => {
     const title = chatTitles.get(s.id);
     const board = canvasIds.get(s.id);
     return { ...s, ...(title && { title }), ...(board && { canvas: board }) };
@@ -233,8 +237,17 @@ function phoneBlock(block) {
   return next;
 }
 
+// The phone shows what was typed, not the history a switch sent along with it.
+function typedOnly(msg) {
+  if (msg?.type !== 'user' || !msg.message) return msg;
+  const c = msg.message.content;
+  if (typeof c === 'string') return { ...msg, message: { ...msg.message, content: unwrapHandoff(c).text } };
+  if (!Array.isArray(c)) return msg;
+  return { ...msg, message: { ...msg.message, content: c.map((b) => (b?.type === 'text' ? { ...b, text: unwrapHandoff(b.text).text } : b)) } };
+}
+
 function phoneMessages(messages) {
-  const tail = Array.isArray(messages) ? messages.slice(-PHONE_MESSAGES) : [];
+  const tail = Array.isArray(messages) ? messages.slice(-PHONE_MESSAGES).map(typedOnly) : [];
   const mapped = tail.map((msg) => {
     if (!msg || typeof msg !== 'object' || !msg.message || !Array.isArray(msg.message.content)) return msg;
     return { ...msg, message: { ...msg.message, content: msg.message.content.map(phoneBlock) } };
@@ -1111,7 +1124,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   }
 
   // The panel says which CLI this chat is on, because it knows whether the chat
-  // was just forked. Failing that it is whatever the chat already ran on, and
+  // was just forked or switched. Failing that it is whatever the chat already ran on, and
   // only a chat that has never sent falls through to the picker's choice.
   const runs = isProviderId(want) ? want : chatPrefs.providerOf(chat, provider);
   chatPrefs.setProvider(chat, runs);
@@ -2323,6 +2336,18 @@ function registerIpc() {
     dirs: () => [CHATS_DIR, ...openDirs()],
     owners,
   }));
+  // The sessions a switched chat is made of, written once the newest one has
+  // an id. Ownership is learned here too, so a session the rail has not listed
+  // yet still reads through the right agent.
+  ipcMain.handle('agent:setSegments', (_e, { head, segments } = {}) => {
+    try {
+      if (!Array.isArray(segments) || segments[0]?.session !== head) throw new Error('the first segment must be the chat\'s own session');
+      for (const s of segments) if (isProviderId(s.provider)) owners.set(s.session, s.provider);
+      return { ok: !!chatSegments.set(head, segments) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
   ipcMain.handle('agent:rename', (_e, { id, title } = {}) => {
     try {
       return { ok: true, title: chatTitles.set(id, title) };
@@ -2351,9 +2376,9 @@ function registerIpc() {
       return { error: e.message };
     }
   });
-  ipcMain.handle('agent:transcript', async (_e, { id, project, limit, end }) => {
+  ipcMain.handle('agent:transcript', async (_e, { id, project, limit, end, provider: on }) => {
     const dir = project && known(project) ? project : focusedCwd();
-    const h = ownerOf(id);
+    const h = (isProviderId(on) && rowOf(on)?.history) || ownerOf(id);
     const t = await h.readSession(dir, id, { limit, end });
     // Which agents ran, so a replayed chat draws their rows straight away. The
     // transcripts behind them are only read if someone opens one.
@@ -2364,9 +2389,19 @@ function registerIpc() {
   // Deleting a chat. A session still running would write its transcript
   // straight back after the unlink, so the process behind it goes first.
   ipcMain.handle('agent:deleteSession', async (_e, { id, project } = {}) => {
-    for (const [chat, a] of sessions) if (a.sessionId === id) stopChat(chat);
+    // A switched chat is deleted whole: every session it ran on goes with it.
+    const segs = chatSegments.get(id) || [];
+    const rest = [...new Map(segs.filter((s) => s.session !== id).map((s) => [s.session, s.provider])).entries()];
+    const ids = new Set([id, ...rest.map(([s]) => s)]);
+    for (const [chat, a] of sessions) if (ids.has(a.sessionId)) stopChat(chat);
     try {
       const dir = project && known(project) ? project : focusedCwd();
+      for (const [session, p] of rest) {
+        const h = (isProviderId(p) && rowOf(p)?.history) || ownerOf(session);
+        await h.deleteSession(dir, session).catch(() => false);
+        owners.delete(session);
+      }
+      chatSegments.forget(id);
       const gone = await ownerOf(id).deleteSession(dir, id);
       owners.delete(id);
       // The transcript is what the mark was about, so it goes with it.
