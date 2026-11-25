@@ -263,12 +263,15 @@ small JPEG copy. The full-size PNG stays on disk.
 bar completes from your history and bookmarks and suggests searches. Pick Google, DuckDuckGo or Bing
 in Settings.
 
-**Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
-layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
-clicks and typing still reach the page. Press **Take control** on that layer to get the page back.
-It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
-meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
-when the agent's turn ends.
+**Hands off while the agent works.** While an agent is changing a page in the preview, a clear layer
+covers it, so a stray scroll or click cannot move the page out from under the agent. The page is shown
+as it is, with a thin edge round it. Its own clicks and typing still reach the page. Reach for the page
+and **Take control** appears at the bottom of it. Press it to get the page back. It stays yours until
+you hand it back: **Hand back to the agent** floats at the bottom of the page for as long as you have
+it, and the **You have control** chip at the top of the window does the same. Any agent that tries to
+change it meanwhile is told you have it, stops, and waits. Its chat then offers **Hand back and
+continue**, which gives the page back and tells the agent to carry on. Reading the page still works.
+The layer goes away when the agent's turn ends.
 
 ## The Board
 

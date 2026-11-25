@@ -7,19 +7,28 @@
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; }
   body {
     font: 12.5px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
-    /* Enough of a veil to say the page is not yours right now, little enough
-       to keep watching what the agent does to it. */
-    background: rgba(12, 12, 14, 0.07);
-    box-shadow: inset 0 0 0 1px rgba(181, 140, 246, 0.35);
     cursor: default;
   }
+  /* While the agent drives, the page is shown as it is: no veil over it.
+     A thin edge is all that says it is not yours to touch right now. */
+  body[data-mode="agent"] { box-shadow: inset 0 0 0 1px rgba(181, 140, 246, 0.45); }
   .bar {
-    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
     display: flex; align-items: center; gap: 10px;
     padding: 6px 6px 6px 14px; border-radius: 999px;
     background: rgba(23, 23, 27, 0.88); color: #c9c9d1;
     box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     backdrop-filter: blur(8px); white-space: nowrap;
+    transition: opacity 160ms ease-out, translate 160ms ease-out;
+  }
+  /* The agent's pill shows when you reach for the page, not all the time. */
+  body[data-mode="agent"] .bar { opacity: 0; translate: 0 6px; pointer-events: none; }
+  body[data-mode="agent"]:hover .bar, body[data-mode="agent"] .bar.shown { opacity: 1; translate: 0 0; pointer-events: auto; }
+  /* Yours: the view is only as big as the pill, at the bottom of the page. */
+  /* Its shadow is kept inside the view, or the view's edge shows as a box. */
+  body[data-mode="human"] .bar {
+    bottom: auto; top: 50%; transform: translate(-50%, -50%);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   }
   .who { max-width: 38ch; overflow: hidden; text-overflow: ellipsis; }
   button {
@@ -30,13 +39,14 @@
   }
   button:hover { background: #ffffff; }
   button:focus-visible { outline: 2px solid #b58cf6; outline-offset: 2px; }
+  button[hidden] { display: none; }
   svg { width: 14px; height: 14px; flex: none; }
   .nudge { animation: nudge 360ms ease-out; }
-  @keyframes nudge { 30% { transform: translate(-50%, -50%) scale(1.06); } 100% { transform: translate(-50%, -50%) scale(1); } }
-  @media (prefers-reduced-motion: reduce) { .nudge { animation: none; } }
+  @keyframes nudge { 30% { scale: 1.06; } 100% { scale: 1; } }
+  @media (prefers-reduced-motion: reduce) { .nudge { animation: none; } .bar { transition: none; } }
 </style>
 </head>
-<body>
+<body data-mode="agent">
   <div class="bar" id="bar">
     <span class="who" id="who">The agent is using this page</span>
     <button id="take" type="button">
@@ -44,6 +54,12 @@
         <path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>
       </svg>
       Take control
+    </button>
+    <button id="give" type="button" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>
+      </svg>
+      Hand back to the agent
     </button>
   </div>
   <script src="overlay.js"></script>
