@@ -115,6 +115,9 @@ try {
   await send('exp BRAVO');
   await waitReply('codex heard: exp BRAVO');
   await sleep(1500);
+  // An update toast that turned up since boot covers the top right, where the
+  // header's buttons are.
+  await click(s, 'Later').catch(() => {});
   await click(s, 'Export chat');
   const md = await until(async () => (fs.existsSync('/tmp/handoff-verify/r2/export-button.md') ? fs.readFileSync('/tmp/handoff-verify/r2/export-button.md', 'utf8') : null), 20000);
   check('export through the button writes a file', !!md, await toasts());
