@@ -277,8 +277,10 @@ check('a model value two CLIs share still names the CLI it was picked under', ()
     { value: 'auto', provider: 'copilot' }, { value: 'gpt-6.2-sol', provider: 'copilot' },
     { value: 'opus', provider: 'claude' }, { value: 'gpt-6.2-sol', provider: 'codex' },
   ];
-  // useAgent.pickModel: `models.find((m) => m.value === value)?.provider`.
-  const want = models.find((m) => m.value === 'gpt-6.2-sol')?.provider;
+  // The picker hands over the row's CLI with its name (composer ModelItems),
+  // and the lookup in useAgent and main keeps both.
+  const { modelEntry } = require('../src/shared/model-pick.js');
+  const want = modelEntry(models, 'gpt-6.2-sol', 'codex')?.provider;
   assert.equal(want, 'codex', `picking GPT-6.2-Sol under ChatGPT resolves to ${want}`);
 });
 
