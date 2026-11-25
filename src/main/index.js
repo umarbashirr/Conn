@@ -167,19 +167,40 @@ function agentOn(tab) {
 
 const captionOf = (h) => (String(h.id).startsWith('main:') ? 'The agent is using this page' : `${h.label} is using this page`);
 
+const humanOn = (tab) => !!tab && leases.get(tab)?.human;
+
+// The Hand back pill, floating at the bottom of the page. The view is only
+// the pill's size, so every click on the rest of the page reaches the page.
+const PILL = { width: 352, height: 60, bottom: 10 };
+function pillBox(box) {
+  const width = Math.min(PILL.width, box.width);
+  return {
+    x: Math.round(box.x + (box.width - width) / 2),
+    y: Math.round(box.y + Math.max(0, box.height - PILL.height - PILL.bottom)),
+    width,
+    height: Math.min(PILL.height, box.height),
+  };
+}
+
+function placeOverlay(o, host, box, tab) {
+  const agent = agentOn(tab);
+  if (agent) return o.show(host, box, { tab, caption: captionOf(agent), mode: 'agent' });
+  if (humanOn(tab)) return o.show(host, pillBox(box), { tab, caption: '', mode: 'human' });
+  return o.hide();
+}
+
 function syncOverlays() {
   const boxTab = shownTab && shownTab !== poppedTab && panes.has(shownTab) ? shownTab : null;
-  const boxAgent = !paneCovered && lastBounds && agentOn(boxTab);
-  if (boxAgent && win && !win.isDestroyed()) overlays.box.show(win, lastBounds, { tab: boxTab, caption: captionOf(boxAgent) });
+  if (!paneCovered && lastBounds && boxTab && win && !win.isDestroyed()) placeOverlay(overlays.box, win, lastBounds, boxTab);
   else overlays.box.hide();
 
-  const outAgent = popout && !popout.isDestroyed() && agentOn(poppedTab);
-  if (outAgent) overlays.popout.show(popout, popoutBox(), { tab: poppedTab, caption: captionOf(outAgent) });
+  if (popout && !popout.isDestroyed() && poppedTab) placeOverlay(overlays.popout, popout, popoutBox(), poppedTab);
   else overlays.popout.hide();
 
   // Keys the person types should not reach a page they cannot click either.
+  // A page that is theirs keeps its keys.
   for (const o of Object.values(overlays)) {
-    if (o.tab && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
+    if (o.tab && o.mode === 'agent' && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
   }
   // The person can still talk to the agent while it has the page.
   composerFloat.raise();
@@ -1863,6 +1884,10 @@ function registerIpc() {
     leaseFor(tab).seize();
     // Straight onto the page, so the scroll that follows the click lands.
     panes.get(tab)?.pane.wc.focus();
+  });
+  ipcMain.on('overlay:handBack', (e) => {
+    const tab = Object.values(overlays).find((o) => o.owns(e.sender))?.tab;
+    if (tab) leaseFor(tab).handBack();
   });
   ipcMain.handle('preview:handBack', (_e, { tab } = {}) => {
     leaseFor(tab || shownTab).handBack();

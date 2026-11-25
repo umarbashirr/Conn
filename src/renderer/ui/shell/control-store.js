@@ -1,6 +1,6 @@
-/* Which preview pages you have taken off the agents, so every place that
-   can hand one back knows to offer it: the chip in the title bar, the
-   browser pane's own toolbar, and the chat whose agent stopped for you.
+/* Which preview pages you have taken off the agents, so the chat whose
+   agent stopped for you knows to offer them back. (The page offers it too,
+   with a pill main floats over it, and the title bar has its chip.)
 
    Main says who holds a page whenever that changes ('preview:driver'). A
    page is held by you from Take control until Hand back.
@@ -14,7 +14,6 @@ const listeners = new Set();
 let version = 0;
 
 export const getControlVersion = () => version;
-export const youHold = (tab) => !!tab && held.has(tab);
 export const heldTabs = () => [...held];
 
 export function subscribeControl(fn) {
@@ -44,12 +43,6 @@ export async function handBack(tab) {
   await Promise.all(tabs.map((t) => window.conn.browser.handBack(t).catch(() => {})));
   for (const t of tabs) held.delete(t);
   changed();
-}
-
-// Asks main about one page, for a view that opens after the change was said.
-export function learn(tab) {
-  if (!tab) return;
-  window.conn.browser.driver?.(tab).then(apply).catch(() => {});
 }
 
 if (typeof window !== 'undefined' && window.conn?.browser?.onDriver) {
