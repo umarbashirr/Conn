@@ -164,22 +164,22 @@ export function BoardPage() {
       <div className="flex h-[38px] flex-none items-center gap-2 border-b border-border/60 px-4 text-sm">
         <LayoutDashboardIcon className="size-4 text-muted-foreground" />
         <span className="font-medium">Board</span>
-        <span className="truncate text-[12px] text-muted-foreground">
+        {/* The actions sit by the title, not at the far right, where a toast
+            lands on top of them. Esc closes it wherever a toast is. */}
+        <Button variant="outline" size="xs" title="Start a saved pipeline" onClick={openRunDialog}>
+          <WorkflowIcon />
+          Run pipeline
+        </Button>
+        <Button variant="ghost" size="icon-xs" aria-label="Refresh the board" title="Ask the other windows and Claude Code again" onClick={() => refreshBoard()}>
+          <RefreshCwIcon />
+        </Button>
+        <span className="min-w-0 truncate text-[12px] text-muted-foreground">
           {windows ? `This window and ${windows} other${windows === 1 ? '' : 's'}` : 'This window'}
           {st.outside?.ok ? ', plus Claude Code outside Conn' : ''}
         </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button variant="outline" size="xs" title="Start a saved pipeline" onClick={openRunDialog}>
-            <WorkflowIcon />
-            Run pipeline
-          </Button>
-          <Button variant="ghost" size="icon-xs" aria-label="Refresh the board" title="Ask the other windows and Claude Code again" onClick={() => refreshBoard()}>
-            <RefreshCwIcon />
-          </Button>
-          <Button variant="ghost" size="icon-xs" aria-label="Close the board" title="Back to the chat (Esc)" onClick={closeBoard}>
-            <XIcon />
-          </Button>
-        </div>
+        <Button className="ml-auto shrink-0" variant="ghost" size="icon-xs" aria-label="Close the board" title="Back to the chat (Esc)" onClick={closeBoard}>
+          <XIcon />
+        </Button>
       </div>
       <PipelineRuns />
       {/* Columns follow the Board's own width, which the window's does not say:
