@@ -32,7 +32,12 @@ export function PipelineDialog() {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
 
-  const folder = dir && dirs.includes(dir) ? dir : focused;
+  // The folder a run starts in, unless you pick another: the one on screen,
+  // or the checkout it was cut from when that is a worktree, so a pipeline
+  // started after a worktree run does not land in that run's worktree.
+  const repo = String(focused || '').replace(/[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]?$/, '');
+  const home = repo !== focused && dirs.includes(repo) ? repo : focused;
+  const folder = dir && dirs.includes(dir) ? dir : home;
 
   const load = async (at = folder) => {
     const res = await window.conn.pipelines.list(at).catch((e) => ({ pipelines: [], error: e.message }));
@@ -77,7 +82,10 @@ export function PipelineDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) closeRunDialog(); }}>
-      <DialogContent data-slot="pipeline-dialog" className="sm:max-w-xl">
+      <DialogContent
+        data-slot="pipeline-dialog"
+        className="min-w-0 sm:max-w-xl"
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); start(); } }}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><WorkflowIcon className="size-4" />Run a pipeline</DialogTitle>
           <DialogDescription>
@@ -85,19 +93,19 @@ export function PipelineDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1 text-[12px]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <label className="flex min-w-0 flex-col gap-1 text-[12px]">
             <span className="text-muted-foreground">Folder</span>
             <select
               aria-label="Folder"
-              className="h-8 rounded-md border bg-background px-2 text-[13px]"
+              className="h-8 w-full min-w-0 truncate rounded-md border bg-background px-2 text-[13px]"
               value={folder || ''}
               onChange={(e) => setDir(e.target.value)}>
               {dirs.map((d) => <option key={d} value={d}>{folderName(d)} · {d}</option>)}
             </select>
           </label>
 
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <span className="text-[12px] text-muted-foreground">Pipeline</span>
             <div role="radiogroup" aria-label="Pipeline" className="flex max-h-64 flex-col gap-1 overflow-y-auto">
               {list && !list.length && (
@@ -145,7 +153,7 @@ export function PipelineDialog() {
             {list?.length > 0 && (
               <button
                 type="button"
-                className="flex w-fit items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex max-w-full min-w-0 items-center gap-1 truncate text-left text-[11px] text-muted-foreground hover:text-foreground"
                 title="Copy the folder your own pipelines live in"
                 onClick={() => { navigator.clipboard?.writeText(userDir); toast('Copied', userDir); }}>
                 <CopyIcon className="size-3" />Your pipelines live in {userDir}
@@ -154,14 +162,13 @@ export function PipelineDialog() {
           </div>
 
           {needsInput && (
-            <label className="flex flex-col gap-1 text-[12px]">
+            <label className="flex min-w-0 flex-col gap-1 text-[12px]">
               <span className="text-muted-foreground">{pick.pipeline.input}</span>
               <Textarea
                 aria-label={pick.pipeline.input}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); start(); } }}
-                className="min-h-20 text-[13px]"
+                className="min-h-20 w-full min-w-0 text-[13px]"
                 placeholder="Ctrl+Enter starts it" />
             </label>
           )}

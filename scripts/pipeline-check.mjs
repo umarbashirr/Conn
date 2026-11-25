@@ -45,6 +45,7 @@ const stage = (id, extra) => ({ id, prompt: `do ${id}`, ...extra });
 refused(null, /not a pipeline/);
 refused([], /not a pipeline/);
 refused({ stages: [stage('a')] }, /needs a name/);
+refused({ name: 123, stages: [stage('a')] }, /name has to be text/);
 refused({ name: 'x'.repeat(81), stages: [stage('a')] }, /longer than 80/);
 refused({ name: 'x', stages: [] }, /at least one stage/);
 refused({ name: 'x', stages: Array.from({ length: 21 }, (_, i) => stage(`s${i}`)) }, /at most 20/);
@@ -157,14 +158,40 @@ assert.equal(P.focusStage(run), 2, 'a finished run shows its last stage');
 
   let w = P.stageEnded(P.stageStarted(P.newRun({ id: 'run-gate01', pipeline, input: 'x', base: '/w' }), 0, { chat: 'k1' }), 0, { output: 'p' });
   w = P.stop(w);
-  assert.equal(w.stages[0].status, 'pending', 'stopping at a gate puts the stage back');
-  assert.equal(P.retry(w).stages[0].status, 'pending');
+  assert.equal(w.status, 'stopped');
+  assert.equal(w.stages[0].status, 'gated', 'a stage stopped at its gate keeps its finished turn');
+  const back = P.retry(w);
+  assert.equal(back.status, 'waiting', 'Retry after a stop at a gate goes back to the gate');
+  assert.equal(P.nextStep(back).type, 'wait', 'and does not ask the stage again');
+  assert.equal(P.approve(back).stages[0].output, 'p', 'Continue from there hands on the reply it had');
 
   const gone = P.revive(P.stageStarted(P.newRun({ id: 'run-gone01', pipeline, input: 'x', base: '/w' }), 0, { chat: 'k1' }));
   assert.equal(gone.status, 'stopped', 'a run mid-stage when its window went away is stopped');
   const waiting = P.stageEnded(P.stageStarted(P.newRun({ id: 'run-wait01', pipeline, input: 'x', base: '/w' }), 0, { chat: 'k1' }), 0, { output: 'p' });
   assert.equal(P.revive(waiting), waiting, 'a run at a gate is still at its gate');
   assert.equal(P.retry(run), run, 'a finished run cannot be retried');
+}
+
+// ------------------------------------------------------------------ what a run file has to be
+
+{
+  const good = P.stageStarted(P.newRun({ id: 'run-shape1', pipeline, input: 'x', base: '/w' }), 0, { chat: 'k1' });
+  assert.equal(P.isRun(good), true, 'a run is a run');
+  assert.equal(P.isRun(JSON.parse(JSON.stringify(good))), true, 'and still is after a trip through JSON');
+  const bad = [
+    null, 5, {},
+    { ...good, stages: [null, 5] },
+    { ...good, pipeline: {} },
+    { ...good, at: undefined },
+    { ...good, startedAt: 'yesterday' },
+    { ...good, status: 'paused' },
+    { ...good, name: { evil: true } },
+    { ...good, stages: good.stages.slice(1) },
+    { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, status: 'weird' })) },
+    { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, id: 'other' })) },
+    { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, output: 7 })) },
+  ];
+  bad.forEach((b, i) => assert.equal(P.isRun(b), false, `malformed run ${i} is not a run`));
 }
 
 // ------------------------------------------------------------------ files on disk
@@ -217,7 +244,9 @@ assert.equal(P.focusStage(run), 2, 'a finished run shows its last stage');
   fs.writeFileSync(path.join(files.runsDir(), 'run-dead01.json'), JSON.stringify({ ...r, id: 'run-dead01', owner: 999999999 }));
   assert.ok(files.listRuns().some((x) => x.id === 'run-dead01'), 'a run whose window has gone is this window\'s to pick up');
   fs.writeFileSync(path.join(files.runsDir(), 'junk.json'), '{');
-  assert.equal(files.listRuns().length, 2, 'a file that is not a run is skipped');
+  fs.writeFileSync(path.join(files.runsDir(), 'run-garbage2.json'), JSON.stringify({ id: 'run-garbage2', stages: [null, 5], pipeline: {}, status: 'running' }));
+  fs.writeFileSync(path.join(files.runsDir(), 'run-notime1.json'), JSON.stringify({ ...r, id: 'run-notime1', at: undefined, startedAt: undefined }));
+  assert.equal(files.listRuns().length, 2, 'a file that is not a run, or a run cut short, is skipped and the rest are kept');
   assert.deepEqual(files.removeRun('run-disk01'), { ok: true });
   assert.ok(!files.listRuns().some((x) => x.id === 'run-disk01'), 'a removed run is gone');
   for (let i = 0; i < 55; i++) files.saveRun({ ...r, id: `run-many${String(i).padStart(2, '0')}` });

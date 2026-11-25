@@ -13,7 +13,10 @@
 import {
   approve, finalReply, newRun, nextStep, retry, revive, stageEnded, stageSession, stageStarted, stop,
 } from '../../../shared/pipeline';
-import { onTurnEnd } from '../lib/turn-events.js';
+import { toast as sonner } from 'sonner';
+import { onChatsGone, onTurnEnd } from '../lib/turn-events.js';
+import { project as projectState } from '../../project.js';
+import { grouped } from './rail-store';
 import { toast } from './toast';
 
 const state = { runs: [], loaded: false, dialog: false };
@@ -42,11 +45,24 @@ const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
 // Ids main will take for a file name: lowercase, digits and dashes.
 const runId = () => `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+/* The folders a run still needs: one running a stage or waiting at a gate.
+   Main keeps them open when the window is full, the way it keeps a folder
+   with a chat working in it, so a run's worktree is not closed under it. */
+let held = '';
+function holdFolders() {
+  const dirs = [...new Set(state.runs.filter((r) => r.status === 'running' || r.status === 'waiting').map((r) => r.project))].sort();
+  const key = JSON.stringify(dirs);
+  if (key === held) return;
+  held = key;
+  conn().pipelines.hold?.(dirs).catch(() => { held = ''; });
+}
+
 function put(run) {
   const at = state.runs.findIndex((r) => r.id === run.id);
   if (at < 0) state.runs = [run, ...state.runs];
   else state.runs = state.runs.map((r) => (r.id === run.id ? run : r));
   changed();
+  holdFolders();
   conn().pipelines.saveRun(run).then((res) => {
     if (res?.error) toast('Could not save the pipeline run', res.error);
   }).catch(() => {});
@@ -66,9 +82,12 @@ export async function loadRuns() {
     // A run that was mid-stage when its window went away is stopped now: its
     // CLI went with that window. Continue sends the stage again.
     const known = new Set(state.runs.map((r) => r.id));
-    const revived = (saved || []).filter((r) => !known.has(r.id)).map((r) => revive(r));
+    const revived = (saved || []).filter((r) => r && !known.has(r.id)).map((r) => {
+      try { return revive(r); } catch { return null; }
+    }).filter(Boolean);
     state.runs = [...state.runs, ...revived].sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
     for (const r of revived) if (r !== saved.find((x) => x.id === r.id)) put(r);
+    holdFolders();
   } catch { /* the list stays as it was */ }
   state.loaded = true;
   changed();
@@ -117,9 +136,24 @@ async function advance(id) {
     if (step.type !== 'send') return;
     const { index, stage, prompt } = step;
 
+    // The run's folder has to be open in this window for a chat to run in it.
+    // A worktree closed since, or a run picked up after a restart, opens it.
+    if (!(projectState.projects || []).some((p) => p.dir === run.project)) {
+      const res = await conn().project.open({ dir: run.project }).catch((e) => ({ error: e.message }));
+      if (res?.error || res?.canceled) {
+        put(stageEnded(stageStarted(run, index, { chat: null }), index, { failed: true, error: `Could not open ${run.project}: ${res?.error || 'cancelled'}` }));
+        return;
+      }
+    }
+
+    // Which chat the stage goes to: its own, when it is sent again; the one a
+    // `same:` stage continues; or a new one. A chat this window no longer
+    // holds is taken up again from its saved session when it has one.
     const alive = (key) => (key && chats()?.chatOf(key) ? key : null);
-    const continued = step.chatOf ? alive(run.stages.find((s) => s.id === step.chatOf)?.chat) : null;
-    let key = alive(step.reuse) || continued;
+    const into = step.chatOf ? run.stages.find((s) => s.id === step.chatOf) : null;
+    const own = run.stages[index];
+    let key = alive(step.reuse) || alive(into?.chat);
+    const resume = key ? null : (own.session || into?.session || null);
     if (key) {
       // A chat carried on into another stage takes that stage's mode.
       if (stage.mode) await conn().agent.mode(key, stage.mode).catch(() => {});
@@ -129,13 +163,54 @@ async function advance(id) {
         provider: stage.provider,
         mode: stage.mode,
         model: stage.model,
-        title: `${run.name} · ${stage.title}`,
+        // A `same:` stage taking up its earlier stage's saved chat is that chat,
+        // so it keeps that stage's name.
+        title: `${run.name} · ${(!own.session && into?.session && resume ? into : stage).title}`,
+        resume,
       });
     }
     put(stageStarted(runOf(id), index, { chat: key }));
+    watchSession(id, index, key);
     await chats().sendTo(key, prompt);
   } finally {
     advancing.delete(id);
+  }
+}
+
+/* The stage's session id, as soon as the chat has one. It is what the stage
+   is found by after a restart, and the chat's name is written against it
+   then, so the rail keeps "Feature · Plan" rather than the prompt's first
+   line. */
+async function watchSession(id, index, key) {
+  for (let i = 0; i < 300; i++) {
+    const c = chats()?.chatOf(key);
+    if (!c) return;
+    if (c.session) {
+      const run = runOf(id);
+      if (!run || run.stages[index]?.chat !== key) return;
+      if (run.stages[index].session !== c.session) put(stageSession(run, index, c.session));
+      if (c.renamed && c.title) conn().agent.rename(c.session, c.title).catch(() => {});
+      return;
+    }
+    await sleep(200);
+  }
+}
+
+/* Chats that left the window. A stage running in one cannot end any more,
+   so the run fails there and Retry picks it up, from the saved session when
+   there is one. Any stage pointing at one of them forgets the chat and keeps
+   its session. */
+function chatsLeft(keys) {
+  const gone = new Set(keys);
+  for (const run of state.runs) {
+    if (!run.stages.some((s) => gone.has(s.chat))) continue;
+    let next = run;
+    const index = run.stages.findIndex((s) => gone.has(s.chat) && s.status === 'running');
+    if (index >= 0 && run.status === 'running') {
+      next = stageEnded(next, index, { failed: true, error: 'Its chat was closed.' });
+    }
+    next = { ...next, stages: next.stages.map((s) => (gone.has(s.chat) ? { ...s, chat: null } : s)) };
+    put(next);
   }
 }
 
@@ -167,11 +242,18 @@ async function ended({ chat, failed, error }) {
   advance(next.id);
 }
 
+// The "ready" toast of each run at a gate, so it goes when the gate does.
+const gateToasts = new Map();
+const dropGateToast = (id) => {
+  if (gateToasts.has(id)) sonner.dismiss(gateToasts.get(id));
+  gateToasts.delete(id);
+};
+
 function announce(run, index) {
   const stage = run.stages[index];
   const note = (body) => conn().agent.notify({ chat: stage.chat, title: run.name, body });
   if (run.status === 'waiting') {
-    toast(`${run.name}: ${stage.title} is ready`, 'Read it, reply if it needs changes, then Continue on the Board.');
+    gateToasts.set(run.id, toast(`${run.name}: ${stage.title} is ready`, 'Read it, reply if it needs changes, then Continue on the Board.'));
     note(`${stage.title} is ready for you`);
   } else if (run.status === 'failed') {
     toast(`${run.name}: ${stage.title} failed`, stage.error || 'Retry on the Board sends it again.');
@@ -195,6 +277,7 @@ export function continueRun(id) {
     return;
   }
   const reply = c ? finalReply(c.items) : null;
+  dropGateToast(id);
   put(approve(run, { output: reply || undefined }));
   advance(id);
 }
@@ -203,6 +286,7 @@ export async function stopRun(id) {
   const run = runOf(id);
   if (!run) return;
   const live = run.stages.find((s) => s.status === 'running');
+  dropGateToast(id);
   put(stop(run));
   if (live?.chat) await conn().agent.interrupt(live.chat).catch(() => {});
 }
@@ -226,9 +310,18 @@ export async function removeRun(id) {
 export function openStage(run, stage) {
   if (!stage?.chat && !stage?.session) return;
   const live = stage.chat && chats()?.chatOf(stage.chat);
-  window.connChat?.open(live
-    ? { key: stage.chat, title: live.title }
-    : { id: stage.session, project: run.project, title: `${run.name} · ${stage.title}` });
+  if (live) {
+    window.connChat?.open({ key: stage.chat, title: live.title });
+    return;
+  }
+  // A saved chat opens from disk, if the rail can see it there. One that was
+  // deleted, or whose folder is closed, would open as an empty chat.
+  const saved = stage.session && grouped().some((g) => g.rows.concat(g.done || []).some((r) => r.id === stage.session));
+  if (!saved) {
+    toast(`Could not open ${stage.title}`, 'Its chat was deleted, or its folder is not open in this window.');
+    return;
+  }
+  window.connChat?.open({ id: stage.session, project: run.project, title: `${run.name} · ${stage.title}` });
 }
 
 // ------------------------------------------------------------ for the Board
@@ -257,5 +350,6 @@ export function stageOfChat(key) {
 if (typeof window !== 'undefined' && window.conn?.pipelines) {
   window.connPipelines = { open: openRunDialog };
   onTurnEnd((e) => { ended(e).catch((err) => console.error(err)); });
+  onChatsGone(chatsLeft);
   loadRuns();
 }

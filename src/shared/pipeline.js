@@ -33,6 +33,7 @@ const titleOf = (id) => id.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpper
 function checkPipeline(raw) {
   const fail = (error) => ({ ok: false, error });
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return fail('The file is not a pipeline: it needs a name and a list of stages.');
+  if (raw.name !== undefined && !str(raw.name)) return fail('name has to be text. Put it in quotes if it is a number.');
   if (!str(raw.name) || !raw.name.trim()) return fail('The pipeline needs a name.');
   if (raw.name.trim().length > MAX_NAME) return fail(`The name is longer than ${MAX_NAME} characters.`);
   if (raw.description !== undefined && !str(raw.description)) return fail('description has to be text.');
@@ -230,23 +231,48 @@ function approve(run, { output, now = Date.now() } = {}) {
   return touch(run, now, { status: 'running', stages: withStage(run, index, { status: 'done', output: keep }) });
 }
 
+/* A stage cut off mid-turn goes back to pending, to be sent again. A stage at
+   its gate has finished its turn, so it stays at the gate with its reply. */
 function stop(run, { now = Date.now() } = {}) {
   if (run.status === 'done' || run.status === 'stopped') return run;
   const index = current(run);
-  const stages = index >= 0 && ['running', 'gated'].includes(run.stages[index].status)
+  const stages = index >= 0 && run.stages[index].status === 'running'
     ? withStage(run, index, { status: 'pending', endedAt: now })
     : run.stages;
   return touch(run, now, { status: 'stopped', endedAt: now, stages });
 }
 
-/* Send the stage it stopped at again: a failed one, or one that was running
-   when the run was stopped or the window closed. A stage with a chat already
-   continues in that chat, so what it did is not lost. */
+/* Carry on from where it stopped. A stage stopped at its gate goes back to
+   waiting for Continue, rather than being asked again. Otherwise the stage
+   it stopped at is sent again: a failed one, or one that was running when the
+   run was stopped or the window closed. A stage with a chat already continues
+   in that chat, so what it did is not lost. */
 function retry(run, { now = Date.now() } = {}) {
   if (run.status !== 'failed' && run.status !== 'stopped') return run;
   const index = current(run);
   if (index < 0) return touch(run, now, { status: 'done', endedAt: now });
+  if (run.stages[index].status === 'gated') return touch(run, now, { status: 'waiting', endedAt: null });
   return touch(run, now, { status: 'running', endedAt: null, stages: withStage(run, index, { status: 'pending', error: null }) });
+}
+
+const STAGE_STATUS = ['pending', 'running', 'gated', 'done', 'failed'];
+const RUN_STATUS = ['running', 'waiting', 'done', 'failed', 'stopped'];
+
+/* Whether something read back from disk is a run this code can draw and
+   drive. A run file is written by this app, but it is a file in the home
+   folder all the same: one that has been cut short or edited by hand is
+   skipped, so it cannot take the others down with it. */
+function isRun(run) {
+  if (!run || typeof run !== 'object') return false;
+  if (!str(run.id) || !str(run.name) || !RUN_STATUS.includes(run.status)) return false;
+  if (!Number.isFinite(run.startedAt) || !Number.isFinite(run.at)) return false;
+  if (!str(run.base) || !str(run.project) || typeof run.input !== 'string') return false;
+  const p = run.pipeline;
+  if (!p || typeof p !== 'object' || !Array.isArray(p.stages) || !Array.isArray(run.stages)) return false;
+  if (!p.stages.length || p.stages.length !== run.stages.length) return false;
+  return run.stages.every((s, i) => s && typeof s === 'object' && str(s.id) && str(s.title) && STAGE_STATUS.includes(s.status)
+    && (s.chat === null || str(s.chat)) && (s.session === null || str(s.session)) && (s.output === null || str(s.output))
+    && p.stages[i] && str(p.stages[i].prompt) && p.stages[i].id === s.id);
 }
 
 /* A run read back from disk after the window that drove it went away. A stage
@@ -279,4 +305,5 @@ module.exports = {
   retry,
   revive,
   focusStage,
+  isRun,
 };

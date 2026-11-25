@@ -39,7 +39,9 @@ function RunCard({ run }) {
       className={cn('flex w-72 shrink-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-2 shadow-xs', run.status === 'waiting' && 'border-amber-500/60')}>
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{run.name}</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{relative(run.at || run.startedAt)}</span>
+        {Number.isFinite(run.at || run.startedAt) && (
+          <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={`Started ${new Date(run.startedAt).toLocaleString()}`}>{relative(run.at || run.startedAt)}</span>
+        )}
       </div>
       {run.input && <p className="truncate text-[12px] text-foreground/75" title={run.input}>{run.input}</p>}
       <ol className="flex flex-wrap items-center gap-1">

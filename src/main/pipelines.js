@@ -14,7 +14,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 
 const projects = require('./projects');
-const { checkPipeline } = require('../shared/pipeline');
+const { checkPipeline, isRun: runShape } = require('../shared/pipeline');
 
 const PROJECT_DIR = path.join('.conn', 'pipelines');
 const MAX_FILE = 200_000;
@@ -148,7 +148,7 @@ function prune(dir) {
   for (const { n } of aged.slice(MAX_RUNS)) { try { fs.unlinkSync(path.join(dir, n)); } catch {} }
 }
 
-const isRun = (run) => !!run && typeof run.id === 'string' && RUN_ID.test(run.id) && Array.isArray(run.stages) && !!run.pipeline;
+const isRun = (run) => runShape(run) && RUN_ID.test(run.id);
 
 function readRun(id) {
   try {

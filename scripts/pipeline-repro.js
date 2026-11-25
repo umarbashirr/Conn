@@ -51,6 +51,15 @@ stages:
     prompt: Try the idea in a throwaway branch.
 `;
 
+const GATEKEEP = `name: Gatekeep
+stages:
+  - id: draft
+    prompt: Draft it.
+    gate: true
+  - id: ship
+    prompt: "Ship this: {{draft}}"
+`;
+
 const BROKEN = `name: Broken
 stages:
   - id: a
@@ -87,6 +96,7 @@ async function main() {
     fs.writeFileSync(path.join(dir, 'feature.yml'), FEATURE);
     fs.writeFileSync(path.join(dir, 'spike.yml'), SPIKE);
     fs.writeFileSync(path.join(dir, 'broken.yml'), BROKEN);
+    fs.writeFileSync(path.join(dir, 'gatekeep.yml'), GATEKEEP);
 
     // ---------------------------------------------------------- launching
 
@@ -95,7 +105,7 @@ async function main() {
     await key(s, 'Enter');
     const dialog = await until(() => js(`!!document.querySelector('[data-slot="pipeline-dialog"]') && [...document.querySelectorAll('[data-slot="pipeline-option"]')].map((o) => ({ name: o.getAttribute('aria-label'), disabled: o.disabled, text: o.innerText }))`));
     check('the-palette-opens-run-pipeline', !!dialog, 'no dialog');
-    check('every-file-is-listed', J((dialog || []).map((o) => o.name).sort()) === J(['Feature', 'Spike', 'broken']), J(dialog));
+    check('every-file-is-listed', J((dialog || []).map((o) => o.name).sort()) === J(['Feature', 'Gatekeep', 'Spike', 'broken']), J(dialog));
     const broken = (dialog || []).find((o) => o.name === 'broken');
     check('a-broken-file-says-why-and-cannot-be-picked', !!broken && broken.disabled && /\{\{nothing\}\}/.test(broken.text), J(broken));
     check('stages-and-gates-are-listed', /Plan \(gate\) → Build → Fix/.test((dialog || []).find((o) => o.name === 'Feature')?.text || ''), J(dialog));
@@ -178,7 +188,53 @@ async function main() {
     check('stop-stops-the-run', !!stopped && /Retry/.test(stopped.text), J(await runCard('Spike')));
     await shot(s, path.join(SHOTS, 'pipeline-runs.png'));
 
+    // ---------------------------------------------------------- after a worktree run
+
+    // The window is on the Spike worktree now. The next run still defaults to
+    // the checkout it was cut from.
+    await click(s, 'Run pipeline');
+    await until(() => js(`!!document.querySelector('[data-slot="pipeline-dialog"] select')`));
+    const folderPicked = await js(`document.querySelector('[data-slot="pipeline-dialog"] select').value`);
+    check('the-dialog-defaults-to-the-checkout-not-a-runs-worktree', folderPicked === s.project, J(folderPicked));
+    await click(s, 'css=[data-slot="pipeline-option"][aria-label="Gatekeep"]');
+    await key(s, 'Ctrl+Enter');
+    check('ctrl-enter-starts-a-pipeline-with-no-question', !!(await until(async () => (await runCard('Gatekeep'))?.stages.draft === 'running')), J(await runCard('Gatekeep')));
+
+    // Stop at a gate, then Retry: back at the gate, the stage not asked again.
+    await say(s, 'Draft one.');
+    await until(async () => (await runCard('Gatekeep'))?.status === 'waiting');
+    await click(s, 'css=[data-slot="pipeline-run"][aria-label="Gatekeep run"] [data-action="stop"]');
+    await until(async () => (await runCard('Gatekeep'))?.status === 'stopped');
+    await click(s, 'css=[data-slot="pipeline-run"][aria-label="Gatekeep run"] [data-action="retry"]');
+    const regated = await until(async () => { const r = await runCard('Gatekeep'); return r?.status === 'waiting' && r; });
+    check('retry-after-a-stop-at-a-gate-goes-back-to-the-gate', !!regated && regated.stages.draft === 'gated', J(await runCard('Gatekeep')));
+
+    // Delete the chat a stage is running in, from the rail's own menu: the
+    // run fails there rather than spinning on a turn that can never end.
+    await click(s, 'css=[data-slot="pipeline-run"][aria-label="Gatekeep run"] [data-action="continue"]');
+    await until(async () => (await runCard('Gatekeep'))?.stages.ship === 'running');
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+    const menu = await js(`(() => {
+      const row = [...document.querySelectorAll('[data-sidebar="menu-button"]')].find((b) => b.innerText.includes('Gatekeep · Ship'));
+      if (!row) return false;
+      const r = row.getBoundingClientRect();
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 8, button: 2 }));
+      return true;
+    })()`);
+    check('the-stage-chat-is-in-the-rail', menu, 'no Gatekeep · Ship row');
+    await click(s, 'css=[role="menuitem"][data-variant="destructive"]');
+    await click(s, 'css=[role="dialog"] [data-slot="dialog-footer"] button:last-child');
+    await key(s, 'Ctrl+Shift+M');
+    const closedUnder = await until(async () => { const r = await runCard('Gatekeep'); return r?.status === 'failed' && r; });
+    check('deleting-a-running-stages-chat-fails-the-run', !!closedUnder && /chat was closed/.test(closedUnder.text), J(await runCard('Gatekeep')));
+
     // ---------------------------------------------------------- after a reload
+
+    // Two run files no run could have written: cut short, and hand-edited.
+    fs.writeFileSync(path.join(runsDir, 'run-garbage2.json'), J({ id: 'run-garbage2', stages: [null, 5], pipeline: {}, status: 'running' }));
+    const one = JSON.parse(fs.readFileSync(path.join(runsDir, fs.readdirSync(runsDir)[0]), 'utf8'));
+    fs.writeFileSync(path.join(runsDir, 'run-notime1.json'), J({ ...one, id: 'run-notime1', at: undefined, startedAt: undefined }));
 
     // The page itself refuses location.reload(), so main reloads it, which
     // throws away everything the renderer held. What comes back is from disk.
@@ -192,8 +248,12 @@ async function main() {
       return f && k && { f, k };
     }, 10000);
     check('runs-survive-a-reload', !!after && after.f.status === 'done' && after.k.status === 'stopped', J(after));
+    check('bad-run-files-are-skipped-not-fatal', (await js(`document.querySelectorAll('[data-slot="pipeline-run"]').length`)) === 3
+      && await js(`!!document.querySelector('[data-slot="board-lanes"]')`), J(await js(`document.querySelectorAll('[data-slot="pipeline-run"]').length`)));
     await click(s, 'css=[aria-label="Put away the Feature run"]');
-    check('a-finished-run-can-be-put-away', !!(await until(async () => !(await runCard('Feature')))) && fs.readdirSync(runsDir).length === 1, J(fs.readdirSync(runsDir)));
+    const featureFile = onDisk[0].id;
+    check('a-finished-run-can-be-put-away', !!(await until(async () => !(await runCard('Feature'))))
+      && !fs.existsSync(path.join(runsDir, `${featureFile}.json`)), J(fs.readdirSync(runsDir)));
   } finally {
     await stop(s);
   }

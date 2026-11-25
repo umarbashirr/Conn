@@ -15,3 +15,19 @@ export function turnEnded(event) {
     try { fn(event); } catch (e) { console.error(e); }
   }
 }
+
+/* Chats that left the window: deleted, or gone with a folder that closed. A
+   pipeline whose stage was running in one cannot wait for its turn to end. */
+const goneListeners = new Set();
+
+export function onChatsGone(fn) {
+  goneListeners.add(fn);
+  return () => goneListeners.delete(fn);
+}
+
+export function chatsGone(keys) {
+  if (!keys?.length) return;
+  for (const fn of goneListeners) {
+    try { fn(keys); } catch (e) { console.error(e); }
+  }
+}

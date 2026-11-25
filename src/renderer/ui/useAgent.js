@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { chatActivity } from '@/lib/activity';
 import { lastTurnFailed } from '@/lib/board';
 import { boardState, subscribeBoard } from './shell/board-store.js';
-import { turnEnded } from '@/lib/turn-events';
+import { chatsGone, turnEnded } from '@/lib/turn-events';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
@@ -279,6 +279,7 @@ export function useAgent() {
     if (keep.length === all.length) return;
 
     const gone = new Set(all.filter((c) => !keep.includes(c)).map((c) => c.key));
+    chatsGone([...gone]);
     for (const [k, st] of streams.current) {
       if (!gone.has(k.split('\0')[0])) continue;
       if (st.raf) cancelAnimationFrame(st.raf);
@@ -678,7 +679,7 @@ export function useAgent() {
         });
         window.connRail?.refresh();
         if (msg.duration_ms >= LONG_TURN_MS && !chatsRef.current.find((c) => c.key === chat)?.quiet) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
-        turnEnded({ chat, failed, error: failed ? (msg.turnError?.message || `turn ended: ${msg.subtype}`) : null });
+        turnEnded({ chat, failed, error: failed ? (msg.turnError?.message || (msg.subtype === 'error_during_execution' ? 'The turn was stopped or broke off.' : 'The turn ended with an error.')) : null });
       }
     }));
 
@@ -1247,7 +1248,7 @@ export function useAgent() {
      read something else, and carries its name from the start so the rail
      never shows it as the first line of a prompt. Its mode, model and CLI are
      set on it alone; the composer's pickers stay as they are. */
-  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title } = {}) => {
+  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title, resume } = {}) => {
     const next = {
       ...blankChat(project || focusedProject.current, runs || providerRef.current, m || startMode.current),
       title: String(title || 'New chat').slice(0, RENAME_MAX),
@@ -1255,7 +1256,19 @@ export function useAgent() {
       // Whoever started it says when it is done, so the usual "is done" toast
       // and notification stay out of the way.
       quiet: true,
+      // A saved chat taken up again, after the window that ran it went away:
+      // the next message resumes that session, and its history is replayed
+      // so opening it shows what it already did.
+      ...(resume && { session: resume }),
     };
+    if (resume) {
+      const t = await conn().agent.transcript(resume, next.project).catch(() => null);
+      if (t) {
+        const span = storedWindow(t);
+        const items = replayStored(t, span.from);
+        Object.assign(next, { items, stored: storedOf(resume, span, items.length), usage: t.usage ? account(next.usage, t.usage) : next.usage });
+      }
+    }
     chatsRef.current = [...chatsRef.current, next];
     setChats(chatsRef.current);
     await conn().agent.prefs?.(next.key, { mode: next.mode, model: wanted, provider: next.provider }).catch(() => {});
@@ -1320,6 +1333,7 @@ export function useAgent() {
       // Deleting the last chat leaves the pane on a blank one rather than on
       // nothing at all.
       const next = rest.length ? rest : [blankChat(focusedProject.current, providerRef.current, startMode.current)];
+      chatsGone(chatsRef.current.filter((c) => !next.includes(c)).map((c) => c.key));
       chatsRef.current = next;
       setChats(next);
       if (activeRef.current === key) {

@@ -893,7 +893,12 @@ async function applyProvider(next) {
 // not one with a chat still working, not the one on screen, and not the main
 // checkout of a worktree that is open. When every folder is one of those,
 // nothing closes and the open is refused.
+// Folders a pipeline run in this window still needs: one running a stage or
+// waiting at a gate. The renderer says which, whenever a run moves.
+let pipelineFolders = new Set();
+
 function folderBusy(dir) {
+  if (pipelineFolders.has(dir)) return true;
   for (const [chat, cwd] of chatProjects) {
     if (cwd !== dir) continue;
     const a = sessions.get(chat);
@@ -2327,6 +2332,10 @@ function registerIpc() {
     try { return pipelines.writeExample(); } catch (e) { return { error: e.message }; }
   });
   ipcMain.handle('runs:list', () => pipelines.listRuns());
+  ipcMain.handle('pipelines:hold', (_e, { dirs } = {}) => {
+    pipelineFolders = new Set((Array.isArray(dirs) ? dirs : []).filter((d) => typeof d === 'string' && d).map((d) => path.resolve(d)));
+    return { ok: true };
+  });
   ipcMain.handle('runs:save', (_e, { run } = {}) => {
     try { return pipelines.saveRun(run); } catch (e) { return { error: e.message }; }
   });

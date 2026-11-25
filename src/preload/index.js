@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('conn', {
     runs: () => ipcRenderer.invoke('runs:list'),
     saveRun: (run) => ipcRenderer.invoke('runs:save', { run }),
     removeRun: (id) => ipcRenderer.invoke('runs:remove', { id }),
+    // The folders runs still need, kept open when the window is full.
+    hold: (dirs) => ipcRenderer.invoke('pipelines:hold', { dirs }),
   },
 
   project: {
