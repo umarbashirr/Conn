@@ -10,7 +10,7 @@ import { RENAME_MAX } from '../../../shared/chat-title';
 import { useCommandState } from 'cmdk';
 import {
   BlocksIcon, CheckCheckIcon, CheckIcon, ChevronRightIcon, CircleCheckIcon, DownloadIcon, EllipsisIcon, FolderIcon, FolderMinusIcon, GitForkIcon,
-  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PinOffIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
+  FolderOpenIcon, FolderPlusIcon, GaugeIcon, LayoutDashboardIcon, LoaderCircleIcon, MessageSquareIcon, PencilIcon, PinIcon, PinOffIcon, PlusIcon, RotateCcwIcon, SearchIcon, SquarePenIcon, Trash2Icon,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -54,6 +54,7 @@ import {
   pinChat, pinProject, projectOpen, refreshRail, relative, setDoneOpen, setProjectOpen, subscribeRail,
 } from './rail-store';
 import { toast } from './toast';
+import { boardState, getBoardVersion, needsHere, subscribeBoard } from './board-store';
 import { useUpdates } from '../useSettings';
 
 /* The box is a contenteditable, not the textarea this used to reach for, so
@@ -702,6 +703,11 @@ function RenameDialog({ chat, onCancel, onConfirm }) {
 
 export default function Rail() {
   useRail();
+  useSyncExternalStore(subscribeBoard, getBoardVersion, getBoardVersion);
+  const boardOn = boardState().open;
+  // Chats in this window waiting on you. Counted from the rail's own rows, so
+  // it moves with them and needs nothing polled.
+  const needs = needsHere();
   const updates = useUpdates();
   const [doomed, setDoomed] = useState(null);
   const [naming, setNaming] = useState(null);
@@ -797,6 +803,26 @@ export default function Rail() {
               <SearchIcon />
               <span>Search</span>
               <span className="ml-auto text-[10px] text-muted-foreground/70">Ctrl K</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            {/* Every agent in every window on one page, sorted by what each
+                wants from you. The count is this window's chats waiting on you. */}
+            <SidebarMenuButton
+              className={NAV}
+              isActive={boardOn}
+              title="Every agent at once (Ctrl+Shift+M)"
+              onClick={() => window.connChat?.board()}>
+              <LayoutDashboardIcon />
+              <span>Board</span>
+              {needs > 0 && (
+                <span
+                  data-slot="board-needs"
+                  title={`${needs} ${needs === 1 ? 'chat needs' : 'chats need'} you`}
+                  className="ml-auto rounded-full bg-amber-500/15 px-1.5 text-[10px] font-medium text-amber-700 tabular-nums dark:text-amber-400">
+                  {needs}
+                </span>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

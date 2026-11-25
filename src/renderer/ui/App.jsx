@@ -58,6 +58,8 @@ import { useCatalog } from './useCatalog';
 import { useProject } from './useProject';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
+import { BoardPage } from '@/components/board-page';
+import { boardState, closeBoard, getBoardVersion, openBoard, subscribeBoard, toggleBoard } from './shell/board-store.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
 import { ComposerFloat, focusFloat } from './shell/composer-float.js';
 import { PortalHost } from './lib/portal-host.js';
@@ -321,11 +323,15 @@ export default function App() {
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
   const [customizeAt, setCustomizeAt] = useState(null);
+  // The Board, in the chat's place too, but with the rail left up.
+  useSyncExternalStore(subscribeBoard, getBoardVersion, getBoardVersion);
+  const boardOpen = boardState().open;
   useLayoutEffect(() => {
-    if (customizeAt === null) leaveFullPage();
-    else enterFullPage();
-  }, [customizeAt]);
-  const customize = useCallback((at) => setCustomizeAt(at), []);
+    if (customizeAt !== null) enterFullPage();
+    else if (boardOpen) enterFullPage({ keepRail: true });
+    else leaveFullPage();
+  }, [customizeAt, boardOpen]);
+  const customize = useCallback((at) => { closeBoard(); setCustomizeAt(at); }, []);
   const closeCustomize = useCallback(() => setCustomizeAt(null), []);
   const customizeAtRef = useRef(customizeAt);
   customizeAtRef.current = customizeAt;
@@ -337,6 +343,7 @@ export default function App() {
   const showChat = useCallback(() => {
     setUsageOpen(false);
     setCustomizeAt(null);
+    closeBoard();
   }, []);
   const agentRef = useRef(agent);
   agentRef.current = agent;
@@ -475,6 +482,11 @@ export default function App() {
       },
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
+      board: (show) => {
+        if (show === true) return openBoard();
+        if (show === false) return closeBoard();
+        return toggleBoard();
+      },
       exportChat,
       copyLastReply,
       dictate: dictation.toggle,
@@ -695,6 +707,18 @@ export default function App() {
           reset={reset}
           agent={agent}
           updates={updates} />
+      </>
+    );
+  }
+
+  if (boardOpen) {
+    return (
+      <>
+        <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
+        <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
+        <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
+        <BoardPage />
       </>
     );
   }

@@ -686,11 +686,14 @@ function hideRight() {
    the meantime, to sign in or update, is one you are watching, so it stays. */
 let beforeFullPage = null;
 
-export function enterFullPage() {
-  if (beforeFullPage) return;
-  beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
-  setPreviewFull(false);
-  setLayout({ railOpen: false, rightOpen: false });
+// keepRail is the Board's: it takes the chat's place and the right column's
+// room, and leaves the rail, which is how you get back to one folder.
+export function enterFullPage({ keepRail = false } = {}) {
+  if (!beforeFullPage) {
+    beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
+    setPreviewFull(false);
+  }
+  setLayout({ railOpen: keepRail ? beforeFullPage.railOpen : false, rightOpen: false });
   syncRight();
 }
 
@@ -802,6 +805,10 @@ export function runCommand(name, arg) {
     // the way the settings dialog does.
     case 'palette': return window.connPalette?.toggle();
     case 'usage': return window.connChat?.usage?.();
+    case 'board':
+      if (arg === true) return window.connChat?.board?.(true);
+      if (arg === false) return window.connChat?.board?.(false);
+      return window.connChat?.board?.();
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();

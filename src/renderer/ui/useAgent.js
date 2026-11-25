@@ -6,6 +6,7 @@ import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { chatActivity } from '@/lib/activity';
+import { lastTurnFailed } from '@/lib/board';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
@@ -889,6 +890,8 @@ export function useAgent() {
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
         shells: c.items.filter((it) => it.kind !== 'agent' && isRunning(it)).length,
+        failed: lastTurnFailed(c.items),
+        provider: c.provider,
         activity: chatActivity(c.items, c.busy, !c.endedUnseen),
       })),
     });
