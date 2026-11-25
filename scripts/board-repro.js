@@ -175,6 +175,23 @@ async function main() {
     await key(s, 'Ctrl+Shift+M');
     check('ctrl-shift-m-toggles-it-closed', !!(await until(() => js(`!document.querySelector('[data-slot="board-page"]')`))), 'still open');
 
+    // The rail on the Board is yours to show or hide, and closing the Board
+    // keeps what you chose.
+    const railShown = () => js(`(() => { const r = document.querySelector('[title="Start a chat in this folder"]'); return !!r && r.getBoundingClientRect().width > 100; })()`);
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+    await key(s, 'Ctrl+B');
+    await until(async () => !(await railShown()));
+    await key(s, 'Ctrl+Shift+M');
+    await until(() => js(`!!document.querySelector('[data-slot="board-page"]')`));
+    check('a-rail-hidden-before-the-board-stays-hidden', !(await railShown()), 'rail came back');
+    await key(s, 'Ctrl+B');
+    await until(railShown);
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+    await sleep(300);
+    check('a-rail-shown-on-the-board-stays-after-it-closes', await railShown(), 'rail hid again');
+
     // The palette reaches it by name.
     await key(s, 'Ctrl+K');
     await type(s, 'Board');
@@ -193,6 +210,15 @@ async function main() {
     await say(s, 'Finished while you were on the Board.');
     const behind = await until(async () => (await lanes()).done?.some((c) => c.title === 'Ends behind the board') && 'done');
     check('a-turn-ending-behind-the-board-is-done-not-recent', !!behind, J(await lanes()));
+    const overlap = await until(() => js(`(() => {
+      const t = document.querySelector('[data-sonner-toaster]');
+      const head = document.querySelector('[data-slot="board-page"] > div');
+      if (!t || !head) return null;
+      const a = t.getBoundingClientRect();
+      const b = head.getBoundingClientRect();
+      return { toast: a.top, header: b.bottom, clear: a.top >= b.bottom - 1 };
+    })()`));
+    check('a-toast-on-the-board-lands-below-its-header', !!overlap?.clear, J(overlap));
     await key(s, 'Escape');
     await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
     await newChat('Fails behind the board');

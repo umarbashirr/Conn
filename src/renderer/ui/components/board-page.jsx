@@ -127,6 +127,13 @@ export function BoardPage() {
   const st = boardState();
   const lanes = useMemo(() => lanesNow(), [railVersion, st.at, st.peers, st.outside]);
 
+  // Toasts land below the Board's header rather than on its buttons.
+  useEffect(() => {
+    const root = document.documentElement.style;
+    root.setProperty('--toast-top', '84px');
+    return () => root.removeProperty('--toast-top');
+  }, []);
+
   useEffect(() => {
     const onKey = (e) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;

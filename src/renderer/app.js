@@ -688,12 +688,17 @@ let beforeFullPage = null;
 
 // keepRail is the Board's: it takes the chat's place and the right column's
 // room, and leaves the rail, which is how you get back to one folder.
+// With the rail left up, showing or hiding it is yours, and leaving the page
+// keeps what you chose rather than putting back what it was on the way in.
 export function enterFullPage({ keepRail = false } = {}) {
   if (!beforeFullPage) {
-    beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
+    beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen, keepRail };
     setPreviewFull(false);
+  } else if (beforeFullPage.keepRail && !keepRail) {
+    beforeFullPage.railOpen = state.railOpen;
   }
-  setLayout({ railOpen: keepRail ? beforeFullPage.railOpen : false, rightOpen: false });
+  beforeFullPage.keepRail = keepRail;
+  setLayout({ railOpen: keepRail ? state.railOpen : false, rightOpen: false });
   syncRight();
 }
 
@@ -701,7 +706,7 @@ export function leaveFullPage() {
   const was = beforeFullPage;
   if (!was) return;
   beforeFullPage = null;
-  setLayout({ railOpen: was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
+  setLayout({ railOpen: was.keepRail ? state.railOpen : was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
   syncRight();
   requestAnimationFrame(() => { syncBounds(); resizeActive(); });
 }
