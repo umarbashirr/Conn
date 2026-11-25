@@ -11,7 +11,7 @@
    useSyncExternalStore, and changed() to bump it. */
 'use strict';
 import {
-  approve, finalReply, newRun, nextStep, retry, revive, stageEnded, stageSession, stageStarted, stop,
+  approve, finalReply, labelFor, newRun, nextStep, retry, revive, stageEnded, stageSession, stageStarted, stop,
 } from '../../../shared/pipeline';
 import { toast as sonner } from 'sonner';
 import { onChatsGone, onTurnEnd } from '../lib/turn-events.js';
@@ -38,6 +38,8 @@ function changed() {
 
 const conn = () => window.conn;
 const chats = () => window.connChat;
+// What a run is called on screen. Older run files have no label.
+export const nameOf = (run) => run.label || run.name;
 const runOf = (id) => state.runs.find((r) => r.id === id) || null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
@@ -115,7 +117,7 @@ export async function startRun({ pipeline, input = '', dir }) {
     if (!res?.ok) return { error: res?.error || 'Could not make the worktree.' };
     project = res.dir;
   }
-  const run = put(newRun({ id, pipeline, input: String(input).trim(), base: dir, project }));
+  const run = put(newRun({ id, pipeline, input: String(input).trim(), base: dir, project, label: labelFor(pipeline.name, state.runs) }));
   advance(run.id);
   return { ok: true, id: run.id };
 }
@@ -165,7 +167,7 @@ async function advance(id) {
         model: stage.model,
         // A `same:` stage taking up its earlier stage's saved chat is that chat,
         // so it keeps that stage's name.
-        title: `${run.name} · ${(!own.session && into?.session && resume ? into : stage).title}`,
+        title: `${nameOf(run)} · ${(!own.session && into?.session && resume ? into : stage).title}`,
         resume,
       });
     }
@@ -251,12 +253,12 @@ const dropGateToast = (id) => {
 
 function announce(run, index) {
   const stage = run.stages[index];
-  const note = (body) => conn().agent.notify({ chat: stage.chat, title: run.name, body });
+  const note = (body) => conn().agent.notify({ chat: stage.chat, title: nameOf(run), body });
   if (run.status === 'waiting') {
-    gateToasts.set(run.id, toast(`${run.name}: ${stage.title} is ready`, 'Read it, reply if it needs changes, then Continue on the Board.'));
+    gateToasts.set(run.id, toast(`${nameOf(run)}: ${stage.title} is ready`, 'Read it, reply if it needs changes, then Continue on the Board.'));
     note(`${stage.title} is ready for you`);
   } else if (run.status === 'failed') {
-    toast(`${run.name}: ${stage.title} failed`, stage.error || 'Retry on the Board sends it again.');
+    toast(`${nameOf(run)}: ${stage.title} failed`, stage.error || 'Retry on the Board sends it again.');
     note(`${stage.title} failed`);
   } else if (run.status === 'done') {
     note('Finished');
@@ -321,7 +323,7 @@ export function openStage(run, stage) {
     toast(`Could not open ${stage.title}`, 'Its chat was deleted, or its folder is not open in this window.');
     return;
   }
-  window.connChat?.open({ id: stage.session, project: run.project, title: `${run.name} · ${stage.title}` });
+  window.connChat?.open({ id: stage.session, project: run.project, title: `${nameOf(run)} · ${stage.title}` });
 }
 
 // ------------------------------------------------------------ for the Board
@@ -333,7 +335,7 @@ export function gatedChats() {
   for (const run of state.runs) {
     if (run.status !== 'waiting') continue;
     const st = run.stages.find((s) => s.status === 'gated');
-    if (st?.chat) out.set(st.chat, { run: run.id, name: run.name, stage: st.title });
+    if (st?.chat) out.set(st.chat, { run: run.id, name: nameOf(run), stage: st.title });
   }
   return out;
 }
@@ -342,7 +344,7 @@ export function gatedChats() {
 export function stageOfChat(key) {
   for (const run of state.runs) {
     const st = run.stages.find((s) => s.chat === key);
-    if (st) return { run: run.id, name: run.name, stage: st.title };
+    if (st) return { run: run.id, name: nameOf(run), stage: st.title };
   }
   return null;
 }

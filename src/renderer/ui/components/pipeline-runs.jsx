@@ -8,7 +8,7 @@ import { CheckIcon, CircleIcon, LoaderCircleIcon, PauseIcon, XIcon } from 'lucid
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { relative } from '../shell/rail-store';
-import { continueRun, getRunsVersion, openStage, removeRun, retryRun, runsState, stopRun, subscribeRuns } from '../shell/pipeline-store';
+import { continueRun, getRunsVersion, nameOf, openStage, removeRun, retryRun, runsState, stopRun, subscribeRuns } from '../shell/pipeline-store';
 
 // How many finished runs stay on the strip. The ones still going always do.
 const FINISHED_SHOWN = 3;
@@ -35,10 +35,10 @@ function RunCard({ run }) {
     <div
       data-slot="pipeline-run"
       data-status={run.status}
-      aria-label={`${run.name} run`}
+      aria-label={`${nameOf(run)} run`}
       className={cn('flex w-72 shrink-0 flex-col gap-1.5 rounded-lg border bg-card px-3 py-2 shadow-xs', run.status === 'waiting' && 'border-amber-500/60')}>
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{run.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{nameOf(run)}</span>
         {Number.isFinite(run.at || run.startedAt) && (
           <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums" title={`Started ${new Date(run.startedAt).toLocaleString()}`}>{relative(run.at || run.startedAt)}</span>
         )}
@@ -71,7 +71,7 @@ function RunCard({ run }) {
         {(run.status === 'running' || run.status === 'waiting') && <Button size="xs" variant="outline" data-action="stop" onClick={() => stopRun(run.id)}>Stop</Button>}
         {(run.status === 'failed' || run.status === 'stopped') && <Button size="xs" variant="outline" data-action="retry" onClick={() => retryRun(run.id)}>Retry</Button>}
         {(run.status === 'done' || run.status === 'failed' || run.status === 'stopped') && (
-          <Button size="icon-xs" variant="ghost" data-action="remove" aria-label={`Put away the ${run.name} run`} title="Put this run away" onClick={() => removeRun(run.id)}>
+          <Button size="icon-xs" variant="ghost" data-action="remove" aria-label={`Put away the ${nameOf(run)} run`} title="Put this run away" onClick={() => removeRun(run.id)}>
             <XIcon />
           </Button>
         )}

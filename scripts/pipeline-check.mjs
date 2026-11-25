@@ -172,6 +172,19 @@ assert.equal(P.focusStage(run), 2, 'a finished run shows its last stage');
   assert.equal(P.retry(run), run, 'a finished run cannot be retried');
 }
 
+// ------------------------------------------------------------------ names of repeat runs
+
+{
+  const r1 = P.newRun({ id: 'run-name01', pipeline, base: '/w' });
+  assert.equal(r1.label, 'Feature', 'the first run takes the pipeline\'s name');
+  assert.equal(P.labelFor('Feature', [r1]), 'Feature #2', 'a second run is numbered');
+  const r2 = { ...r1, label: 'Feature #2' };
+  assert.equal(P.labelFor('Feature', [r1, r2]), 'Feature #3', 'one past the highest');
+  assert.equal(P.labelFor('Feature', [r2]), 'Feature #3', 'even once the first is put away');
+  assert.equal(P.labelFor('Other', [r1, r2]), 'Other', 'another pipeline counts on its own');
+  assert.equal(P.labelFor('Feature', [{ name: 'Feature' }]), 'Feature #2', 'a run from before labels counts as the first');
+}
+
 // ------------------------------------------------------------------ what a run file has to be
 
 {
@@ -190,6 +203,7 @@ assert.equal(P.focusStage(run), 2, 'a finished run shows its last stage');
     { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, status: 'weird' })) },
     { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, id: 'other' })) },
     { ...good, stages: good.stages.map((s, i) => (i ? s : { ...s, output: 7 })) },
+    { ...good, label: 42 },
   ];
   bad.forEach((b, i) => assert.equal(P.isRun(b), false, `malformed run ${i} is not a run`));
 }

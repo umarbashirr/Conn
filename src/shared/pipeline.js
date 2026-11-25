@@ -141,10 +141,13 @@ function finalReply(items) {
    status is running, waiting (a gate), done, failed or stopped. A stage is
    pending, running, gated, done or failed. */
 
-function newRun({ id, pipeline, input = '', base, project, now = Date.now() }) {
+function newRun({ id, pipeline, input = '', base, project, label, now = Date.now() }) {
   return {
     id,
     name: pipeline.name,
+    // What the run is called on screen. The pipeline's name, or "Feature #2"
+    // for a second run of it, so two runs never read the same.
+    label: label || pipeline.name,
     pipeline,
     input: String(input || ''),
     base,
@@ -265,6 +268,7 @@ const RUN_STATUS = ['running', 'waiting', 'done', 'failed', 'stopped'];
 function isRun(run) {
   if (!run || typeof run !== 'object') return false;
   if (!str(run.id) || !str(run.name) || !RUN_STATUS.includes(run.status)) return false;
+  if (run.label !== undefined && !str(run.label)) return false;
   if (!Number.isFinite(run.startedAt) || !Number.isFinite(run.at)) return false;
   if (!str(run.base) || !str(run.project) || typeof run.input !== 'string') return false;
   const p = run.pipeline;
@@ -280,6 +284,18 @@ function isRun(run) {
 function revive(run, { now = Date.now() } = {}) {
   if (run.status !== 'running') return run;
   return stop(run, { now });
+}
+
+/* The name for a new run of a pipeline, given the runs there are: the
+   pipeline's own name, or "#n" after it, one past the highest in use. */
+function labelFor(name, runs) {
+  let top = 0;
+  for (const r of runs || []) {
+    if (r.name !== name) continue;
+    const m = String(r.label || r.name).match(/ #(\d+)$/);
+    top = Math.max(top, m ? Number(m[1]) : 1);
+  }
+  return top ? `${name} #${top + 1}` : name;
 }
 
 // The run's stage on screen, for its card: the one running, waiting or failed.
@@ -306,4 +322,5 @@ module.exports = {
   revive,
   focusStage,
   isRun,
+  labelFor,
 };

@@ -188,6 +188,18 @@ async function main() {
     check('stop-stops-the-run', !!stopped && /Retry/.test(stopped.text), J(await runCard('Spike')));
     await shot(s, path.join(SHOTS, 'pipeline-runs.png'));
 
+    // A second run of the same pipeline reads differently from the first.
+    await click(s, 'Run pipeline');
+    await until(() => js(`!!document.querySelector('[data-slot="pipeline-option"][aria-label="Spike"]')`));
+    await click(s, 'css=[data-slot="pipeline-option"][aria-label="Spike"]');
+    await key(s, 'Ctrl+Enter');
+    const second = await until(async () => { const r = await runCard('Spike #2'); return r?.stages.try === 'running' && r; }, 15000);
+    check('a-second-run-of-a-pipeline-is-numbered', !!second, J(await js(`[...document.querySelectorAll('[data-slot="pipeline-run"]')].map((c) => c.getAttribute('aria-label'))`)));
+    check('and-so-is-its-chat', await js(`[...document.querySelectorAll('[data-sidebar="menu-button"]')].some((b) => b.innerText.includes('Spike #2 · Try'))`), 'no Spike #2 · Try in the rail');
+    await click(s, 'css=[data-slot="pipeline-run"][aria-label="Spike #2 run"] [data-action="stop"]');
+    await until(async () => (await runCard('Spike #2'))?.status === 'stopped');
+    await click(s, 'css=[aria-label="Put away the Spike #2 run"]');
+
     // ---------------------------------------------------------- after a worktree run
 
     // The window is on the Spike worktree now. The next run still defaults to
