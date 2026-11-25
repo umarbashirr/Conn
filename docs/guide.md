@@ -304,6 +304,76 @@ Board leaves those sessions out.
 The other windows and the CLI are asked every few seconds while the Board is open, and not at all
 while it is closed.
 
+## Pipelines
+
+A pipeline is a workflow you repeat, saved once: plan, build, review, fix. Start one and each stage
+runs in a chat of its own, in order, with what the earlier stages said handed on. **Run pipeline** on
+the Board, or **Run pipeline** in the palette (`Ctrl+K`), lists the ones you have.
+
+![A pipeline waiting at its gate, its plan in Needs you](media/pipeline-gate.png)
+
+A pipeline is a YAML file. Put it in `.conn/pipelines/` in a project to keep it with that project,
+or in `~/.conn/pipelines/` to have it in every project. **Create an example** in the dialog writes
+this one to `~/.conn/pipelines/feature.yml`:
+
+```yaml
+name: Feature
+description: Plan, build, review and fix a change in its own worktree
+input: What should be built?      # asked when you start it; {{input}} in a prompt
+worktree: true                    # run every stage in a new worktree cut from the folder
+stages:
+  - id: plan
+    prompt: |
+      Plan this change. Reply with a short numbered plan and nothing else.
+
+      {{input}}
+    mode: plan
+    gate: true                    # stop here until you press Continue
+  - id: build
+    prompt: |
+      Implement this plan. Keep the change focused and run the tests.
+
+      {{plan}}
+    mode: auto
+  - id: review
+    prompt: Review the uncommitted changes for bugs. Reply with findings, or "No findings."
+    mode: plan
+  - id: fix
+    prompt: |
+      Fix these review findings. If there are none, say so and stop.
+
+      {{review}}
+    mode: auto
+    same: build                   # continue the build stage's chat instead of a new one
+```
+
+| Field | Means |
+| --- | --- |
+| `name` | What the pipeline is called. Required. |
+| `description` | One line under the name in the list. |
+| `input` | The question asked when you start it. Its answer is `{{input}}`. |
+| `worktree` | `true` cuts a new worktree from the folder and runs every stage there. |
+| `stages[].id` | The stage's name, lowercase. `{{<id>}}` in a later prompt is this stage's final reply. |
+| `stages[].prompt` | What the stage is asked. Required. |
+| `stages[].title` | How the stage is shown. The id, capitalised, if left out. |
+| `stages[].mode` | `plan`, `ask`, `auto` or `bypass`, as on the composer. Your default if left out. |
+| `stages[].provider`, `model` | Which agent and model run the stage. Yours if left out. |
+| `stages[].gate` | `true` stops the run after this stage until you press **Continue**. |
+| `stages[].same` | An earlier stage's id: send this one in that stage's chat. |
+
+A file with a mistake is still listed, with the reason, and cannot be started: a `{{name}}` that is
+not an earlier stage, a `same` that points forward, a mode that does not exist. Files are read again
+every time the list opens, so an edit shows up without a restart.
+
+**While it runs.** The run is a card at the top of the Board, with its stages in order. Click a stage
+to open its chat. Each stage's chat is also in the rail, named after the pipeline and the stage. A
+stage at a gate puts its chat in **Needs you**: read it, reply in that chat if it needs changing, then
+press **Continue**. The next stage gets the latest reply, so a plan you talked over goes on as it
+stands after that. **Stop** stops the stage that is running. A stage whose turn fails stops the run
+there; **Retry** sends it again in the same chat. A run is saved after every step under
+`~/.conn/runs/`, so it is still on the Board after a restart. One that was mid-stage when Conn closed
+comes back stopped, and **Retry** picks it up.
+
 ## Worktrees
 
 Give a chat its own branch and its own folder, so two agents can work at once without touching each

@@ -14,6 +14,7 @@
 import { board, cardsFromRail, externalCards, laneOf, needsCount } from '../lib/board.js';
 import { grouped, isDone, liveKeys, subscribeRail } from './rail-store';
 import { toast } from './toast';
+import { gatedChats, loadRuns, stageOfChat, subscribeRuns } from './pipeline-store';
 
 // How often an open Board asks the other windows and the CLI again.
 export const POLL_MS = 4000;
@@ -47,8 +48,17 @@ function changed() {
 
 const conn = () => window.conn;
 
-// This window's cards, as the rail has them now.
-export const localCards = () => cardsFromRail(grouped(), { isDone });
+/* This window's cards, as the rail has them now, each marked with the
+   pipeline it belongs to and whether a run is waiting on you in it. */
+export function localCards() {
+  const gates = gatedChats();
+  return cardsFromRail(grouped(), { isDone }).map((c) => {
+    if (!c.key) return c;
+    const pipeline = stageOfChat(c.key);
+    if (!pipeline) return c;
+    return { ...c, pipeline: { name: pipeline.name, stage: pipeline.stage }, gate: gates.has(c.key) };
+  });
+}
 
 // The Board's lanes from everything known right now.
 export function lanesNow(now = Date.now()) {
@@ -136,6 +146,8 @@ export function openBoard() {
   state.open = true;
   changed();
   refreshBoard();
+  // A run another window let go of since this one started is picked up here.
+  loadRuns();
 }
 
 export function closeBoard() {
@@ -186,6 +198,8 @@ async function openHere({ key, session, project, title, provider }) {
 
 if (typeof window !== 'undefined' && window.conn?.board) {
   subscribeRail(publishSoon);
+  // A gate opening or closing moves a card without the rail moving.
+  subscribeRuns(() => { publishSoon(); changed(); });
   // Another window's Board picked a chat this window holds.
   window.conn.board.onOpen(async ({ key, session, project, title } = {}) => {
     const res = await openHere({ key, session, project, title });

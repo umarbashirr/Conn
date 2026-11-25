@@ -25,6 +25,7 @@ Conn runs the agent CLI you already have, with its own login. No API key and no 
 - **Any shell can drive the browser.** Scripts, tests and other agents use the same browser through the `conn` command, or through MCP with `conn setup project`.
 - **It fits how you already work.** A local URL in the terminal becomes a one-click preview. Claude chats are the same ones `claude --resume` sees. Record the page as a video when a screenshot won't do. Keep up to eight projects and their worktrees in one window.
 - **Every agent on one Board.** `Ctrl+Shift+M` shows every chat in every Conn window, plus the Claude Code sessions running in your terminals, sorted into Needs you, Working, Done and Recent.
+- **Pipelines.** Save a workflow you repeat (plan, build, review, fix) as a YAML file, and start it in one go. Each stage runs in its own chat, optionally in a new worktree, and a gate waits for you before the next.
 - **A phone companion.** Pair the Android app with a scan, then read your chats and send messages and photos from your phone.
 
 ![Conn with the chat on the left showing the agent's browser steps, and the cart page open on the right](docs/media/conn.png)
@@ -63,7 +64,7 @@ The [Conn guide](docs/guide.md) covers everything in detail:
 
 - [Install options](docs/guide.md#install) and building from source
 - [Projects](docs/guide.md#opening-a-project) and [worktrees](docs/guide.md#worktrees)
-- [The agent panel](docs/guide.md#the-agent-panel), [the Board](docs/guide.md#the-board) and [skills and MCP servers](docs/guide.md#skills-and-mcp-servers)
+- [The agent panel](docs/guide.md#the-agent-panel), [the Board](docs/guide.md#the-board), [pipelines](docs/guide.md#pipelines) and [skills and MCP servers](docs/guide.md#skills-and-mcp-servers)
 - [The terminal](docs/guide.md#the-terminal) and [recording the page](docs/guide.md#recording-the-page)
 - [Using Conn from another agent](docs/guide.md#using-it-from-another-agent) and [keyboard shortcuts](docs/guide.md#keys)
 - [How it fits together](docs/guide.md#how-it-fits-together) and [limits worth knowing](docs/guide.md#limits-worth-knowing)

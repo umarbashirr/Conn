@@ -6,7 +6,7 @@
    opens its chat, in this window or in whichever window holds it. Claude Code
    sessions running outside Conn are shown for what they are, read only. */
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
-import { CopyIcon, GitForkIcon, LayoutDashboardIcon, LoaderCircleIcon, RefreshCwIcon, SquareTerminalIcon, XIcon } from 'lucide-react';
+import { CopyIcon, GitForkIcon, LayoutDashboardIcon, LoaderCircleIcon, RefreshCwIcon, SquareTerminalIcon, WorkflowIcon, XIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -15,6 +15,8 @@ import { cn } from '@/lib/utils';
 import { getRailVersion, relative, subscribeRail } from '../shell/rail-store';
 import { boardState, closeBoard, getBoardVersion, lanesNow, openCard, refreshBoard, subscribeBoard } from '../shell/board-store';
 import { toast } from '../shell/toast';
+import { PipelineRuns } from '@/components/pipeline-runs';
+import { openRunDialog } from '../shell/pipeline-store';
 
 const DOT = {
   needs: 'bg-amber-500',
@@ -88,6 +90,12 @@ function Card({ card, lane }) {
         <span className="ml-auto" />
         <Where card={card} />
       </span>
+      {card.pipeline?.name && card.title !== `${card.pipeline.name} · ${card.pipeline.stage}` && (
+        <span data-slot="board-pipeline" className="flex items-center gap-1 truncate pl-5.5 text-[11px] text-muted-foreground">
+          <WorkflowIcon className="size-3 shrink-0" />
+          {card.pipeline.name} · {card.pipeline.stage}
+        </span>
+      )}
       {line && (
         <span className={cn('truncate pl-5.5 text-[12px]', card.failed ? 'text-destructive' : 'text-foreground/75')}>{line}</span>
       )}
@@ -122,10 +130,12 @@ function Lane({ lane, cards }) {
 }
 
 export function BoardPage() {
-  useSyncExternalStore(subscribeBoard, getBoardVersion, getBoardVersion);
+  // The board store moves with the other windows, the CLI and the pipeline
+  // runs; the rail moves with this window's chats. Either is a new picture.
+  const boardVersion = useSyncExternalStore(subscribeBoard, getBoardVersion, getBoardVersion);
   const railVersion = useSyncExternalStore(subscribeRail, getRailVersion, getRailVersion);
   const st = boardState();
-  const lanes = useMemo(() => lanesNow(), [railVersion, st.at, st.peers, st.outside]);
+  const lanes = useMemo(() => lanesNow(), [railVersion, boardVersion]);
 
   // Toasts land below the Board's header rather than on its buttons.
   useEffect(() => {
@@ -154,19 +164,24 @@ export function BoardPage() {
       <div className="flex h-[38px] flex-none items-center gap-2 border-b border-border/60 px-4 text-sm">
         <LayoutDashboardIcon className="size-4 text-muted-foreground" />
         <span className="font-medium">Board</span>
-        <span className="truncate text-[12px] text-muted-foreground">
+        {/* The actions sit by the title, not at the far right, where a toast
+            lands on top of them. Esc closes it wherever a toast is. */}
+        <Button variant="outline" size="xs" title="Start a saved pipeline" onClick={openRunDialog}>
+          <WorkflowIcon />
+          Run pipeline
+        </Button>
+        <Button variant="ghost" size="icon-xs" aria-label="Refresh the board" title="Ask the other windows and Claude Code again" onClick={() => refreshBoard()}>
+          <RefreshCwIcon />
+        </Button>
+        <span className="min-w-0 truncate text-[12px] text-muted-foreground">
           {windows ? `This window and ${windows} other${windows === 1 ? '' : 's'}` : 'This window'}
           {st.outside?.ok ? ', plus Claude Code outside Conn' : ''}
         </span>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-xs" aria-label="Refresh the board" title="Ask the other windows and Claude Code again" onClick={() => refreshBoard()}>
-            <RefreshCwIcon />
-          </Button>
-          <Button variant="ghost" size="icon-xs" aria-label="Close the board" title="Back to the chat (Esc)" onClick={closeBoard}>
-            <XIcon />
-          </Button>
-        </div>
+        <Button className="ml-auto shrink-0" variant="ghost" size="icon-xs" aria-label="Close the board" title="Back to the chat (Esc)" onClick={closeBoard}>
+          <XIcon />
+        </Button>
       </div>
+      <PipelineRuns />
       {/* Columns follow the Board's own width, which the window's does not say:
           the right column can still be opened beside it. minmax(0, 1fr) lets a
           lane be narrower than its longest title, which then truncates. */}
