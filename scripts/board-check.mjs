@@ -58,6 +58,9 @@ assert.equal(lastTurnFailed([]), false, 'no turn at all');
   assert.deepEqual(cards.map((c) => c.id), ['s1'], 'a chat marked completed stays off the Board');
   assert.equal(cards[0].project, '/w/shop', 'a row with no folder of its own takes its group\'s');
   assert.equal(cards[0].session, 's1', 'a saved chat carries its session');
+  const pinnedDone = [{ dir: '/w', rows: [{ id: 'p1', title: 'Pinned, done' }, { id: 'p2', title: 'Done but waiting', waiting: true }, { id: 'p3', title: 'Open' }] }];
+  assert.deepEqual(cardsFromRail(pinnedDone, { isDone: (r) => r.id !== 'p3' }).map((c) => c.id), ['p2', 'p3'],
+    'a completed chat the rail keeps open (a pin) is off the Board too, unless it is waiting on you');
   const fresh = cardsFromRail([{ dir: '/w', rows: [{ id: 'c9', key: 'c9', title: 'New' }] }]);
   assert.equal(fresh[0].session, null, 'a chat not written yet has no session, only its key');
 }
@@ -82,6 +85,15 @@ assert.equal(lastTurnFailed([]), false, 'no turn at all');
   assert.equal(ext[2].title, 'Claude Code session', 'an unnamed session gets a name');
   assert.equal(ext[0].state, 'Blocked in the background', 'the state reads as a line');
   assert.deepEqual(externalCards({ not: 'a list' }), [], 'anything but a list is nothing');
+  assert.equal(ext[3].at, NOW - 2000, 'when it started is kept');
+  assert.equal(externalCards([{ sessionId: 'n', kind: 'background', state: 'working' }], NOW)[0].at, 0, 'a session that does not say when it started is not made to look new');
+  const aged = board({ external: externalCards([
+    { sessionId: 'old-done', state: 'completed', kind: 'background', startedAt: NOW - RECENT_MS - 5 },
+    { sessionId: 'old-busy', status: 'busy', kind: 'interactive', startedAt: NOW - RECENT_MS - 5 },
+    { sessionId: 'no-time', state: 'completed', kind: 'background' },
+  ], NOW), now: NOW });
+  assert.deepEqual(aged.done, [], 'a session that finished over a day ago, or never said when, is history');
+  assert.deepEqual(aged.working.map((c) => c.session), ['old-busy'], 'one still working is work, however long it has run');
 }
 
 // ------------------------------------------------------------------ merging
@@ -110,6 +122,8 @@ assert.equal(lastTurnFailed([]), false, 'no turn at all');
   assert.equal(lanes.recent.length, 0, 'an outside session quiet for over a day is left off');
   assert.equal(lanes.needs.find((c) => c.where === 'peer').pid, 77, 'a peer card knows which window holds it');
   assert.equal(needsCount(lanes), 2, 'the badge counts what needs you');
+  const untitled = board({ peers: [{ pid: 1, cards: [{ id: 'u', key: 'u', session: 'u', waiting: true }] }], now: NOW });
+  assert.equal(untitled.needs[0].title, 'Untitled chat', 'a peer card with no title gets one');
 }
 
 // ------------------------------------------------------------------ main: cleaning and parsing
@@ -124,6 +138,8 @@ assert.equal(lastTurnFailed([]), false, 'no turn at all');
   assert.deepEqual(cleanCards([{ title: 'no id' }, null, 7]), [], 'a card without an id is not a card');
   assert.deepEqual(cleanCards('nope'), [], 'anything but a list is nothing');
   assert.equal(cleanCards(Array.from({ length: 500 }, (_, i) => ({ id: String(i) }))).length, 200, 'one window sends at most 200 cards');
+  assert.deepEqual(cleanCards([{ id: 'a', key: 'k', title: 'A' }, { id: 'b', key: 'k', title: 'B' }, { id: 'a', title: 'C' }, { id: 'a', title: 'D' }]).map((c) => c.title), ['A', 'C'],
+    'a chat is one card: a repeated key, or id where there is no key, is dropped');
 }
 
 assert.deepEqual(parseList('[{"sessionId":"a"}]', 0), { ok: true, list: [{ sessionId: 'a' }] }, 'a list parses');
@@ -140,7 +156,7 @@ const b = new Bridge({
   cwds: [path.join(home, 'b1'), path.join(home, 'b2')],
   board: {
     cards: () => [{ id: 'sb', key: 'kb', session: 'sb', title: 'In window B', project: '/w/b1', waiting: true, at: NOW, secret: 'x' }],
-    open: (c) => { opened.push(c); return { ok: true }; },
+    open: (c) => { opened.push(c); return c.key === 'gone' ? { error: 'That chat is not open in that window any more.' } : { ok: true }; },
   },
 });
 try {
@@ -172,6 +188,7 @@ try {
   assert.deepEqual(res, { ok: true }, 'opening a card in another window is answered');
   assert.deepEqual(opened, [{ key: 'kb', session: 'sb', project: '/w/b1', title: 'In window B' }], 'that window is told only how to find the chat');
   assert.equal((await mine.openOn(123, {})).error, 'That window has closed.', 'a window that has gone says so');
+  assert.equal((await mine.openOn(FAKE_PID, { key: 'gone' })).error, 'That chat is not open in that window any more.', 'a window that no longer holds the chat says so');
 
   const bad = await fetch(`${b.url}/board`, { headers: { 'x-conn-token': 'wrong' } });
   assert.equal(bad.status, 401, 'the board route needs the token like every other');

@@ -70,12 +70,19 @@ export function lineOf(card) {
  * completed is in the folder's `done` fold and stays off the Board: you put it
  * away, and the rail never folds one that is still working.
  *
+ * A pinned chat stays in the rail's open list when it is marked completed, so
+ * `isDone` is asked too: a completed chat is off the Board unless it is still
+ * doing something or waiting on you.
+ *
  * @param {{ dir: string, rows: object[] }[]} groups
+ * @param {{ isDone?: (row: object) => boolean }} [opts]
  */
-export function cardsFromRail(groups) {
+export function cardsFromRail(groups, { isDone = () => false } = {}) {
   const out = [];
   for (const g of groups || []) {
     for (const row of g.rows || []) {
+      const live = row.busy || row.waiting || row.agents || row.shells;
+      if (isDone(row) && !live) continue;
       out.push({
         id: row.id,
         key: row.key || null,
@@ -132,7 +139,7 @@ export function externalCards(list, now = Date.now()) {
       title: typeof s.name === 'string' && s.name.trim() ? s.name.trim() : 'Claude Code session',
       project: typeof s.cwd === 'string' ? s.cwd : '',
       provider: 'claude',
-      at: Number(s.startedAt) || now,
+      at: Number(s.startedAt) || 0,
       lane,
       state: said ? `${said[0].toUpperCase()}${said.slice(1)} in ${s.kind === 'background' ? 'the background' : 'a terminal'}` : '',
       failed: said === 'failed',
@@ -160,13 +167,15 @@ export function board({ local = [], peers = [], external = [], now = Date.now() 
   hold(local);
   for (const p of peers) {
     const cards = (p.cards || []).filter((c) => !(c.session && held.has(c.session)));
-    for (const c of cards) place({ ...c, where: 'peer', pid: p.pid }, laneOf(c, now));
+    for (const c of cards) place({ ...c, title: c.title || 'Untitled chat', where: 'peer', pid: p.pid }, laneOf(c, now));
     hold(cards);
   }
   for (const c of external) {
     if (held.has(c.session)) continue;
-    // An outside session that went quiet more than a day ago is history, not work.
-    const lane = c.lane === 'recent' && now - (c.at || 0) > RECENT_MS ? null : c.lane;
+    // An outside session that finished or went quiet more than a day ago is
+    // history, not work. One that does not say when it started counts as old.
+    const old = now - (c.at || 0) > RECENT_MS;
+    const lane = old && (c.lane === 'recent' || c.lane === 'done') ? null : c.lane;
     place({ ...c, where: 'outside' }, lane);
   }
 

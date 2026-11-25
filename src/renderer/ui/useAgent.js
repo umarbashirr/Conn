@@ -3,10 +3,11 @@ import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { chatActivity } from '@/lib/activity';
 import { lastTurnFailed } from '@/lib/board';
+import { boardState, subscribeBoard } from './shell/board-store.js';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
@@ -22,6 +23,10 @@ const conn = () => window.conn;
 const PROVIDER_LABEL = { claude: 'Claude', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode', codex: 'ChatGPT', copilot: 'Copilot' };
 
 const LONG_TURN_MS = 5000;
+
+// Whether the Board is covering the chat column. A chat behind it is not on
+// screen, whichever one is active.
+const boardUp = () => boardState().open;
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
@@ -319,6 +324,7 @@ export function useAgent() {
   // Read inside the IPC listeners, which are registered once and would
   // otherwise close over the first render's chats.
   const chatsRef = useRef(chats);
+  const boardOpen = useSyncExternalStore(subscribeBoard, boardUp, boardUp);
   const activeRef = useRef(activeKey);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
 
@@ -643,7 +649,7 @@ export function useAgent() {
       if (msg.type === 'result') {
         const secs = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
         const failed = msg.is_error === true || (msg.subtype && msg.subtype !== 'success');
-        const away = chat !== activeRef.current;
+        const away = chat !== activeRef.current || boardUp();
         edit(chat, (c) => {
           const turnError = failed && !c.stopped
             ? msg.turnError ?? classify.claude({ ...c.failure, result: msg })
@@ -723,7 +729,7 @@ export function useAgent() {
 
     offs.push(conn().agent.onError(({ chat, error }) => {
       const key = chat || activeRef.current;
-      const away = key !== activeRef.current;
+      const away = key !== activeRef.current || boardUp();
       const now = Date.now();
       dropThoughts(key);
       edit(key, (c) => {
@@ -900,15 +906,18 @@ export function useAgent() {
   useEffect(() => {
     const due = chats.filter((c) => c.toastDue && !c.busy && (c.toastDue === 'error' || !c.items.some(outlivesTurn)));
     if (!due.length) return;
-    for (const c of due) if (c.key !== activeKey) toastEnd(c, c.toastDue === 'error');
+    for (const c of due) if (c.key !== activeKey || boardOpen) toastEnd(c, c.toastDue === 'error');
     const keys = new Set(due.map((c) => c.key));
     setChats((cur) => cur.map((c) => (keys.has(c.key) ? { ...c, toastDue: null } : c)));
-  }, [chats, activeKey]);
+  }, [chats, activeKey, boardOpen]);
 
+  // A chat is read once it is on screen, which it is not while the Board
+  // covers it. Closing the Board on it is what reads it.
   useEffect(() => {
+    if (boardOpen) return;
     if (!chats.some((c) => c.key === activeKey && c.endedUnseen)) return;
     setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false, toastDue: null } : c)));
-  }, [activeKey, chats]);
+  }, [activeKey, chats, boardOpen]);
 
   // `session` stands in for the chat's own when a rewind has just moved it and
   // chatsRef has not caught up. `resent` marks a message sent again at the end.

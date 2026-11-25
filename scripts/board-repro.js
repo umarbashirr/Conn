@@ -181,6 +181,61 @@ async function main() {
     await key(s, 'Enter');
     check('the-palette-opens-the-board', !!(await until(() => js(`!!document.querySelector('[data-slot="board-page"]')`))), 'palette did not open it');
     await shot(s, path.join(SHOTS, 'board-after-reading.png'));
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+
+    // A turn that ends while the Board covers its chat has not been read,
+    // even though that chat is the active one.
+    await newChat('Ends behind the board');
+    await say(s, 'Still going.', { open: true });
+    await key(s, 'Ctrl+Shift+M');
+    await until(() => js(`!!document.querySelector('[data-slot="board-page"]')`));
+    await say(s, 'Finished while you were on the Board.');
+    const behind = await until(async () => (await lanes()).done?.some((c) => c.title === 'Ends behind the board') && 'done');
+    check('a-turn-ending-behind-the-board-is-done-not-recent', !!behind, J(await lanes()));
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+    await newChat('Fails behind the board');
+    await say(s, 'Trying.', { open: true });
+    await key(s, 'Ctrl+Shift+M');
+    await until(() => js(`!!document.querySelector('[data-slot="board-page"]')`));
+    await evaluate(s, `globalThis.__agent.emit('message', { type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: 10 })`, { main: true });
+    const failedBehind = await until(async () => (await lanes()).needs?.some((c) => c.title === 'Fails behind the board') && 'needs');
+    check('a-turn-failing-behind-the-board-needs-you', !!failedBehind, J(await lanes()));
+    check('and-the-rail-badge-counts-it', (await until(() => js(`document.querySelector('[data-slot="board-needs"]')?.innerText`).then((t) => t === '2' && t))) === '2',
+      J(await js(`document.querySelector('[data-slot="board-needs"]')?.innerText`)));
+    // Closing the Board on that chat is reading it.
+    await key(s, 'Escape');
+    await until(() => js(`!document.querySelector('[data-slot="board-page"]')`));
+    await key(s, 'Ctrl+Shift+M');
+    const read = await until(async () => { const l = await lanes(); return l.needs && !l.needs.some((c) => c.title === 'Fails behind the board') && l; });
+    check('closing-the-board-on-a-chat-reads-it', !!read, J(await lanes()));
+
+    // Long titles stay inside their card, and the right column opened beside
+    // the Board makes the lanes wrap rather than squeeze.
+    await key(s, 'Escape');
+    await newChat(`A very long title ${'that keeps on going '.repeat(7)}end`);
+    await say(s, 'ok', { open: true });
+    await key(s, 'Ctrl+Shift+M');
+    await until(() => js(`!!document.querySelector('[data-slot="board-page"]')`));
+    const spill = () => js(`[...document.querySelectorAll('[data-slot="board-card"], [data-slot="board-lane"]')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.getAttribute('aria-label') || el.dataset.lane)`);
+    check('no-card-or-lane-spills-sideways', (await spill()).length === 0, J(await spill()));
+    await click(s, 'css=button[aria-label="Project files"], button[title^="Project files"]').catch(() => key(s, 'Ctrl+Shift+D'));
+    await until(rightOpen);
+    const cols = await until(() => js(`getComputedStyle(document.querySelector('[data-slot="board-lanes"]')).gridTemplateColumns.split(' ').length`).then((n) => n <= 2 && n));
+    check('a-narrower-board-wraps-to-two-columns', !!cols, J(await js(`getComputedStyle(document.querySelector('[data-slot="board-lanes"]')).gridTemplateColumns`)));
+    check('and-still-nothing-spills', (await spill()).length === 0, J(await spill()));
+    await shot(s, path.join(SHOTS, 'board-beside-files.png'));
+    await key(s, 'Ctrl+Shift+D');
+
+    // Asked over its bridge to open a chat it does not hold, a window says so
+    // and opens nothing.
+    const own = fs.readdirSync(projects).map((n) => JSON.parse(fs.readFileSync(path.join(projects, n), 'utf8'))).find((x) => x.url !== peer.url);
+    const ghost = await fetch(`${own.url}/board/open`, { method: 'POST', headers: { 'x-conn-token': own.token, 'content-type': 'application/json' }, body: J({ key: 'gone', session: 'no-such', project: '/nowhere', title: 'Ghost chat' }) }).then((r) => r.json());
+    check('opening-a-chat-a-window-does-not-hold-is-refused', !!ghost.error, J(ghost));
+    await sleep(500);
+    check('and-no-ghost-chat-appears', !(await js(`document.body.innerText.includes('Ghost chat') || document.body.innerText.includes('nowhere')`)), 'a ghost appeared');
+
   } finally {
     peer.server.close();
     await stop(s);

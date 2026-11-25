@@ -75,7 +75,21 @@ function cleanCard(c) {
   return out;
 }
 
-const cleanCards = (list) => (Array.isArray(list) ? list.slice(0, MAX_CARDS).map(cleanCard).filter(Boolean) : []);
+/* A window's list, cleaned. A chat is one card: a second card with the same
+   key (or id, for one with no key) is dropped rather than drawn twice. */
+function cleanCards(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of list.slice(0, MAX_CARDS)) {
+    const c = cleanCard(raw);
+    const id = c && (c.key || c.id);
+    if (!c || seen.has(id)) continue;
+    seen.add(id);
+    out.push(c);
+  }
+  return out;
+}
 
 async function ask(win, route, { method = 'GET', body } = {}) {
   const res = await fetch(`${win.url}${route}`, {
@@ -124,11 +138,11 @@ function createBoard({ claudeBin, windows = state.windows, pid = process.pid } =
       const w = others().find((x) => x.pid === peerPid);
       if (!w) return { error: 'That window has closed.' };
       try {
-        await ask(w, '/board/open', {
+        const res = await ask(w, '/board/open', {
           method: 'POST',
           body: { key: card?.key || null, session: card?.session || null, project: card?.project || null, title: card?.title || null },
         });
-        return { ok: true };
+        return res?.error ? { error: res.error } : { ok: true };
       } catch (e) {
         return { error: `That window did not answer: ${e.message}` };
       }

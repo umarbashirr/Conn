@@ -2687,6 +2687,14 @@ app.whenReady().then(async () => {
       // its row in the rail.
       open: (card) => {
         if (!win || win.isDestroyed()) return { error: 'no window' };
+        // Only a chat this window holds, or a saved one in a folder it has
+        // open. A card can be a few seconds old, and a chat deleted since must
+        // not come back as an empty one under a folder nobody opened.
+        const key = typeof card?.key === 'string' ? card.key : null;
+        const dir = typeof card?.project === 'string' && card.project ? path.resolve(card.project) : null;
+        const held = !!key && chatProjects.has(key);
+        const saved = typeof card?.session === 'string' && !!card.session && !!dir && known(dir);
+        if (!held && !saved) return { error: 'That chat is not open in that window any more.' };
         if (win.isMinimized()) win.restore();
         win.show();
         win.focus();

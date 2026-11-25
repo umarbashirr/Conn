@@ -12,7 +12,8 @@
    useSyncExternalStore, and changed() to bump it. */
 'use strict';
 import { board, cardsFromRail, externalCards, laneOf, needsCount } from '../lib/board.js';
-import { grouped, liveKeys, subscribeRail } from './rail-store';
+import { grouped, isDone, liveKeys, subscribeRail } from './rail-store';
+import { toast } from './toast';
 
 // How often an open Board asks the other windows and the CLI again.
 export const POLL_MS = 4000;
@@ -47,7 +48,7 @@ function changed() {
 const conn = () => window.conn;
 
 // This window's cards, as the rail has them now.
-export const localCards = () => cardsFromRail(grouped());
+export const localCards = () => cardsFromRail(grouped(), { isDone });
 
 // The Board's lanes from everything known right now.
 export function lanesNow(now = Date.now()) {
@@ -83,24 +84,36 @@ function publishSoon() {
 // ------------------------------------------------------------ polling
 
 let pollTimer = 0;
-let polling = false;
+let askingPeers = false;
+let askingCli = false;
 
-async function poll() {
-  if (polling || !state.open) return;
-  polling = true;
-  try {
-    const [peers, outside] = await Promise.all([
-      conn().board.peers().catch(() => []),
-      conn().board.outside().catch((e) => ({ ok: false, error: e.message })),
-    ]);
+/* The other windows and the CLI are asked apart, each with its own one
+   request in flight, and each answer is drawn when it lands. A CLI that hangs
+   for its whole timeout must not hold up what the other windows say. */
+function askPeers() {
+  if (askingPeers || !state.open) return Promise.resolve();
+  askingPeers = true;
+  return conn().board.peers().catch(() => []).then((peers) => {
     if (!state.open) return;
     state.peers = Array.isArray(peers) ? peers : [];
-    state.outside = outside || null;
     state.at = Date.now();
     changed();
-  } finally {
-    polling = false;
-  }
+  }).finally(() => { askingPeers = false; });
+}
+
+function askCli() {
+  if (askingCli || !state.open) return Promise.resolve();
+  askingCli = true;
+  return conn().board.outside().catch((e) => ({ ok: false, error: e.message })).then((outside) => {
+    if (!state.open) return;
+    state.outside = outside || null;
+    changed();
+  }).finally(() => { askingCli = false; });
+}
+
+function poll() {
+  askCli();
+  return askPeers();
 }
 
 function schedule() {
@@ -146,8 +159,9 @@ export async function openCard(card) {
     return conn().board.openPeer(card.pid, card).catch((e) => ({ error: e.message }));
   }
   if (card.where === 'outside') return { error: 'That session runs outside Conn.' };
-  closeBoard();
-  return openHere(card);
+  const res = await openHere(card);
+  if (!res?.error) closeBoard();
+  return res;
 }
 
 /* The rail opens a live chat by its key and a stored one by its session id.
@@ -155,7 +169,10 @@ export async function openCard(card) {
    the session; a chat with neither has nothing left to open. */
 async function openHere({ key, session, project, title, provider }) {
   const live = key && liveKeys().includes(key);
-  if (!live && !session) return { error: 'That chat has closed.' };
+  // A saved chat has to be one the rail can see: in a folder this window has
+  // open, on disk. Anything else would open as an empty chat with an error.
+  const saved = !live && session && grouped().some((g) => g.rows.concat(g.done || []).some((r) => r.id === session));
+  if (!live && !saved) return { error: 'That chat is not open in this window any more.' };
   await window.connChat?.open({
     ...(live ? { key } : { id: session }),
     project: project || undefined,
@@ -170,9 +187,10 @@ async function openHere({ key, session, project, title, provider }) {
 if (typeof window !== 'undefined' && window.conn?.board) {
   subscribeRail(publishSoon);
   // Another window's Board picked a chat this window holds.
-  window.conn.board.onOpen(({ key, session, project, title } = {}) => {
-    closeBoard();
-    openHere({ key, session, project, title });
+  window.conn.board.onOpen(async ({ key, session, project, title } = {}) => {
+    const res = await openHere({ key, session, project, title });
+    if (res?.error) toast('Could not open that chat', res.error);
+    else closeBoard();
   });
   // Once now, so a window that never changes still tells the others it is empty.
   publishSoon();

@@ -61,11 +61,11 @@ function Card({ card, lane }) {
       title={outside ? (attach ? `Copy "${attach}"` : 'Running in a terminal outside Conn') : `Open ${card.title}`}
       onClick={open}
       className={cn(
-        'group flex w-full flex-col gap-1 rounded-lg border bg-card px-3 py-2 text-left shadow-xs transition-colors',
+        'group flex w-full min-w-0 flex-col gap-1 overflow-hidden rounded-lg border bg-card px-3 py-2 text-left shadow-xs transition-colors',
         'hover:border-foreground/20 hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         outside && !attach && 'cursor-default',
       )}>
-      <span className="flex items-center gap-2">
+      <span className="flex w-full min-w-0 items-center gap-2">
         <span className="flex size-3.5 shrink-0 items-center justify-center">
           {lane === 'working' ? (
             <LoaderCircleIcon className="size-3.5 animate-spin text-[hsl(var(--success))]" />
@@ -74,9 +74,9 @@ function Card({ card, lane }) {
           )}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{card.title}</span>
-        <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{relative(card.at || Date.now())}</span>
+        {card.at > 0 && <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{relative(card.at)}</span>}
       </span>
-      <span className="flex min-w-0 items-center gap-1.5 pl-5.5 text-[11px] text-muted-foreground">
+      <span className="flex w-full min-w-0 items-center gap-1.5 pl-5.5 text-[11px] text-muted-foreground">
         {card.provider && <ProviderLogo id={card.provider} className="size-3 shrink-0" />}
         <span className="truncate" title={card.project}>{place.name}</span>
         {place.worktree && (
@@ -115,7 +115,7 @@ function Lane({ lane, cards }) {
       <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
         {shown.map((c) => <Card key={`${c.where}:${c.pid || ''}:${c.key || c.id}`} card={c} lane={lane.id} />)}
         {!cards.length && <p className="px-1 py-2 text-[12px] text-muted-foreground">{lane.empty}</p>}
-        {capped && <p className="px-1 py-1 text-[11px] text-muted-foreground">{cards.length - RECENT_SHOWN} more in the rail</p>}
+        {capped && <p className="px-1 py-1 text-[11px] text-muted-foreground">{cards.length - RECENT_SHOWN} more, older</p>}
       </div>
     </section>
   );
@@ -143,7 +143,7 @@ export function BoardPage() {
   const outsideNote = st.outside && !st.outside.ok && !st.outside.unsupported ? st.outside.error : null;
 
   return (
-    <div data-slot="board-page" className="flex h-full min-h-0 flex-col bg-background text-foreground">
+    <div data-slot="board-page" className="@container flex h-full min-h-0 flex-col bg-background text-foreground">
       <div className="flex h-[38px] flex-none items-center gap-2 border-b border-border/60 px-4 text-sm">
         <LayoutDashboardIcon className="size-4 text-muted-foreground" />
         <span className="font-medium">Board</span>
@@ -160,7 +160,12 @@ export function BoardPage() {
           </Button>
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-4 gap-2 p-3 max-[1100px]:grid-cols-2 max-[1100px]:overflow-y-auto">
+      {/* Columns follow the Board's own width, which the window's does not say:
+          the right column can still be opened beside it. minmax(0, 1fr) lets a
+          lane be narrower than its longest title, which then truncates. */}
+      <div
+        data-slot="board-lanes"
+        className="grid min-h-0 flex-1 grid-cols-[repeat(4,minmax(0,1fr))] gap-2 p-3 @max-4xl:auto-rows-[minmax(16rem,1fr)] @max-4xl:grid-cols-[repeat(2,minmax(0,1fr))] @max-4xl:overflow-y-auto @max-xl:grid-cols-[minmax(0,1fr)]">
         {LANES.map((lane) => <Lane key={lane.id} lane={lane} cards={lanes[lane.id]} />)}
       </div>
       {outsideNote && (
