@@ -50,6 +50,7 @@ const { exportChat } = require('./chat-export');
 const { LANDS_WITHIN } = require('./history');
 const { createAgentSearch } = require('./search-handler');
 const planLimits = require('./plan-limits');
+const { createBoard } = require('./board');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease, READS } = require('./pane-lease');
@@ -86,6 +87,9 @@ let paneSeq = 0;
 // chat that is working keeps working while you read another one, which is the
 // whole reason this is a map and not a single session.
 const sessions = new Map();
+// The Board's view past this window: other windows' chats and the CLI's own
+// sessions. This window's cards are whatever its renderer last published.
+const board = createBoard({ claudeBin: () => claudeBinary() });
 let bridge = null;
 let registry = null;
 const rowOf = (p) => registry?.get(p) || registry?.get('claude');
@@ -2305,6 +2309,12 @@ function registerIpc() {
   // Every open project, because the rail is one list of folders now rather than
   // one folder's list. Each transcript is read once and its title cached, so the
   // cost of a refresh is a readdir and a stat per project.
+  // The Board. This window's cards come from its own renderer and are kept
+  // here only so the other windows can read them over the bridge.
+  ipcMain.handle('board:publish', (_e, { cards } = {}) => ({ ok: true, count: board.publish(cards) }));
+  ipcMain.handle('board:peers', () => board.peers());
+  ipcMain.handle('board:openPeer', (_e, { pid, card } = {}) => board.openOn(Number(pid), card));
+  ipcMain.handle('board:outside', () => board.outside());
   ipcMain.handle('agent:history', async () => ({
     // codex answers over a round trip rather than a readdir, so the projects
     // are asked about together instead of one after another.
@@ -2669,6 +2679,34 @@ app.whenReady().then(async () => {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
+    },
+    board: {
+      cards: () => board.cards(),
+      // Another window's Board picked one of this window's chats. The window
+      // comes forward and the renderer opens the chat, the same as a click on
+      // its row in the rail.
+      open: (card) => {
+        if (!win || win.isDestroyed()) return { error: 'no window' };
+        // Only a chat this window holds, or a saved one in a folder it has
+        // open. A card can be a few seconds old, and a chat deleted since must
+        // not come back as an empty one under a folder nobody opened.
+        const key = typeof card?.key === 'string' ? card.key : null;
+        const dir = typeof card?.project === 'string' && card.project ? path.resolve(card.project) : null;
+        const held = !!key && chatProjects.has(key);
+        const saved = typeof card?.session === 'string' && !!card.session && !!dir && known(dir);
+        if (!held && !saved) return { error: 'That chat is not open in that window any more.' };
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        const text = (v, max = 500) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+        send('board:open', {
+          key: text(card?.key, 200),
+          session: text(card?.session, 200),
+          project: text(card?.project),
+          title: text(card?.title),
+        });
+        return { ok: true };
+      },
     },
     ...(bridgeDev ? {
       command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },

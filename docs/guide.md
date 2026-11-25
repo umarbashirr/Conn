@@ -270,6 +270,40 @@ It stays yours until you press **Hand back** in the toolbar, and any agent that 
 meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
 when the agent's turn ends.
 
+## The Board
+
+`Ctrl+Shift+M`, or **Board** at the top of the rail, shows every agent at once, sorted by what it
+wants from you. It takes the chat's place and leaves the rail up. Press `Esc` or `Ctrl+Shift+M` again
+to go back.
+
+![The Board with chats from this window, another window and the terminal](media/board.png)
+
+| Lane | A chat is here when |
+| --- | --- |
+| **Needs you** | a permission or question card is waiting, or its last turn failed and you have not looked |
+| **Working** | a turn is running, or a subagent or background shell it started still is |
+| **Done** | its turn ended while you were reading another chat, and you have not opened it since |
+| **Recent** | none of those, and it moved in the last 24 hours |
+
+A card names the chat, its folder (a worktree is shown under the repository it was cut from), the
+agent, and what it is doing now. Click it to open the chat. Chats you marked completed stay off the
+Board, as they do in the rail. The number beside **Board** in the rail counts this window's chats
+that need you.
+
+**Every window.** The Board also shows the chats of every other Conn window, marked **other
+window**. Clicking one brings that window forward with the chat open, because a chat is only ever
+driven from the window that holds it. Each window answers on its own bridge, behind the same token as
+the rest of it.
+
+**Claude Code outside Conn.** Sessions you started with `claude` in a terminal, or in the background
+with `claude --bg`, are listed from `claude agents --json`, marked **terminal** or **background**.
+They are read only. A background card shows the `claude attach` command that opens it, and clicking
+the card copies it. This needs a Claude Code new enough to have `claude agents`; with an older one the
+Board leaves those sessions out.
+
+The other windows and the CLI are asked every few seconds while the Board is open, and not at all
+while it is closed.
+
 ## Worktrees
 
 Give a chat its own branch and its own folder, so two agents can work at once without touching each

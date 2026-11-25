@@ -19,6 +19,16 @@ contextBridge.exposeInMainWorld('conn', {
     onState: on('win:state'),
   },
 
+  // The Board: every chat in every window, and Claude Code outside Conn.
+  board: {
+    publish: (cards) => ipcRenderer.invoke('board:publish', { cards }),
+    peers: () => ipcRenderer.invoke('board:peers'),
+    openPeer: (pid, card) => ipcRenderer.invoke('board:openPeer', { pid, card }),
+    outside: () => ipcRenderer.invoke('board:outside'),
+    // Another window's Board asked this one to open a chat.
+    onOpen: on('board:open'),
+  },
+
   project: {
     info: () => ipcRenderer.invoke('project:info'),
     // No dir means "ask with the system folder picker".

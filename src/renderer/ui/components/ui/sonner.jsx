@@ -55,7 +55,7 @@ const Toaster = ({
       // Below the title bar, on the right, whatever a caller asked for. With a
       // preview open, app.js moves the right edge to clear it.
       position="top-right"
-      offset={{ top: 40, right: "var(--toast-right, 12px)" }}
+      offset={{ top: "var(--toast-top, 40px)", right: "var(--toast-right, 12px)" }}
       gap={8}
       visibleToasts={4} />
   );
