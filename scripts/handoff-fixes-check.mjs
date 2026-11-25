@@ -327,6 +327,27 @@ await check('a reopened chat knows how full its window was', async () => {
   assert.equal(storedContext({ messages: [] }), 0);
 });
 
+await check('a chat that starts on an ACP agent and moves to Claude is written down under the ACP session', () => {
+  const cop = '2629255a-acaa-45c7-9688-fcf68dfc8949';
+  const cla = '43a53e52-c9db-4cb7-ad42-883f4efa72db';
+  // A new chat picked onto Copilot before its first message, then Copilot's ready.
+  let c = { provider: 'copilot', session: null, segments: [], items: [], usage: {} };
+  c = withSession(c, cop, 'copilot');
+  assert.equal(c.session, cop, 'the ACP agent\'s session is taken');
+  c = { ...c, items: [user(1), reply(1)], usage: { context: 14831 } };
+  c = switchChat(c, { provider: 'claude', model: 'Opus 5.5', id: 'h1', label });
+  assert.deepEqual(c.segments.map((x) => [x.provider, x.session, x.cut ?? null]), [['copilot', cop, null], ['claude', null, 0]]);
+  // Copilot finishing late must not fill Claude's segment; Claude's own ready does.
+  assert.equal(withSession(c, 'ffffffff-late', 'copilot'), c);
+  c = withSession(c, cla, 'claude');
+  assert.deepEqual(persistable(c.segments), [
+    { provider: 'copilot', session: cop, context: 14831 },
+    { provider: 'claude', session: cla, cut: 0 },
+  ]);
+  const { cleanSegments } = require('../src/shared/chat-segments.js');
+  assert.ok(cleanSegments(persistable(c.segments)), 'and the store accepts it');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nall passed');
 process.exit(failures.length ? 1 : 0);
