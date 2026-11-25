@@ -234,6 +234,10 @@ contextBridge.exposeInMainWorld('conn', {
     onError: on('agent:error'),
     onClosed: on('agent:closed'),
     onEcho: on('agent:echo'),
+    // A phone message for a chat whose handoff only this window holds.
+    onPhoneTurn: on('agent:phoneTurn'),
+    // The chats with a handoff waiting on their next message, as { head, key }.
+    pendingHandoffs: (list) => ipcRenderer.send('agent:pendingHandoffs', { list }),
     onDecided: on('agent:decided'),
     notify: (note) => ipcRenderer.send('agent:notify', note),
     onReveal: on('agent:reveal'),

@@ -200,6 +200,9 @@ const owners = new Map();
 // The title each listed chat last showed under, for a search hit that has to
 // answer under another session's name.
 const railTitles = new Map();
+// When each listed session was last written, which is what says a stitched
+// read of a switched chat is still current.
+const sessionAt = new Map();
 const ownerOf = (id) => rowOf(owners.get(id) || provider)?.history;
 
 async function sessionsIn(dir) {
@@ -210,7 +213,10 @@ async function sessionsIn(dir) {
     return rows.map((r) => ({ ...r, provider: row.id }));
   }));
   const out = lists.flat();
-  for (const r of out) owners.set(r.id, r.provider);
+  for (const r of out) {
+    owners.set(r.id, r.provider);
+    sessionAt.set(r.id, r.at || 0);
+  }
   // A chat that changed agent is one row, under the session it started on.
   const hidden = hiddenSessions.all();
   return collapseRows(out.filter((r) => !hidden[r.id]), chatSegments.all()).map((s) => {
@@ -293,6 +299,22 @@ function phoneLive() {
    splits at the message that carried a handoff, the same cut the window makes.
    The chat's first session has to be readable; a later one that is not leaves
    its stretch out. */
+/* The same for the phone, which asks again on every refresh. Kept per chat
+   until one of its sessions has been written since, going by the times the
+   last listing saw; a session the listing has not seen is read fresh. */
+const stitchedCache = new Map();
+async function readStitchedCached(dir, segs) {
+  const key = `${dir}\0${JSON.stringify(segs.map((x) => x.session))}`;
+  const stamps = segs.map((x) => sessionAt.get(x.session));
+  const stamp = stamps.every((a) => a) ? stamps.join(',') : null;
+  const kept = stitchedCache.get(key);
+  if (stamp && kept?.stamp === stamp) return kept.messages;
+  const messages = await readStitched(dir, segs);
+  if (stamp) stitchedCache.set(key, { stamp, messages });
+  if (stitchedCache.size > 20) stitchedCache.delete(stitchedCache.keys().next().value);
+  return messages;
+}
+
 async function readStitched(dir, segs) {
   const read = {};
   for (const session of new Set(segs.map((x) => x.session))) {
@@ -331,7 +353,7 @@ async function transcriptForPhone(dir, id, provider) {
   const segs = chatSegments.get(id);
   if (segs) {
     try {
-      return { id, messages: phoneMessages(await readStitched(dir, segs)) };
+      return { id, messages: phoneMessages(await readStitchedCached(dir, segs)) };
     } catch {
       return { error: 'No transcript for that chat.' };
     }
@@ -1632,9 +1654,20 @@ function shareLive(dir, name) {
     : a.addMcpServer(runtime, { type: 'stdio', ...launch }))));
 }
 
+// Chats the window has switched to another agent and not sent on yet, by the
+// session the phone knows each as: first session -> window chat key.
+const pendingHandoffs = new Map();
+
 async function deliverTurn({ chat, text, images, project, session, provider, from }) {
   try {
     const phone = from === 'phone';
+    // The handoff such a chat owes its next message lives in the window, so a
+    // phone message for it is sent from there, to the agent it was switched to.
+    const pendingKey = phone && session ? pendingHandoffs.get(session) : null;
+    if (pendingKey && win && !win.isDestroyed()) {
+      win.webContents.send('agent:phoneTurn', { chat: pendingKey, text, images });
+      return { ok: true, forwarded: true };
+    }
     // The phone names a switched chat by its first session, but the chat is
     // on its newest one now, on whichever agent that is.
     const segs = phone && session ? chatSegments.get(session) : null;
@@ -2497,6 +2530,12 @@ function registerIpc() {
       return { ok: true, ...(left.length && { left: left.map(({ session, provider: p, error }) => ({ session, provider: p || owners.get(session) || null, error })) }) };
     } catch (e) {
       return { error: e.message };
+    }
+  });
+  ipcMain.on('agent:pendingHandoffs', (_e, { list } = {}) => {
+    pendingHandoffs.clear();
+    for (const p of Array.isArray(list) ? list : []) {
+      if (typeof p?.head === 'string' && typeof p?.key === 'string') pendingHandoffs.set(p.head, p.key);
     }
   });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {

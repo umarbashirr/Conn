@@ -411,6 +411,18 @@ export function useAgent() {
      before the first session existed; and the board, which belongs to the
      chat's first session only. Each is sent again only when it changes. */
   const written = useRef({ segments: new Map(), titles: new Map(), boards: new Map(), started: new Set() });
+  // Which chats have a handoff waiting on their next message, by the session
+  // the phone knows them by. Main hands a phone message for one of these to
+  // this window rather than to the session the chat is leaving.
+  const pendingSent = useRef(null);
+  useEffect(() => {
+    const pending = chats.filter((c) => c.handoff && headOf(c)).map((c) => ({ head: headOf(c), key: c.key }));
+    const json = JSON.stringify(pending);
+    if (pendingSent.current === json) return;
+    pendingSent.current = json;
+    conn().agent.pendingHandoffs?.(pending);
+  }, [chats]);
+
   useEffect(() => {
     const { segments, titles, boards, started } = written.current;
     for (const c of chats) {
@@ -871,6 +883,12 @@ export function useAgent() {
       });
     }));
 
+    // A message from the phone for a chat switched here but not yet sent on:
+    // only this window holds the handoff it has to carry, so it goes from here.
+    offs.push(conn().agent.onPhoneTurn?.(({ chat, text, images }) => {
+      if (chat && chatsRef.current.some((c) => c.key === chat)) sendToRef.current?.(chat, text, images || []);
+    }) ?? (() => {}));
+
     // `conn ask` from the terminal can open a chat too.
     offs.push(conn().agent.onEcho?.(({ chat, text, forkAt }) => {
       const key = chat || activeRef.current;
@@ -1103,6 +1121,7 @@ export function useAgent() {
     }
   }, [edit, patch, readWhole]);
 
+  sendToRef.current = sendTo;
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
 
   // The other CLIs cannot go back to a message, so for them it is sent again
