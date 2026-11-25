@@ -244,6 +244,44 @@ check('reopen a forked chat that was later switched keeps its first stretch', ()
     `got ${JSON.stringify(put.items.map((it) => it.id))}`);
 });
 
+// Since a reopened fork draws what it carried, its replay starts with those
+// rows, then its handoff row, then its own messages (useAgent userRows). That
+// is the shape stitch has to cut.
+check('reopen a fork, drawn with its carried rows, then switched away and back', () => {
+  const carried = [{ id: 'c1', kind: 'user', carried: true }, { id: 'c2', kind: 'assistant', carried: true }];
+  const read = {
+    [F]: [...carried, hand(0), user(1), reply(1), hand(3), user(3), reply(3)],
+    [B]: [hand(2), user(2), reply(2)],
+  };
+  const segs = [{ provider: 'claude', session: F }, { provider: 'codex', session: B }, { provider: 'claude', session: F }];
+  const put = stitch(segs, read);
+  assert.deepEqual(put.items.map((it) => it.id), ['c1', 'c2', 'x0', 'u1', 'a1', 'x2', 'u2', 'a2', 'x3', 'u3', 'a3'],
+    `got ${JSON.stringify(put.items.map((it) => it.id))}`);
+});
+
+check('reopen a fork, drawn with its carried rows, switched once', () => {
+  const read = {
+    [F]: [{ id: 'c1', kind: 'user', carried: true }, hand(0), user(1), reply(1)],
+    [B]: [hand(2), user(2), reply(2)],
+  };
+  const put = stitch([{ provider: 'claude', session: F }, { provider: 'codex', session: B }], read);
+  assert.deepEqual(put.items.map((it) => it.id), ['c1', 'x0', 'u1', 'a1', 'x2', 'u2', 'a2'],
+    `got ${JSON.stringify(put.items.map((it) => it.id))}`);
+});
+
+// Two CLIs offer models under the same name (Copilot lists GPT-6.2-Sol as
+// gpt-6.2-sol, the same value Codex uses). A pick carries only the value, so
+// the CLI is looked up by value and the first CLI in the list wins.
+check('a model value two CLIs share still names the CLI it was picked under', () => {
+  const models = [
+    { value: 'auto', provider: 'copilot' }, { value: 'gpt-6.2-sol', provider: 'copilot' },
+    { value: 'opus', provider: 'claude' }, { value: 'gpt-6.2-sol', provider: 'codex' },
+  ];
+  // useAgent.pickModel: `models.find((m) => m.value === value)?.provider`.
+  const want = models.find((m) => m.value === 'gpt-6.2-sol')?.provider;
+  assert.equal(want, 'codex', `picking GPT-6.2-Sol under ChatGPT resolves to ${want}`);
+});
+
 check('reopen when the switch-back session was read but the follower was not', () => {
   const read = { [A]: [user(1), reply(1), hand(3), user(3)] };
   const segs = [{ provider: 'claude', session: A }, { provider: 'codex', session: B }, { provider: 'claude', session: A }];
