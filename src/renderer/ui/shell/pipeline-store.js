@@ -174,6 +174,7 @@ function announce(run, index) {
     toast(`${run.name}: ${stage.title} is ready`, 'Read it, reply if it needs changes, then Continue on the Board.');
     note(`${stage.title} is ready for you`);
   } else if (run.status === 'failed') {
+    toast(`${run.name}: ${stage.title} failed`, stage.error || 'Retry on the Board sends it again.');
     note(`${stage.title} failed`);
   } else if (run.status === 'done') {
     note('Finished');

@@ -758,7 +758,7 @@ export default function App() {
       <ForkDialog fork={agent.fork} onAnswer={agent.answerFork} />
       <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
-        <PipelineDialog />
+      <PipelineDialog />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
