@@ -810,6 +810,7 @@ export function runCommand(name, arg) {
     // the way the settings dialog does.
     case 'palette': return window.connPalette?.toggle();
     case 'usage': return window.connChat?.usage?.();
+    case 'runPipeline': return window.connPipelines?.open();
     case 'board':
       if (arg === true) return window.connChat?.board?.(true);
       if (arg === false) return window.connChat?.board?.(false);

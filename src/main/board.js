@@ -41,6 +41,7 @@ const CARD_FIELDS = {
   agents: 'number',
   shells: 'number',
   failed: 'boolean',
+  gate: 'boolean',
 };
 
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : undefined);

@@ -29,6 +29,15 @@ contextBridge.exposeInMainWorld('conn', {
     onOpen: on('board:open'),
   },
 
+  // Saved pipelines, and the runs of them this window may drive.
+  pipelines: {
+    list: (dir) => ipcRenderer.invoke('pipelines:list', { dir }),
+    example: () => ipcRenderer.invoke('pipelines:example'),
+    runs: () => ipcRenderer.invoke('runs:list'),
+    saveRun: (run) => ipcRenderer.invoke('runs:save', { run }),
+    removeRun: (id) => ipcRenderer.invoke('runs:remove', { id }),
+  },
+
   project: {
     info: () => ipcRenderer.invoke('project:info'),
     // No dir means "ask with the system folder picker".
@@ -192,6 +201,7 @@ contextBridge.exposeInMainWorld('conn', {
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
     subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
+    prefs: (chat, prefs) => ipcRenderer.invoke('agent:prefs', { chat, ...prefs }),
     models: (chat, provider) => ipcRenderer.invoke('agent:models', { chat, provider }),
     setModel: (chat, model) => ipcRenderer.invoke('agent:setModel', { chat, model }),
     setProvider: (chat, provider) => ipcRenderer.invoke('agent:setProvider', { chat, provider }),

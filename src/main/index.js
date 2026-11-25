@@ -51,6 +51,7 @@ const { LANDS_WITHIN } = require('./history');
 const { createAgentSearch } = require('./search-handler');
 const planLimits = require('./plan-limits');
 const { createBoard } = require('./board');
+const pipelines = require('./pipelines');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease, READS } = require('./pane-lease');
@@ -2315,6 +2316,31 @@ function registerIpc() {
   ipcMain.handle('board:peers', () => board.peers());
   ipcMain.handle('board:openPeer', (_e, { pid, card } = {}) => board.openOn(Number(pid), card));
   ipcMain.handle('board:outside', () => board.outside());
+
+  // Pipelines. The files are read fresh on every list, so an edit shows on the
+  // next open. A folder this window does not have open gets only yours.
+  ipcMain.handle('pipelines:list', (_e, { dir } = {}) => {
+    const root = typeof dir === 'string' && open.has(path.resolve(dir)) ? path.resolve(dir) : null;
+    return { pipelines: pipelines.list(root), userDir: pipelines.userDir() };
+  });
+  ipcMain.handle('pipelines:example', () => {
+    try { return pipelines.writeExample(); } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('runs:list', () => pipelines.listRuns());
+  ipcMain.handle('runs:save', (_e, { run } = {}) => {
+    try { return pipelines.saveRun(run); } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('runs:remove', (_e, { id } = {}) => pipelines.removeRun(id));
+  // A pipeline stage's mode, model and CLI, set on its chat before the first
+  // message. The composer's own pickers also change what new chats start on;
+  // a stage must not, so this only writes the chat's own preferences.
+  ipcMain.handle('agent:prefs', (_e, { chat, mode, model, provider: runs } = {}) => {
+    if (typeof chat !== 'string' || !chat) return { error: 'no chat' };
+    if (isMode(mode)) chatPrefs.setMode(chat, mode);
+    if (typeof model === 'string' && model) chatPrefs.setModel(chat, model);
+    if (isProviderId(runs)) chatPrefs.setProvider(chat, runs);
+    return { ok: true };
+  });
   ipcMain.handle('agent:history', async () => ({
     // codex answers over a round trip rather than a readdir, so the projects
     // are asked about together instead of one after another.

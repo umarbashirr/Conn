@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { chatActivity } from '@/lib/activity';
 import { lastTurnFailed } from '@/lib/board';
 import { boardState, subscribeBoard } from './shell/board-store.js';
+import { turnEnded } from '@/lib/turn-events';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
@@ -676,7 +677,8 @@ export function useAgent() {
           };
         });
         window.connRail?.refresh();
-        if (msg.duration_ms >= LONG_TURN_MS) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
+        if (msg.duration_ms >= LONG_TURN_MS && !chatsRef.current.find((c) => c.key === chat)?.quiet) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
+        turnEnded({ chat, failed, error: failed ? (msg.turnError?.message || `turn ended: ${msg.subtype}`) : null });
       }
     }));
 
@@ -741,6 +743,7 @@ export function useAgent() {
           items: [...c.items.map((it) => settle(it, now)), { id: uid('e'), kind: 'note', ended: true, error: true, text: turnError.message, turnError }],
         };
       });
+      turnEnded({ chat: key, failed: true, error: classify.text(chatsRef.current.find((c) => c.key === key)?.provider, error).message });
       const finished = away && chatsRef.current.find((c) => c.key === key);
       if (finished) toastEnd(finished, true);
     }));
@@ -751,6 +754,8 @@ export function useAgent() {
     // went with it. A row left saying running would count up forever.
     offs.push(conn().agent.onClosed(({ chat } = {}) => {
       if (!chat) return;
+      // Parking an idle chat closes its session too, which ends no turn.
+      if (chatsRef.current.find((c) => c.key === chat)?.busy) turnEnded({ chat, failed: true, error: 'The session ended mid-turn.' });
       const now = Date.now();
       edit(chat, (c) => {
         const cut = c.items.some(isRunning);
@@ -906,7 +911,7 @@ export function useAgent() {
   useEffect(() => {
     const due = chats.filter((c) => c.toastDue && !c.busy && (c.toastDue === 'error' || !c.items.some(outlivesTurn)));
     if (!due.length) return;
-    for (const c of due) if (c.key !== activeKey || boardOpen) toastEnd(c, c.toastDue === 'error');
+    for (const c of due) if ((c.key !== activeKey || boardOpen) && !c.quiet) toastEnd(c, c.toastDue === 'error');
     const keys = new Set(due.map((c) => c.key));
     setChats((cur) => cur.map((c) => (keys.has(c.key) ? { ...c, toastDue: null } : c)));
   }, [chats, activeKey, boardOpen]);
@@ -949,6 +954,7 @@ export function useAgent() {
       if (res?.forkAt) patch(key, id, { forkAt: res.forkAt });
     } catch (e) {
       const said = e.cause === 'said';
+      turnEnded({ chat: key, failed: true, error: said ? e.message : `could not reach the agent: ${e.message}` });
       edit(key, (c) => ({
         ...c,
         busy: false,
@@ -961,6 +967,8 @@ export function useAgent() {
   }, [edit, patch]);
 
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
+  // One chat as it stands now, for code that runs outside React's render.
+  const chatOf = useCallback((key) => chatsRef.current.find((c) => c.key === key) || null, []);
 
   // The other CLIs cannot go back to a message, so for them it is sent again
   // at the end.
@@ -1233,6 +1241,26 @@ export function useAgent() {
     setChats(chatsRef.current);
     switchTo(next.key);
   }, [switchTo]);
+
+  /* A chat started for someone else: a pipeline's stage. It joins the list
+     without taking the screen, so a run can start its next stage while you
+     read something else, and carries its name from the start so the rail
+     never shows it as the first line of a prompt. Its mode, model and CLI are
+     set on it alone; the composer's pickers stay as they are. */
+  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title } = {}) => {
+    const next = {
+      ...blankChat(project || focusedProject.current, runs || providerRef.current, m || startMode.current),
+      title: String(title || 'New chat').slice(0, RENAME_MAX),
+      renamed: !!title,
+      // Whoever started it says when it is done, so the usual "is done" toast
+      // and notification stay out of the way.
+      quiet: true,
+    };
+    chatsRef.current = [...chatsRef.current, next];
+    setChats(chatsRef.current);
+    await conn().agent.prefs?.(next.key, { mode: next.mode, model: wanted, provider: next.provider }).catch(() => {});
+    return next.key;
+  }, []);
 
   /* Pointing the chat on screen at another folder, which is what the chip under
      the box is for. A chat nobody has typed in yet moves: the chip names the
@@ -1574,7 +1602,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking, fork,
-    send, redo, retryTurn, editsSince, undoEdits, enqueue, unqueue, editQueued, sendNow, sendNext,
+    send, sendTo, spawn, chatOf, redo, retryTurn, editsSince, undoEdits, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, answerFork, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,

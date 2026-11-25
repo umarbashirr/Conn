@@ -43,6 +43,8 @@ export function laneOf(card, now = Date.now()) {
   if (!card) return null;
   const state = card.activity?.state;
   if (card.waiting || state === 'waiting') return 'needs';
+  // A pipeline stopped at a gate is waiting on you in this chat, turn over or not.
+  if (card.gate && !card.busy) return 'needs';
   if (state === 'finished' && card.failed) return 'needs';
   if (card.busy || card.agents || card.shells || state === 'working') return 'working';
   if (state === 'finished') return 'done';
@@ -55,6 +57,7 @@ export function laneOf(card, now = Date.now()) {
    beyond when it moved, and the card shows that already. */
 export function lineOf(card) {
   const a = card.activity;
+  if (card.gate && !card.busy && a?.state !== 'waiting') return 'Ready for you: read it, then Continue';
   if (a && a.state !== 'idle' && a.line) return a.line;
   if (card.waiting) return 'Waiting for your answer';
   if (card.agents) return `${card.agents} ${card.agents === 1 ? 'agent' : 'agents'} running`;
@@ -96,6 +99,7 @@ export function cardsFromRail(groups, { isDone = () => false } = {}) {
         agents: row.agents || 0,
         shells: row.shells || 0,
         failed: !!row.failed,
+        gate: !!row.gate,
         activity: row.activity || null,
         pipeline: row.pipeline || null,
       });
