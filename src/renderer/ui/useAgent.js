@@ -11,12 +11,12 @@ import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
 import { rewindow, storedOf, storedWindow, widerLimit } from '@/lib/stored';
 import { bucketOf } from '@/lib/tools';
-import { account, blankUsage, byModel, totals, withStop } from '@/lib/usage';
+import { account, blankUsage, byModel, storedContext, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
 import { buildHandoff, itemsFromEntries, labelOf, unwrapHandoff, windowFor, wrapMessage } from '../../shared/handoff';
 import { headOf, persistable, providerAt, stitch, switchChat, withSession } from '../../shared/chat-segments';
-import { createSerial } from '../../shared/model-pick';
+import { createSerial, modelEntry } from '../../shared/model-pick';
 
 const conn = () => window.conn;
 
@@ -25,7 +25,7 @@ const LONG_TURN_MS = 5000;
 const WHOLE = 1000000;
 
 // A model as the picker names it, for the handoff row.
-const modelName = (models, value) => (models.find((m) => m.value === value)?.displayName || value)
+const modelName = (models, value, provider) => (modelEntry(models, value, provider)?.displayName || value)
   .replace(/\s*\((recommended|default|1M context)\)\s*$/i, '');
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
@@ -198,6 +198,10 @@ function before(items, id, uuids) {
   }).map((it) => (it.forkAt ? { ...it, forkAt: uuids[it.forkAt] } : it));
 }
 
+// Whether a replayed transcript is a fork's: its first handoff is the one it
+// was forked with, which comes before anything else in it.
+const isFork = (items) => !!items.find((it) => it.kind === 'handoff')?.fork;
+
 // The chat with a wider stretch of its stored transcript read in. Rows read in
 // ahead push every later one along, so a switch made since opening, which
 // counts where it starts from the front, moves with them.
@@ -208,6 +212,7 @@ function widened(c, fresh, span, session) {
     ...c,
     items: rewindow(c.items, c.stored.count, fresh),
     stored: storedOf(session, span, fresh.length),
+    forked: c.forked || isFork(fresh),
     segments: (c.segments || []).map((x, i) => (i ? { ...x, from: x.from + more } : x)),
     handoff: c.handoff?.since ? { ...c.handoff, since: c.handoff.since + more } : c.handoff,
   };
@@ -386,8 +391,17 @@ export function useAgent() {
   // Chats being moved to another CLI right now, and the CLI each chat's last
   // pick put it on. Both are read before state has caught up, which is the
   // point: a message or a second pick in that gap must see the switch.
-  const switching = useRef(new Set());
+  // `switching` holds each chat mid-switch until the switched chat has been
+  // committed; `reading` each chat whose stored transcript is being read in
+  // ahead of a handoff; `carried` the handoff rows whose handoff has gone, so
+  // two quick sends cannot both carry it.
+  const switching = useRef(new Map());
+  const reading = useRef(new Set());
+  const carried = useRef(new Set());
   const intended = useRef(new Map());
+  // For listeners registered once, which would otherwise close over the first
+  // render's sendTo.
+  const sendToRef = useRef(null);
   const serial = useRef(null);
   if (!serial.current) serial.current = createSerial();
 
@@ -776,9 +790,9 @@ export function useAgent() {
       }
     }));
 
-    offs.push(conn().agent.onReady(({ chat, sessionId, model: m, mode: sessionMode }) => {
+    offs.push(conn().agent.onReady(({ chat, sessionId, model: m, mode: sessionMode, provider: on }) => {
       if (!chat) return;
-      const unsent = chatsRef.current.find((c) => c.key === chat && !headOf(c));
+      const unsent = chatsRef.current.find((c) => c.key === chat && !headOf(c) && (!on || c.provider === on));
       if (sessionId && unsent) moveDraft(ownedStorageKey(chatsRef.current, unsent), sessionId);
       // What the session id means for the rail, the board and the name is
       // written down by the effect that watches committed chats, below. Read
@@ -786,7 +800,7 @@ export function useAgent() {
       // applied so far, which under a pending update is not this one.
       if (sessionId) written.current.started.add(chat);
       edit(chat, (c) => ({
-        ...withSession(c, sessionId),
+        ...withSession(c, sessionId, on),
         // One of ours, not one of the SDK's four: the session is the one
         // holding the answer after a resume.
         mode: sessionMode || c.mode,
@@ -1014,22 +1028,34 @@ export function useAgent() {
 
   // `session` stands in for the chat's own when a rewind has just moved it and
   // chatsRef has not caught up. `resent` marks a message sent again at the end.
-  const sendTo = useCallback(async (key, text, images = [], { session, resent } = {}) => {
+  // `committed` is the chat as React last committed it, from the queue's flush;
+  // anything else reads the ref.
+  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed } = {}) => {
     if (!text.trim() && !(images || []).length) return;
-    // Mid-switch, the session this would go to is the one being left. It waits
-    // in the queue and goes, with the handoff, once the switch has landed.
-    if (switching.current.has(key)) {
+    // Mid-switch, the session this would go to is the one being left; while
+    // the rest of a transcript is read in, the handoff is about to go with the
+    // message ahead of this one. Either way it waits in the queue.
+    if (switching.current.has(key) || reading.current.has(key)) {
       edit(key, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images }] }));
       return;
     }
-    let chat = chatsRef.current.find((c) => c.key === key);
+    let chat = committed || chatsRef.current.find((c) => c.key === key);
     // A handoff picks from the whole chat, so one opened with only its end
     // read in reads the rest first: the first ask is usually in what is not.
-    if (chat?.handoff && chat.stored) chat = await readWhole(key, chat);
+    if (chat?.handoff && !carried.current.has(chat.handoff.marker) && chat.stored) {
+      reading.current.add(key);
+      try {
+        chat = await readWhole(key, chat);
+      } finally {
+        reading.current.delete(key);
+      }
+    }
     const id = uid('u');
-    // The turns this agent missed ride ahead of the message. The bubble shows
-    // only what was typed; the handoff row above it says what went across.
-    const carry = chat?.handoff ? handoffFor(chat, text, images) : null;
+    // The turns this agent missed ride ahead of the message, once. The bubble
+    // shows only what was typed; the handoff row above it says what went.
+    const owed = chat?.handoff && !carried.current.has(chat.handoff.marker) ? chat.handoff : null;
+    if (owed) carried.current.add(owed.marker);
+    const carry = owed ? handoffFor(chat, text, images) : null;
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
@@ -1043,7 +1069,7 @@ export function useAgent() {
       title: c.title === 'New chat' ? chatTitle(text).slice(0, TITLE_MAX) : c.title,
       handoff: carry ? null : c.handoff,
       items: [
-        ...(carry ? c.items.map((it) => (it.id === c.handoff.marker
+        ...(carry ? c.items.map((it) => (it.id === owed.marker
           ? { ...it, pending: false, carried: carry.carried, total: carry.total, scope: carry.scope }
           : it)) : c.items),
         { id, kind: 'user', text, images, ...(resent && { resent }) },
@@ -1060,13 +1086,14 @@ export function useAgent() {
       if (res?.forkAt) patch(key, id, { forkAt: res.forkAt });
     } catch (e) {
       const said = e.cause === 'said';
+      if (owed) carried.current.delete(owed.marker);
       edit(key, (c) => ({
         ...c,
         busy: false,
         // Nothing reached the agent, so the next message carries it instead,
         // and the row says so again rather than counting what never went.
-        handoff: carry && !c.handoff ? chat.handoff : c.handoff,
-        items: [...(carry ? c.items.map((it) => (it.id === chat.handoff.marker
+        handoff: carry && !c.handoff ? owed : c.handoff,
+        items: [...(carry ? c.items.map((it) => (it.id === owed.marker
           ? { ...it, pending: true, carried: undefined, total: undefined, scope: undefined }
           : it)) : c.items), {
           id: uid('e'), kind: 'note', error: true,
@@ -1186,16 +1213,19 @@ export function useAgent() {
   // edit is saved, so the ones behind it keep their order. The set stops a
   // second pass sending the next message before this one has been marked busy.
   const flushing = useRef(new Set());
-  const flushChat = useCallback(async (key) => {
+  // `committed` is the chat as the effect below saw it committed. The ref can
+  // still hold the chat from before a switch that has just landed, and a
+  // message sent from that would go to the CLI being left, without a handoff.
+  const flushChat = useCallback(async (key, committed) => {
     if (flushing.current.has(key)) return;
-    const chat = chatsRef.current.find((c) => c.key === key);
-    if (!chat || chat.busy || switching.current.has(key)) return;
+    const chat = committed || chatsRef.current.find((c) => c.key === key);
+    if (!chat || chat.busy || switching.current.has(key) || reading.current.has(key)) return;
     const head = chat.queued?.find((m) => !m.held);
     if (!head || head.editing) return;
     flushing.current.add(key);
     edit(key, (c) => ({ ...c, queued: c.queued.filter((m) => m.id !== head.id) }));
     try {
-      if (head.text?.trim() || (head.images || []).length) await sendTo(key, head.text, head.images);
+      if (head.text?.trim() || (head.images || []).length) await sendTo(key, head.text, head.images, { committed: chat });
     } finally {
       flushing.current.delete(key);
     }
@@ -1204,7 +1234,13 @@ export function useAgent() {
   // A parked message goes out on its own once that chat is idle. Background
   // chats included, still one message per turn.
   useEffect(() => {
-    for (const c of chats) if (!c.busy && c.queued.length) flushChat(c.key);
+    // A switch has landed once its chat is committed on the new CLI.
+    for (const [key, s] of switching.current) {
+      if (!s.landing) continue;
+      const c = chats.find((x) => x.key === key);
+      if (!c || c.provider === s.want) switching.current.delete(key);
+    }
+    for (const c of chats) if (!c.busy && c.queued.length) flushChat(c.key, c);
   }, [chats, flushChat]);
 
   const decide = useCallback((id, decision, input) => {
@@ -1454,18 +1490,26 @@ export function useAgent() {
           ...(it.parent && { parent: tag(it.parent) }),
           ...(it.kind === 'agent' && { session }),
         }));
-        return [session, { items, usage: t.usage }];
+        return [session, { items, usage: t.usage, context: storedContext(t) }];
       }));
       const byId = Object.fromEntries(reads.map(([id, r]) => [id, r.items]));
-      const { items, segments } = stitch(segs, byId);
-      const lastUsage = reads.find(([id]) => id === segs[segs.length - 1].session)?.[1].usage;
-      edit(chat.key, (c) => ({
-        ...c,
-        items,
-        segments,
-        stored: null,
-        usage: lastUsage ? account(c.usage, lastUsage) : c.usage,
-      }));
+      const sizes = Object.fromEntries(reads.map(([id, r]) => [id, r.context]));
+      const stitched = stitch(segs, byId);
+      // A segment's window size is its session's, as last saved or, failing
+      // that, as its transcript last reported.
+      const segments = stitched.segments.map((x) => (x.context ? x : { ...x, ...(sizes[x.session] && { context: sizes[x.session] }) }));
+      const last = reads.find(([id]) => id === segs[segs.length - 1].session)?.[1];
+      edit(chat.key, (c) => {
+        const usage = last?.usage ? account(c.usage, last.usage) : c.usage;
+        return {
+          ...c,
+          items: stitched.items,
+          segments,
+          stored: null,
+          forked: isFork(byId[segs[0].session] || []),
+          usage: last?.context ? { ...usage, context: last.context } : usage,
+        };
+      });
     } catch (e) {
       edit(chat.key, (c) => ({
         ...c,
@@ -1513,12 +1557,19 @@ export function useAgent() {
       const t = await conn().agent.transcript(s.id, chat.project);
       const span = storedWindow(t);
       const next = replayStored(t, span.from);
-      edit(chat.key, (c) => ({
-        ...c,
-        items: next,
-        stored: storedOf(s.id, span, next.length),
-        usage: t.usage ? account(c.usage, t.usage) : c.usage,
-      }));
+      // How full it was, so a switch away from it records how much room it
+      // has for whatever it is handed when it is switched back to.
+      const context = storedContext(t);
+      edit(chat.key, (c) => {
+        const usage = t.usage ? account(c.usage, t.usage) : c.usage;
+        return {
+          ...c,
+          items: next,
+          stored: storedOf(s.id, span, next.length),
+          forked: isFork(next),
+          usage: context ? { ...usage, context } : usage,
+        };
+      });
     } catch (e) {
       edit(chat.key, (c) => ({
         ...c,
@@ -1587,7 +1638,7 @@ export function useAgent() {
      this one left exactly as it was. The new chat shows what it was forked
      from and its first message carries the handoff, the same way a switch's
      does, so the agent starts on what you ask it rather than on a recap. */
-  const forkTo = useCallback(async (value) => {
+  const forkTo = useCallback(async (value, provider) => {
     let chat = chatsRef.current.find((c) => c.key === activeRef.current);
     if (!chat?.items.length) return;
     if (chat.busy) {
@@ -1596,9 +1647,8 @@ export function useAgent() {
     }
     // The fork carries the whole chat, not just the end that was read in.
     if (chat.stored) chat = await readWhole(chat.key, chat);
-    const row = models.find((m) => m.value === value);
-    const want = row?.provider || chat.provider;
-    const marker = { id: uid('h'), kind: 'handoff', fork: true, from: labelOf(chat.provider), to: labelOf(want), model: modelName(models, value), pending: true };
+    const want = provider || modelEntry(models, value)?.provider || chat.provider;
+    const marker = { id: uid('h'), kind: 'handoff', fork: true, from: labelOf(chat.provider), to: labelOf(want), model: modelName(models, value, want), pending: true };
     const by = chat.segments?.length ? chat.segments : [{ provider: chat.provider, from: 0 }];
     const next = {
       ...blankChat(chat.project, want, chat.mode),
@@ -1617,6 +1667,8 @@ export function useAgent() {
         marker,
       ],
       handoff: { since: 0, used: 0, from: chat.provider, marker: marker.id, segments: by },
+      // Its first stretch starts on a handoff of its own. See switchChat.
+      forked: true,
       usage: { ...blankUsage(), model: value },
     };
     chatsRef.current = [...chatsRef.current, next];
@@ -1624,7 +1676,7 @@ export function useAgent() {
     switchTo(next.key);
     setModel(value);
     setProvider(want);
-    const res = await conn().agent.setModel(next.key, value);
+    const res = await conn().agent.setModel(next.key, value, want);
     if (res?.models?.length) setModels(res.models);
     if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
   }, [models, switchTo, readWhole]);
@@ -1641,27 +1693,31 @@ export function useAgent() {
     }
     const key = chat.key;
     // Until the switch lands, a message typed here queues rather than going to
-    // the session being left. See sendTo.
-    switching.current.add(key);
+    // the session being left. See sendTo. Landing is when the switched chat is
+    // committed, which the queue's flush checks for; a refused switch has
+    // nothing to wait for.
+    switching.current.set(key, { landing: false, want });
+    let landed = false;
     try {
       // Main parks the session this chat is on before anything here moves, so
       // a refusal leaves nothing to put back.
-      const res = await conn().agent.setModel(key, value);
+      const res = await conn().agent.setModel(key, value, want);
       if (res?.busy) {
         toast(`Wait for this turn to finish before switching to ${labelOf(want)}.`);
         return;
       }
       // Something else may have started a turn while main was answering. That
-      // turn is on the old CLI, so the chat stays there with it.
+      // turn is on the old CLI, so the chat stays there with it, and so does
+      // what its next session will start on, busy or not.
       if (chatsRef.current.find((c) => c.key === key)?.busy) {
         toast(`Wait for this turn to finish before switching to ${labelOf(want)}.`);
-        if (chat.usage?.model) await conn().agent.setModel(key, chat.usage.model).catch(() => {});
+        await conn().agent.restoreModel(key, chat.usage?.model || '', chat.provider).catch(() => {});
         return;
       }
       intended.current.set(key, want);
       setModel(res?.model || value);
       setProvider(want);
-      const shown = modelName(models, value);
+      const shown = modelName(models, value, want);
       if (res?.models?.length) setModels(res.models);
       if (typeof res?.long === 'boolean') setLongContext({ on: res.long, capable: !!res.longCapable });
       setChats((cur) => {
@@ -1675,16 +1731,20 @@ export function useAgent() {
         chatsRef.current = next;
         return next;
       });
+      switching.current.set(key, { landing: true, want });
+      landed = true;
     } finally {
-      switching.current.delete(key);
+      if (!landed) switching.current.delete(key);
       // A message queued while this ran goes once the chat next commits.
       edit(key, (c) => ({ ...c }));
     }
   }, [models, edit]);
 
-  const pickModel = useCallback(async (key, value) => {
+  // `provider` is the CLI the model was picked under. Only a caller with
+  // nothing but a name, such as one typed by hand, leaves it to the list.
+  const pickModel = useCallback(async (key, value, provider) => {
     const chat = chatsRef.current.find((c) => c.key === key);
-    const want = models.find((m) => m.value === value)?.provider;
+    const want = provider || modelEntry(models, value)?.provider;
     // An earlier pick may still be on its way into state.
     const on = intended.current.get(key) || chat?.provider;
     const crossing = want && on && want !== on;
@@ -1704,7 +1764,7 @@ export function useAgent() {
     });
     // A name typed by hand comes back as part of the list, so the picker has it
     // the next time it opens rather than only while it is selected.
-    const res = await conn().agent.setModel(key, value);
+    const res = await conn().agent.setModel(key, value, want);
     if (res?.busy) {
       if (res.model) setModel(res.model);
       if (res.provider) {
@@ -1727,9 +1787,9 @@ export function useAgent() {
   }, [models, switchChatTo]);
 
   // One chat's picks run in the order they were made.
-  const changeModel = useCallback((value) => {
+  const changeModel = useCallback((value, provider) => {
     const key = activeRef.current;
-    return serial.current(key, () => pickModel(key, value));
+    return serial.current(key, () => pickModel(key, value, provider));
   }, [pickModel]);
 
   // Drops a hand-typed name. The main process answers with what is left and

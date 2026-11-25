@@ -1215,8 +1215,10 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     if (m?.type === 'result' && agent.stale && sessions.get(chat) === agent) stopChat(chat);
   });
   agent.on('ready', (r) => {
-    if (r?.model) chatPrefs.setModel(chat, r.model);
-    send('agent:ready', { ...r, chat });
+    // A session on a CLI the chat has since left says nothing about the
+    // model the chat is on now. The window drops its id for the same reason.
+    if (r?.model && chatPrefs.providerOf(chat, runs) === runs) chatPrefs.setModel(chat, r.model);
+    send('agent:ready', { ...r, chat, provider: runs });
     // A running session knows the account's real entitlements; the catalogue in
     // driver.js can only infer them from a version number.
     if (runs === 'claude') agent.models().then((m) => row.driver.learn(m)).catch(() => {});
@@ -2046,13 +2048,15 @@ function registerIpc() {
     await sessions.get(key)?.setModel(model);
     return { model, long: isLong(model), models: allModels() };
   });
-  ipcMain.handle('agent:setModel', async (_e, { chat, model }) => {
+  ipcMain.handle('agent:setModel', async (_e, { chat, model, provider: picked }) => {
     const key = chat || activeChat.chat;
     const next = model || null;
     // Picking a codex model while claude is running is how someone switches
     // CLI. Doing it here rather than behind a separate control is the whole
-    // point of one list: the model is the choice, the CLI follows it.
-    const nextProvider = next ? providerOf(next) : null;
+    // point of one list: the model is the choice, the CLI follows it. The
+    // picker says which CLI, because two can offer the same name; looking it
+    // up by name is only for a caller that did not say.
+    const nextProvider = isProviderId(picked) ? picked : next ? providerOf(next) : null;
     const had = chatPrefs.providerOf(key, provider);
     const live = sessions.get(key);
     if (live && !live.closed && nextProvider && nextProvider !== had) {
@@ -2079,6 +2083,15 @@ function registerIpc() {
     // and a codex model has no long twin. Without these the pill keeps whatever
     // the last claude model made it say and offers 1M on a model that has none.
     return { model: next, provider: runs, models: allModels(), long: isLong(next), longCapable: hasLong(next) };
+  });
+  // A switch the window took back after main had moved the chat on. Only the
+  // chat's own record changes: a turn may be running, and the next session
+  // this chat starts has to be on the model it is back on.
+  ipcMain.handle('agent:restoreModel', (_e, { chat, model, provider: was } = {}) => {
+    if (!chat || !isProviderId(was)) return { error: 'which chat and which CLI' };
+    chatPrefs.setProvider(chat, was);
+    if (model) chatPrefs.setModel(chat, model);
+    return { ok: true };
   });
   ipcMain.handle('agent:setProvider', async (_e, { chat, provider: next } = {}) => {
     const key = chat || activeChat.chat;

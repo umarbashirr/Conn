@@ -152,16 +152,18 @@ const SectionLabel = ({ children }) => (
 
 // `flat` lists older models under their own heading instead of behind one more
 // submenu, for a list that is itself already a submenu.
-function ModelItems({ rows, current, onPick, flat = false }) {
+// A pick is the row's CLI and its name together: two CLIs can list the same
+// name. `currentProvider` keeps the tick on the CLI the chat is on.
+function ModelItems({ rows, current, currentProvider, onPick, flat = false }) {
   const all = new Set(rows.map((m) => m.value));
   const long = current?.endsWith(LONG);
-  const pick = (value) => onPick(long && all.has(value + LONG) ? value + LONG : value);
+  const pick = (m) => onPick(long && all.has(m.value + LONG) ? m.value + LONG : m.value, m.provider);
   const { latest, legacy } = splitLegacy(oncePerModel(rows));
-  const selected = (m) => m.value === shortOf(current);
+  const selected = (m) => m.value === shortOf(current) && (!currentProvider || !m.provider || m.provider === currentProvider);
   const item = (m) => (
     <DropdownMenuItem
       key={m.value}
-      onSelect={() => pick(m.value)}
+      onSelect={() => pick(m)}
       title={m.blurb || undefined}
       className={cn('items-start gap-2 py-1.5', selected(m) && 'bg-accent/50')}>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -298,7 +300,8 @@ function ModelPicker({ agent, settings }) {
   // A model the list has not heard of still has to name itself on the trigger:
   // a proxy routes names no probe here can see, and a chat resumed on one would
   // otherwise leave the button blank.
-  const row = agent.models.find((m) => m.value === current);
+  const row = agent.models.find((m) => m.value === current && m.provider === agent.provider)
+    || agent.models.find((m) => m.value === current);
   const label = [
     row && !row.custom ? cleanModelName(row) : prettyModelId(current) || 'Pick a model',
     agent.effort && effortLabel(agent.effort),
@@ -356,13 +359,13 @@ function ModelPicker({ agent, settings }) {
             );
           }
           if (!nested) {
-            return <ModelItems key={g.id} rows={g.rows} current={current} onPick={agent.changeModel} />;
+            return <ModelItems key={g.id} rows={g.rows} current={current} currentProvider={agent.provider} onPick={agent.changeModel} />;
           }
           return (
             <DropdownMenuSub key={g.id}>
               <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-72 max-w-none">
-                <ModelItems rows={g.rows} current={current} onPick={agent.changeModel} />
+                <ModelItems rows={g.rows} current={current} currentProvider={agent.provider} onPick={agent.changeModel} />
                 {VISIBILITY[g.id] && (
                   <>
                     <DropdownMenuSeparator />

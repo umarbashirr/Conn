@@ -28,7 +28,8 @@ function cleanSegments(v) {
   for (const s of v) {
     if (!s || !PROVIDER.test(String(s.provider || '')) || !SESSION.test(String(s.session || ''))) return null;
     const context = Number.isFinite(s.context) && s.context > 0 ? Math.round(s.context) : 0;
-    out.push({ provider: s.provider, session: s.session, ...(context && { context }) });
+    const cut = Number.isInteger(s.cut) && s.cut >= 0 ? s.cut : null;
+    out.push({ provider: s.provider, session: s.session, ...(context && { context }), ...(cut !== null && { cut }) });
   }
   return out;
 }
@@ -41,7 +42,7 @@ function persistable(segments) {
   const out = [];
   for (const s of segments || []) {
     if (!s.session) continue;
-    const row = { provider: s.provider, session: s.session, ...(s.context > 0 && { context: s.context }) };
+    const row = { provider: s.provider, session: s.session, ...(s.context > 0 && { context: s.context }), ...(Number.isInteger(s.cut) && { cut: s.cut }) };
     if (out.at(-1)?.session === s.session) out[out.length - 1] = row;
     else out.push(row);
   }
@@ -126,35 +127,56 @@ function priorOf(segments, provider) {
 
 /* A reopened chat's items, put back in the order they happened. `read` holds
    one replayed transcript per distinct session, keyed by session id. Replay
-   draws a handoff row ahead of every message that carried one, so each
-   session splits at those rows and its pieces are dealt out to its segments in
-   turn. Returns the items and each segment's `from`, which is the index of the
-   handoff row it starts with. */
+   draws a handoff row ahead of every message that carried one, and a fork's
+   rows for what it carried ahead of that, so a session is cut at those rows.
+
+   Where each segment starts is written down with it: `cut` is which handoff
+   in its own session's transcript it begins at, counting from 0, and a
+   segment without one begins at the top of its session. A record saved before
+   segments said so is read the old way, by dealing each session's pieces out
+   in turn. Returns the items and each segment's `from`. */
 function stitch(segments, read) {
-  const pieces = new Map();
-  for (const [session, items] of Object.entries(read)) {
-    const parts = [[]];
-    for (const it of items) {
-      if (it.kind === 'handoff') parts.push([]);
-      parts[parts.length - 1].push(it);
-    }
-    pieces.set(session, parts);
-  }
+  const starts = new Map();
+  for (const [session, items] of Object.entries(read)) starts.set(session, cutsIn(items));
+  const explicit = segments.every((s, k) => k === 0 || Number.isInteger(s.cut));
   const used = new Map();
   const items = [];
   const out = [];
   segments.forEach((s, k) => {
-    const parts = pieces.get(s.session) || [[]];
-    let n = used.get(s.session) ?? 0;
-    // A session that began on a handoff has nothing ahead of its first one.
-    // That includes the first segment of a fork, whose first message carried
-    // what it was forked with.
-    if (n === 0 && !parts[0].length && parts.length > 1) n = 1;
-    used.set(s.session, n + 1);
-    out.push({ ...s, from: items.length });
-    items.push(...(parts[n] || []));
+    const all = read[s.session] || [];
+    const cuts = starts.get(s.session) || [];
+    let from;
+    if (explicit) {
+      from = Number.isInteger(s.cut) ? cuts[s.cut] : 0;
+    } else {
+      // Pieces in order; a session that opens on a handoff has nothing ahead of it.
+      const pieces = [0, ...cuts];
+      let n = used.get(s.session) ?? 0;
+      if (n === 0 && cuts[0] === 0) n = 1;
+      used.set(s.session, n + 1);
+      from = pieces[n];
+    }
+    // This session's next start after this one, of any segment, ends the piece.
+    const to = from === undefined ? from : [...cuts, all.length].find((c) => c > from) ?? all.length;
+    // An old record learns where its segments start, so the next save has it.
+    const cut = k > 0 && from !== undefined && cuts.includes(from) ? cuts.indexOf(from) : s.cut;
+    out.push({ ...s, from: items.length, ...(Number.isInteger(cut) && { cut }) });
+    if (from !== undefined) items.push(...all.slice(from, to));
   });
   return { items, segments: out };
+}
+
+// Where each handoff in one replayed session starts: at its row, or at the
+// carried rows a fork draws just above it.
+function cutsIn(items) {
+  const cuts = [];
+  items.forEach((it, i) => {
+    if (it.kind !== 'handoff') return;
+    let at = i;
+    while (at > 0 && items[at - 1].carried) at -= 1;
+    cuts.push(at);
+  });
+  return cuts;
 }
 
 // The session a chat is known by on disk: its first one.
@@ -186,7 +208,11 @@ function switchChat(c, { provider, model, id, label = (p) => p }) {
   }
   const prior = priorOf([...segs, { provider, from: items.length }], provider);
   const session = prior?.session || null;
-  segs.push({ provider, session, from: items.length });
+  // Which handoff in that session's transcript this stretch will start at: a
+  // fresh session's first, or one past every handoff already sent into it. A
+  // fork's first stretch began on one of its own.
+  const cut = session ? segs.filter((x, j) => x.session === session && (j > 0 || c.forked)).length : 0;
+  segs.push({ provider, session, from: items.length, cut });
   return {
     ...c,
     provider,
@@ -197,10 +223,14 @@ function switchChat(c, { provider, model, id, label = (p) => p }) {
   };
 }
 
-// The chat once its newest session has an id. In a switched chat that id
-// belongs to the newest segment.
-function withSession(c, sessionId) {
+/* The chat once its newest session has an id. In a switched chat that id
+   belongs to the newest segment. A session from any CLI but the one the chat
+   is on now is not this chat's: a turn the old CLI was still finishing
+   reports in after the switch, and taking its id would put one CLI's session
+   in another's segment. */
+function withSession(c, sessionId, provider) {
   if (!sessionId) return c;
+  if (provider && provider !== c.provider) return c;
   const segs = c.segments?.length > 1
     ? c.segments.map((x, i) => (i === c.segments.length - 1 ? { ...x, session: sessionId } : x))
     : c.segments || [];

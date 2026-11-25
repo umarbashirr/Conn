@@ -184,7 +184,10 @@ contextBridge.exposeInMainWorld('conn', {
     subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     models: (chat, provider) => ipcRenderer.invoke('agent:models', { chat, provider }),
-    setModel: (chat, model) => ipcRenderer.invoke('agent:setModel', { chat, model }),
+    // `provider` is the CLI the model was picked under: two can share a name.
+    setModel: (chat, model, provider) => ipcRenderer.invoke('agent:setModel', { chat, model, provider }),
+    // Only what the chat will start its next session on, whatever is running.
+    restoreModel: (chat, model, provider) => ipcRenderer.invoke('agent:restoreModel', { chat, model, provider }),
     setProvider: (chat, provider) => ipcRenderer.invoke('agent:setProvider', { chat, provider }),
     // How hard the model thinks. The CLI takes this when a session starts and
     // has no setter for it, so changing it parks this chat when idle and the

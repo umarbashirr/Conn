@@ -22,4 +22,14 @@ function mayApplyModel(session, runs, fallback) {
   return (session.provider || fallback) === runs;
 }
 
-module.exports = { createSerial, mayApplyModel };
+/* The row a pick names. Two CLIs can offer the same model name (Copilot and
+   Codex both list gpt-6.2-sol), so a pick is a CLI and a name together, and
+   the name alone is only a fallback for a caller that has nothing else, such
+   as a name typed by hand, where the CLI listed first wins. */
+function modelEntry(models, value, provider) {
+  const list = models || [];
+  if (provider) return list.find((m) => m.value === value && m.provider === provider) || null;
+  return list.find((m) => m.value === value) || null;
+}
+
+module.exports = { createSerial, mayApplyModel, modelEntry };

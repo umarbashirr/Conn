@@ -233,12 +233,20 @@ function Appearance({ settings, set }) {
 // their owner configured, so the list is a suggestion rather than the limit.
 function ModelRow({ agent }) {
   const [draft, setDraft] = useState('');
-  const custom = agent.models.find((m) => m.value === agent.model)?.custom;
+  const custom = agent.models.find((m) => m.value === agent.model && m.provider === agent.provider)?.custom;
+  // Each entry is its CLI and its name: two CLIs can list the same name, and a
+  // value of the name alone would pick whichever came first.
+  const entry = (m) => `${m.provider}\u0000${m.value}`;
+  const current = agent.model ? `${agent.provider}\u0000${agent.model}` : '';
+  const choose = (v) => {
+    const at = v.indexOf('\u0000');
+    agent.changeModel(v.slice(at + 1), v.slice(0, at));
+  };
 
   const add = () => {
     const value = draft.trim();
     setDraft('');
-    if (value) agent.changeModel(value);
+    if (value) agent.changeModel(value, agent.provider);
   };
 
   return (
@@ -250,14 +258,14 @@ function ModelRow({ agent }) {
             // An empty value is what Radix reads as "nothing picked yet", so a
             // model this app has not been told about leaves the placeholder up
             // rather than blanking the trigger.
-            <Select value={agent.model || ''} onValueChange={agent.changeModel}>
+            <Select value={current} onValueChange={choose}>
               <SelectTrigger className="min-w-36">
                 <SelectValue placeholder="Pick a model" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
                   {agent.models.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.displayName || m.value}</SelectItem>
+                    <SelectItem key={entry(m)} value={entry(m)}>{m.displayName || m.value}</SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
