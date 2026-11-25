@@ -28,8 +28,11 @@ const files = require('./files');
 const canvas = require('./canvas');
 const canvasIds = require('./canvas-ids');
 const chatSegments = require('./chat-segments');
-const { collapseRows } = require('../shared/chat-segments');
-const { unwrapHandoff } = require('../shared/handoff');
+const hiddenSessions = require('./hidden-sessions');
+const { deleteChat } = require('./delete-chat');
+const { collapseRows, foldHits, followers, persistable, stitch } = require('../shared/chat-segments');
+const { mayApplyModel } = require('../shared/model-pick');
+const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
@@ -194,6 +197,9 @@ const driverFor = (p) => rowOf(p)?.driver;
 const activeDriver = () => driverFor(provider);
 
 const owners = new Map();
+// The title each listed chat last showed under, for a search hit that has to
+// answer under another session's name.
+const railTitles = new Map();
 const ownerOf = (id) => rowOf(owners.get(id) || provider)?.history;
 
 async function sessionsIn(dir) {
@@ -206,9 +212,11 @@ async function sessionsIn(dir) {
   const out = lists.flat();
   for (const r of out) owners.set(r.id, r.provider);
   // A chat that changed agent is one row, under the session it started on.
-  return collapseRows(out, chatSegments.all()).map((s) => {
+  const hidden = hiddenSessions.all();
+  return collapseRows(out.filter((r) => !hidden[r.id]), chatSegments.all()).map((s) => {
     const title = chatTitles.get(s.id);
     const board = canvasIds.get(s.id);
+    if (s.title || title) railTitles.set(s.id, title || s.title);
     return { ...s, ...(title && { title }), ...(board && { canvas: board }) };
   });
 }
@@ -266,14 +274,38 @@ async function listChatsForPhone(dir) {
 
 function phoneLive() {
   const live = {};
+  // A switched chat is one row on the phone, under its first session, so a
+  // turn on a later one lights that row.
+  const heads = followers(chatSegments.all());
   for (const agent of sessions.values()) {
     if (!agent || agent.closed || typeof agent.sessionId !== 'string' || agent.sessionId === '') continue;
+    const id = heads.get(agent.sessionId) || agent.sessionId;
     const waiting = agent.pending && typeof agent.pending.size === 'number' && agent.pending.size > 0;
     const working = !!(agent.working ?? agent.busy);
-    if (waiting) live[agent.sessionId] = 'waiting';
-    else if (working) live[agent.sessionId] = 'working';
+    if (waiting) live[id] = 'waiting';
+    else if (working && live[id] !== 'waiting') live[id] = 'working';
   }
   return live;
+}
+
+/* Every session a switched chat ran on, read whole and put back in the order
+   it happened, as stored messages. Each session after the first of its stretch
+   splits at the message that carried a handoff, the same cut the window makes.
+   The chat's first session has to be readable; a later one that is not leaves
+   its stretch out. */
+async function readStitched(dir, segs) {
+  const read = {};
+  for (const session of new Set(segs.map((x) => x.session))) {
+    const p = segs.find((x) => x.session === session).provider;
+    const h = (isProviderId(p) && rowOf(p)?.history) || ownerOf(session);
+    try {
+      const t = await h.readSession(dir, session, { whole: true });
+      read[session] = (t?.messages || []).map((m) => ({ kind: carriesHandoff(m) ? 'handoff' : 'message', m }));
+    } catch (e) {
+      if (session === segs[0].session) throw e;
+    }
+  }
+  return stitch(segs, read).items.map((x) => x.m);
 }
 
 async function listProjectsForPhone() {
@@ -296,6 +328,14 @@ async function listProjectsForPhone() {
 }
 
 async function transcriptForPhone(dir, id, provider) {
+  const segs = chatSegments.get(id);
+  if (segs) {
+    try {
+      return { id, messages: phoneMessages(await readStitched(dir, segs)) };
+    } catch {
+      return { error: 'No transcript for that chat.' };
+    }
+  }
   const row = (registry?.all() || []).find((candidate) => candidate.id === provider && candidate.history);
   let history = row?.history;
   if (!history) {
@@ -444,6 +484,9 @@ function phoneChatOf(chat) {
   const agent = sessions.get(chat);
   const sid = agent?.sessionId;
   const runs = agent?.provider || chatPrefs.providerOf(chat, provider);
+  // The phone knows a switched chat by its first session.
+  const head = sid && followers(chatSegments.all()).get(sid);
+  if (head) return `h:${chatSegments.get(head)?.[0]?.provider || runs}:${head}`;
   return sid && runs ? `h:${runs}:${sid}` : chat;
 }
 
@@ -1590,6 +1633,10 @@ function shareLive(dir, name) {
 async function deliverTurn({ chat, text, images, project, session, provider, from }) {
   try {
     const phone = from === 'phone';
+    // The phone names a switched chat by its first session, but the chat is
+    // on its newest one now, on whichever agent that is.
+    const segs = phone && session ? chatSegments.get(session) : null;
+    if (segs) ({ session, provider } = segs[segs.length - 1]);
     const held = liveChatFor(session, chat);
     let target = chat;
     if (phone && held) {
@@ -1622,9 +1669,11 @@ async function deliverTurn({ chat, text, images, project, session, provider, fro
 
 function deliverDecision({ chat, id, decision, input }) {
   if (settleBridge(id, decision)) return true;
-  const held = typeof chat === 'string' && chat.startsWith('h:') && !sessions.has(chat)
-    ? liveChatFor(chat.split(':').slice(2).join(':'))
+  const named = typeof chat === 'string' && chat.startsWith('h:') && !sessions.has(chat)
+    ? chat.split(':').slice(2).join(':')
     : null;
+  // A switched chat is asking from its newest session, not the one it is named by.
+  const held = named ? liveChatFor(chatSegments.get(named)?.at(-1).session || named) : null;
   return sessions.get(held || chat)?.decide(id, decision, input) === true;
 }
 
@@ -2012,17 +2061,24 @@ function registerIpc() {
       }
       stopChat(key);
     }
-    if (next) await applyProvider(nextProvider);
+    // The CLI this call is about, fixed now: two picks in quick succession each
+    // await applyProvider, and the global moves under the first while it waits.
+    const runs = nextProvider || had;
+    if (next) await applyProvider(runs);
     chatPrefs.setModel(key, next);
-    if (next) chatPrefs.setProvider(key, nextProvider);
-    chosenModels[provider] = next;
-    rememberModel(provider, next);
-    if (provider === 'claude' && next) rowOf('claude').driver.remember(next);
-    await sessions.get(key)?.setModel(next);
+    if (next) chatPrefs.setProvider(key, runs);
+    chosenModels[runs] = next;
+    rememberModel(runs, next);
+    if (runs === 'claude' && next) rowOf('claude').driver.remember(next);
+    // One CLI's model name means nothing to another's session. A session that
+    // came up under this chat while the switch was in flight keeps its model,
+    // and the next message, which names the new CLI, parks it.
+    const now = sessions.get(key);
+    if (mayApplyModel(now, runs, had)) await now.setModel(next);
     // The window pills are a property of the name, not a setting on the session,
     // and a codex model has no long twin. Without these the pill keeps whatever
     // the last claude model made it say and offers 1M on a model that has none.
-    return { model: next, provider, models: allModels(), long: isLong(next), longCapable: hasLong(next) };
+    return { model: next, provider: runs, models: allModels(), long: isLong(next), longCapable: hasLong(next) };
   });
   ipcMain.handle('agent:setProvider', async (_e, { chat, provider: next } = {}) => {
     const key = chat || activeChat.chat;
@@ -2335,6 +2391,7 @@ function registerIpc() {
     rows: () => (registry?.all() || []).filter((row) => row.hasHistory && row.has()),
     dirs: () => [CHATS_DIR, ...openDirs()],
     owners,
+    fold: (hits) => foldHits(hits, { records: chatSegments.all(), hidden: hiddenSessions.all(), titleOf: (id) => chatTitles.get(id) || railTitles.get(id) }),
   }));
   // The sessions a switched chat is made of, written once the newest one has
   // an id. Ownership is learned here too, so a session the rail has not listed
@@ -2391,30 +2448,38 @@ function registerIpc() {
   ipcMain.handle('agent:deleteSession', async (_e, { id, project } = {}) => {
     // A switched chat is deleted whole: every session it ran on goes with it.
     const segs = chatSegments.get(id) || [];
-    const rest = [...new Map(segs.filter((s) => s.session !== id).map((s) => [s.session, s.provider])).entries()];
-    const ids = new Set([id, ...rest.map(([s]) => s)]);
+    const ids = new Set([id, ...segs.map((s) => s.session)]);
     for (const [chat, a] of sessions) if (ids.has(a.sessionId)) stopChat(chat);
+    // The transcript is what each mark was about, so they go with it. So does
+    // the board binding; the board itself goes once nothing names it.
+    const forgetMarks = (session) => {
+      owners.delete(session);
+      completed.forget(session);
+      pinned.forget(session);
+      chatTitles.forget(session);
+      canvasIds.forget(session);
+    };
     try {
       const dir = project && known(project) ? project : focusedCwd();
-      for (const [session, p] of rest) {
-        const h = (isProviderId(p) && rowOf(p)?.history) || ownerOf(session);
-        await h.deleteSession(dir, session).catch(() => false);
-        owners.delete(session);
-      }
-      chatSegments.forget(id);
-      const gone = await ownerOf(id).deleteSession(dir, id);
-      owners.delete(id);
-      // The transcript is what the mark was about, so it goes with it.
-      completed.forget(id);
-      pinned.forget(id);
-      chatTitles.forget(id);
-      // So does the board. A chat forked onto another model carries the board
-      // of the one it came from, and that one is still there to draw on.
       const board = canvasIds.get(id);
-      canvasIds.forget(id);
+      const { gone, removed, left, error } = await deleteChat({
+        id,
+        segments: segs,
+        remove: (session, p) => ((isProviderId(p) && rowOf(p)?.history) || ownerOf(session)).deleteSession(dir, session),
+      });
+      removed.forEach(forgetMarks);
+      if (error) return { error };
+      forgetMarks(id);
+      // A part its agent would not delete stays on disk. With the chat's own
+      // row gone it would show up as a chat of its own, so it is hidden, and
+      // the record stays as the account of what this chat was.
+      for (const l of left) hiddenSessions.set(l.session, true);
+      if (!left.length) chatSegments.forget(id);
+      // A chat forked onto another model carries the board of the one it came
+      // from, and that one is still there to draw on.
       const root = board && !Object.values(canvasIds.all()).includes(board) ? boardRoot(dir, board) : null;
       if (root) await canvas.trashBoard(root);
-      return { ok: gone };
+      return { ok: gone, ...(left.length && { left: left.map(({ session, provider: p, error }) => ({ session, provider: p, error })) }) };
     } catch (e) {
       return { error: e.message };
     }
@@ -2519,16 +2584,20 @@ function registerIpc() {
       return { error: e.message };
     }
   });
-  ipcMain.handle('chat:export', async (_e, { id, project, title, lastText } = {}) => {
+  ipcMain.handle('chat:export', async (_e, { id, project, title, lastText, segments } = {}) => {
     const dir = project && known(project) ? project : focusedCwd();
+    // A switched chat exports whole: every session it ran on, in order.
+    const segs = persistable(segments);
     try {
       return await exportChat({
         title,
         project: dir,
         lastText,
-        dropsCommands: (owners.get(id) || provider) === 'claude',
+        dropsCommands: ((segs ? segs.at(-1).provider : owners.get(id)) || provider) === 'claude',
         landsWithin: LANDS_WITHIN,
-        read: () => ownerOf(id).readSession(dir, id, { whole: true }),
+        read: segs
+          ? async () => ({ messages: await readStitched(dir, segs) })
+          : () => ownerOf(id).readSession(dir, id, { whole: true }),
         pick: async (name) => {
           const res = await dialog.showSaveDialog(win, {
             title: 'Export chat',

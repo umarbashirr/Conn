@@ -20,9 +20,9 @@ assert.equal(cleanSegments('nope'), null);
 assert.equal(cleanSegments([{ provider: 'claude', session: A }, { provider: 'codex', session: 'x' }]), null, 'a bad session id drops the record');
 assert.equal(cleanSegments([{ provider: 'Claude!', session: A }, { provider: 'codex', session: B }]), null);
 assert.deepEqual(
-  cleanSegments([{ provider: 'claude', session: A, from: 4, context: 9 }, { provider: 'codex', session: B }]),
-  [{ provider: 'claude', session: A }, { provider: 'codex', session: B }],
-  'where a segment starts is not kept: it is worked out again on reopen',
+  cleanSegments([{ provider: 'claude', session: A, from: 4, context: 9 }, { provider: 'codex', session: B, context: -3 }]),
+  [{ provider: 'claude', session: A, context: 9 }, { provider: 'codex', session: B }],
+  'where a segment starts is worked out again on reopen; how full it was is kept for coming back',
 );
 
 // The store itself, against a throwaway HOME so nothing real is touched.

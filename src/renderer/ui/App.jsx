@@ -349,7 +349,7 @@ export default function App() {
     exporting.current = true;
     setExportBusy(true);
     const last = now.items.findLast((it) => !it.parent && (it.kind === 'user' || it.kind === 'assistant') && it.text);
-    const res = await window.conn.chat.export(now.session, now.project, now.title, last?.text).catch((e) => ({ error: e.message }));
+    const res = await window.conn.chat.export(now.head || now.session, now.project, now.title, last?.text, now.segments).catch((e) => ({ error: e.message }));
     exporting.current = false;
     setExportBusy(false);
     if (res?.error) toast('Could not export the chat', res.error);
@@ -1096,7 +1096,9 @@ function AssistantRow({ item }) {
    to; after, it says how much of the chat went across, because a handoff that
    had to leave things out should not read as one that carried everything. */
 function HandoffRow({ item }) {
-  const what = item.fork ? `Forked from ${item.from} to ${item.to}` : `${item.from} → ${item.to}`;
+  const what = item.fork
+    ? `Forked from ${item.from}${item.to && item.to !== item.from ? ` to ${item.to}` : ''}`
+    : `${item.from} → ${item.to}`;
   const carried = item.pending
     ? 'the next message carries the chat across'
     : item.total

@@ -9,6 +9,7 @@ const path = require('path');
 const readline = require('readline');
 const { execFile } = require('child_process');
 const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
+const { typedText } = require('../shared/handoff');
 const chatTitles = require('./chat-titles');
 const shellEnv = require('./shell-env');
 const { parseQuery, snippetOf } = require('./transcript-search');
@@ -436,7 +437,8 @@ function recent(cwd, bytes) {
 
 function saidIn(o) {
   if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
-  if (o.type === 'user') return humanText(o) || '';
+  // What was typed, not the history a switch carried in with it.
+  if (o.type === 'user') return typedText(humanText(o) || '');
   if (o.type !== 'assistant' || o.isApiErrorMessage) return '';
   const c = o.message?.content;
   if (typeof c === 'string') return c;

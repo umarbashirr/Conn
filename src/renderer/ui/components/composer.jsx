@@ -150,7 +150,9 @@ const SectionLabel = ({ children }) => (
   </DropdownMenuLabel>
 );
 
-function ModelItems({ rows, current, onPick }) {
+// `flat` lists older models under their own heading instead of behind one more
+// submenu, for a list that is itself already a submenu.
+function ModelItems({ rows, current, onPick, flat = false }) {
   const all = new Set(rows.map((m) => m.value));
   const long = current?.endsWith(LONG);
   const pick = (value) => onPick(long && all.has(value + LONG) ? value + LONG : value);
@@ -178,7 +180,7 @@ function ModelItems({ rows, current, onPick }) {
       {legacy.length > 0 && (
         <>
           <DropdownMenuSeparator />
-          {legacyOpen ? (
+          {legacyOpen || flat ? (
             <>
               <SectionLabel>Legacy</SectionLabel>
               {legacy.map(item)}
@@ -384,15 +386,17 @@ function ModelPicker({ agent, settings }) {
                 <GitForkIcon className="size-3.5" />
                 Fork to a New Chat
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-72 max-w-none">
-                {forkable.map((g) => (nested ? (
-                  <DropdownMenuSub key={g.id}>
-                    <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-72 max-w-none">
-                      <ModelItems rows={g.rows} current="" onPick={agent.forkTo} />
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                ) : <ModelItems key={g.id} rows={g.rows} current="" onPick={agent.forkTo} />))}
+              <DropdownMenuSubContent className="max-h-[min(var(--radix-dropdown-menu-content-available-height),32rem)] w-72 max-w-none overflow-y-auto">
+                {/* One level, every CLI under its own heading: a submenu inside
+                    this one opened over the main menu, and the pointer's way
+                    to it crossed rows that closed it. */}
+                {forkable.map((g, i) => (
+                  <div key={g.id}>
+                    {i > 0 && <DropdownMenuSeparator />}
+                    {nested && <SectionLabel><ProviderName id={g.id} /></SectionLabel>}
+                    <ModelItems rows={g.rows} current="" onPick={agent.forkTo} flat />
+                  </div>
+                ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
           </>

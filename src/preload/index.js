@@ -126,7 +126,8 @@ contextBridge.exposeInMainWorld('conn', {
   },
 
   chat: {
-    export: (id, project, title, lastText) => ipcRenderer.invoke('chat:export', { id, project, title, lastText }),
+    // `segments` is a switched chat's run of sessions, which export reads whole.
+    export: (id, project, title, lastText, segments) => ipcRenderer.invoke('chat:export', { id, project, title, lastText, segments }),
   },
 
   // The agent writes what a frame contains. The board reads frames, moves,

@@ -31,6 +31,7 @@ const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
 const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
+const { typedText } = require('../shared/handoff');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
 const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
@@ -161,7 +162,8 @@ async function sayingsOf(id, stamp) {
   for (const turn of res?.thread?.turns || []) {
     for (const item of turn.items || []) {
       if (item.type === 'userMessage') {
-        texts.push((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n'));
+        // What was typed, not the history a switch carried in with it.
+        texts.push(typedText((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n')));
       } else if (item.type === 'agentMessage') {
         texts.push(item.text || '');
       }
