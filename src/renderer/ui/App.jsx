@@ -12,6 +12,7 @@ import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
 import { FleetStrip } from '@/components/fleet-strip';
+import { CARRY_ON, HandBackStrip } from '@/components/hand-back-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
 import { ChatFloor } from '@/components/working-panel';
 import { ChatOverview } from '@/components/chat-overview';
@@ -798,6 +799,11 @@ export default function App() {
       <FleetStrip
         shells={agent.running.filter((a) => a.kind !== 'agent')}
         onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
+
+      <HandBackStrip
+        items={agent.chats.find((c) => c.key === agent.activeKey)?.items}
+        busy={agent.busy}
+        onContinue={() => agent.send(CARRY_ON)} />
 
       <NextSteps steps={shownSteps} onPick={takeStep} />
 

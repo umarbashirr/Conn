@@ -266,8 +266,10 @@ in Settings.
 **Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
 layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
 clicks and typing still reach the page. Press **Take control** on that layer to get the page back.
-It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
-meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
+It stays yours until you hand it back: **Hand back to the agent** in the browser pane's toolbar, or the
+**You have control** chip at the top of the window. Any agent that tries to change it meanwhile is told
+you have it, stops, and waits. Its chat then offers **Hand back and continue**, which gives the page
+back and tells the agent to carry on. Reading the page still works. The layer goes away
 when the agent's turn ends.
 
 ## Worktrees

@@ -26,6 +26,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { createPortal } from 'react-dom';
 import {
   AppWindowIcon,
+  BotIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   ArrowDownLeftIcon,
@@ -73,6 +74,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { runCommand } from '../../app.js';
+import { getControlVersion, handBack, learn, subscribeControl, youHold } from './control-store';
 import {
   bookmarkBarOn,
   bookmarksOf,
@@ -1166,11 +1168,33 @@ function Toolbar({ tab, showing }) {
         </Tip>
       )}
 
+      <HandBack tab={tab} />
       <PickButton tab={tab} />
       <ResponsiveButton tab={tab} />
       <PaneMenu tab={tab} />
       <LoadingBar tab={tab} />
     </div>
+  );
+}
+
+/* Take control is pressed on the page, so handing it back is offered on the
+   page too, not only by the chip at the top of the window. Shown for as long
+   as you hold this page. */
+function HandBack({ tab }) {
+  useSyncExternalStore(subscribeControl, getControlVersion, getControlVersion);
+  useEffect(() => { learn(tab); }, [tab]);
+  if (!youHold(tab)) return null;
+  return (
+    <Tip label="Agents are refused this page until you hand it back">
+      <Button
+        size="sm"
+        data-slot="hand-back"
+        className="h-7 shrink-0 gap-1 rounded-full px-2.5 text-[12px]"
+        onClick={() => handBack(tab)}>
+        <BotIcon />
+        Hand back to the agent
+      </Button>
+    </Tip>
   );
 }
 
