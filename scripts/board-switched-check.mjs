@@ -137,6 +137,25 @@ await check('hand-back goes by the chat and its pages, never a session', () => {
   assert.ok(/id: `main:\$\{chat\}`, label: 'the main thread', chat/.test(read('src/main/index.js')), 'a page is held by the chat key');
 });
 
+// 5. A pipeline stage that changed agent is still that stage.
+await check('a stage is recorded by its chat\'s first session', () => {
+  const pipes = read('src/renderer/ui/shell/pipeline-store.js');
+  assert.ok(/stageSession\(now, index, headOf\(c\)\)/.test(pipes), 'at the end of its turn');
+  assert.ok(/const head = headOf\(c\)/.test(pipes) && /agent\.rename\(head, c\.title\)/.test(pipes), 'as soon as it has one, with its name');
+});
+await check('a stage saved by a later session still opens, and opens whole', () => {
+  const pipes = read('src/renderer/ui/shell/pipeline-store.js');
+  assert.ok(/r\.segments\?\.some\(\(x\) => x\.session === stage\.session\)/.test(pipes), 'the rail finds it under its first session');
+  assert.ok(/agent\.segmentsOf\?\.\(s\.id\)/.test(read('src/renderer/ui/useAgent.js')), 'and open() opens the chat it belongs to');
+});
+await check('resuming a stage that changed agent resumes where it is now, whole', () => {
+  const agent = read('src/renderer/ui/useAgent.js');
+  const spawn = agent.slice(agent.indexOf('const spawn = useCallback'), agent.indexOf('const spawn = useCallback') + 2500);
+  assert.ok(/agent\.segmentsOf\?\.\(resume\)/.test(spawn));
+  assert.ok(/session: last\.session/.test(spawn) && /provider: last\.provider/.test(spawn) && /await openSegments\(next, whole\)/.test(spawn));
+  assert.ok(agent.indexOf('const openSegments = useCallback') < agent.indexOf('const spawn = useCallback'), 'declared after what it calls, so its deps never meet the dead zone');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nboard-switched-check: all passed');
 process.exit(failures.length ? 1 : 0);
