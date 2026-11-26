@@ -32,7 +32,7 @@ const hiddenSessions = require('./hidden-sessions');
 const { deleteChat } = require('./delete-chat');
 const { createStitchCache } = require('./stitch-cache');
 const { createRelay } = require('./window-relay');
-const { collapseRows, foldHits, followers, persistable, stitch } = require('../shared/chat-segments');
+const { cleanSegments, collapseRows, foldHits, followers, persistable, recordOf, stitch } = require('../shared/chat-segments');
 const { mayApplyModel } = require('../shared/model-pick');
 const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
@@ -2526,6 +2526,10 @@ function registerIpc() {
   // The sessions a switched chat is made of, written once the newest one has
   // an id. Ownership is learned here too, so a session the rail has not listed
   // yet still reads through the right agent.
+  // The chat a session id belongs to, for a caller that holds only an id: a
+  // Board card, a pipeline stage. A later session of a switched chat answers
+  // with the chat's first one, so it is never opened as a chat of its own.
+  ipcMain.handle('agent:segmentsOf', (_e, { id } = {}) => recordOf(chatSegments.all(), id));
   ipcMain.handle('agent:setSegments', (_e, { head, segments } = {}) => {
     try {
       if (!Array.isArray(segments) || segments[0]?.session !== head) throw new Error('the first segment must be the chat\'s own session');
@@ -2960,11 +2964,15 @@ app.whenReady().then(async () => {
         win.show();
         win.focus();
         const text = (v, max = 500) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+        // A chat that changed agent comes with its sessions, so it opens whole
+        // here even before this window's rail has listed it.
+        const segments = cleanSegments(card?.segments);
         send('board:open', {
           key: text(card?.key, 200),
           session: text(card?.session, 200),
           project: text(card?.project),
           title: text(card?.title),
+          ...(segments && { segments: segments.map(({ provider: p, session }) => ({ provider: p, session })) }),
         });
         return { ok: true };
       },

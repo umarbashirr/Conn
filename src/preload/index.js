@@ -234,6 +234,8 @@ contextBridge.exposeInMainWorld('conn', {
     transcript: (id, project, { limit, end, provider } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider }),
     // The sessions a chat that changed agent is made of, oldest first.
     setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
+    // The switched chat a session id belongs to, as { head, segments }, or null.
+    segmentsOf: (id) => ipcRenderer.invoke('agent:segmentsOf', { id }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
     // What deletes left on disk, kept out of the rail. See Settings › Chat.

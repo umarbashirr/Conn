@@ -144,9 +144,15 @@ function createBoard({ claudeBin, windows = state.windows, pid = process.pid } =
       const w = others().find((x) => x.pid === peerPid);
       if (!w) return { error: 'That window has closed.' };
       try {
+        // A chat that changed agent goes with its sessions, so that window
+        // opens it whole even before its own rail has listed it.
+        const segments = cleanSegments(card?.segments);
         const res = await ask(w, '/board/open', {
           method: 'POST',
-          body: { key: card?.key || null, session: card?.session || null, project: card?.project || null, title: card?.title || null },
+          body: {
+            key: card?.key || null, session: card?.session || null, project: card?.project || null, title: card?.title || null,
+            ...(segments && { segments: segments.map(({ provider, session }) => ({ provider, session })) }),
+          },
         });
         return res?.error ? { error: res.error } : { ok: true };
       } catch (e) {

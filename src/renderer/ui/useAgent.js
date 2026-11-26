@@ -1618,6 +1618,14 @@ export function useAgent() {
       conn().project.focus(s.project).catch(() => {});
     }
 
+    // A caller with only a session id (a Board card, a pipeline stage) may be
+    // holding a chat that changed agent, or one of its later sessions. Main
+    // knows which chat it belongs to, and the chat opens whole.
+    if (!s.key && s.id && !(s.segments?.length > 1)) {
+      const rec = await conn().agent.segmentsOf?.(s.id).catch(() => null);
+      if (rec?.segments?.length > 1) s = { ...s, id: rec.head, segments: rec.segments };
+    }
+
     const known = chatsRef.current.find((c) => (s.key ? c.key === s.key : headOf(c) === s.id));
     if (known) return switchTo(known.key);
 
