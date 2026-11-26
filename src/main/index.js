@@ -331,7 +331,8 @@ function phoneLive() {
 /* The same for the phone, which asks again on every refresh. A session's
    stamp is what has touched it: every message a session run here has sent,
    counted as it arrives, and for a transcript on disk its size and when it was
-   written, statted on each read. A session with neither, one this run has
+   written, statted on each read. An ACP agent keeps no file Conn can stat, so
+   its stamp is the messages and the listing alone. A session with neither, one this run has
    never seen that the rail has not listed, is read fresh. */
 const sessionWrites = new Map();
 const wrote = (session) => { if (session) sessionWrites.set(session, (sessionWrites.get(session) || 0) + 1); };
