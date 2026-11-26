@@ -115,6 +115,32 @@ await check('a codex thread is stamped by its rollout file\'s size and time', as
   assert.ok(/rowOf\(p\)\?\.history\?\.stamp\?\.\(dir, session\)/.test(read('src/main/index.js')), 'the phone cache asks every agent\'s history for one');
 });
 
+// A chat whose first part is gone comes back under its own title.
+await check('Show again carries the chat\'s title to the part that is now its first', () => {
+  const hidden = require('../src/main/hidden-sessions.js');
+  const records = require('../src/main/chat-segments.js');
+  const titles = require('../src/main/chat-titles.js');
+  const { hideParts, showAgain } = require('../src/main/hidden-chats.js');
+  assert.ok(titles.FILE.startsWith(home));
+  // Claude A went; only Copilot B, whose own first message carried the handoff, stayed.
+  hideParts({ hidden, head: A, segments: [{ provider: 'claude', session: A }, { provider: 'copilot', session: B, cut: 0 }], left: [{ session: B, provider: 'copilot' }], meta: { title: 'Fix login' } });
+  showAgain({ hidden, records, titles, session: B });
+  assert.equal(titles.get(B), 'Fix login', 'the part shows under the chat\'s name, not its first message');
+  titles.forget(B);
+  // Two later parts stayed: the title goes to the one the chat now starts on.
+  hideParts({ hidden, head: A, segments: [{ provider: 'claude', session: A }, { provider: 'copilot', session: B, cut: 0 }, { provider: 'cursor', session: C, cut: 0 }], left: [{ session: B, provider: 'copilot' }, { session: C, provider: 'cursor' }], meta: { title: 'Two left' } });
+  showAgain({ hidden, records, titles, session: C });
+  assert.equal(titles.get(B), 'Two left');
+  assert.equal(titles.get(C), null);
+  titles.forget(B);
+  records.forget(B);
+  // A chat whose first part is the one that stayed already has its title there.
+  hideParts({ hidden, head: A, segments: [{ provider: 'claude', session: A }], left: [{ session: A, provider: 'claude' }], meta: { title: 'Whole' } });
+  showAgain({ hidden, records, titles, session: A });
+  assert.equal(titles.get(A), null, 'nothing is written for a chat that kept its first part');
+  assert.ok(/showAgain\(\{ hidden: hiddenSessions, records: chatSegments, titles: chatTitles, session \}\)/.test(read('src/main/index.js')), 'main passes the titles on');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nhandoff-minor-check: all passed');
 process.exit(failures.length ? 1 : 0);
