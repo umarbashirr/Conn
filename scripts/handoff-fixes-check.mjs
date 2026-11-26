@@ -211,7 +211,7 @@ await check('a first session that will not go is left like any other, and the re
 await check('delete always drops the row and the record, and hides what was left', () => {
   const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
   const del = main.slice(main.indexOf("ipcMain.handle('agent:deleteSession'"), main.indexOf("ipcMain.on('agent:pendingHandoffs'"));
-  assert.ok(/hiddenSessions\.set\(l\.session, true\)/.test(del));
+  assert.ok(/hiddenSessions\.set\(l\.session, \{ provider: l\.provider, project: dir, title/.test(del));
   assert.ok(/\n      chatSegments\.forget\(id\);/.test(del), 'the record goes unconditionally');
   assert.ok(/return \{ ok: true/.test(del));
 });
@@ -273,7 +273,8 @@ await check('a session from the CLI the chat has left is not taken as this chat\
 });
 
 await check('a switch records where it starts in its session, and reopen follows that', () => {
-  let c = { provider: 'codex', session: F_, forked: true, segments: [], items: [user(1), reply(1)], usage: {} };
+  // A fork's chat opens on the handoff it was forked with.
+  let c = { provider: 'codex', session: F_, segments: [], items: [{ id: 'x0', kind: 'handoff', fork: true }, user(1), reply(1)], usage: {} };
   c = switchChat(c, { provider: 'claude', id: 'h1', label });
   assert.equal(c.segments[1].cut, 0, 'a fresh session starts at its first handoff');
   c = { ...withSession(c, B, 'claude'), handoff: null, items: [...c.items, user(2), reply(2)] };
@@ -346,6 +347,133 @@ await check('a chat that starts on an ACP agent and moves to Claude is written d
   ]);
   const { cleanSegments } = require('../src/shared/chat-segments.js');
   assert.ok(cleanSegments(persistable(c.segments)), 'and the store accepts it');
+});
+
+// Round 3 -----------------------------------------------------------------
+
+const { createStitchCache } = require('../src/main/stitch-cache.js');
+const { createRelay } = require('../src/main/window-relay.js');
+const { cutFor } = require('../src/shared/chat-segments.js');
+const { deleteNote } = require('../src/shared/delete-note.js');
+
+await check('the phone cache reads again whenever a session\'s stamp moves, and never keeps an unstamped one', async () => {
+  const stamps = { [A]: 'a1', [B]: 'b1' };
+  let reads = 0;
+  const get = createStitchCache({ read: async () => { reads += 1; return [`read ${reads}`]; }, stampOf: (dir, s) => stamps[s] || null });
+  const segs = [{ provider: 'claude', session: A }, { provider: 'codex', session: B }];
+  assert.deepEqual(await get('/p', segs), ['read 1']);
+  assert.deepEqual(await get('/p', segs), ['read 1'], 'nothing moved, nothing read');
+  stamps[B] = 'b2';
+  assert.deepEqual(await get('/p', segs), ['read 2'], 'a write to one session reads the chat again');
+  delete stamps[A];
+  await get('/p', segs);
+  await get('/p', segs);
+  assert.equal(reads, 4, 'a session with no stamp is read every time');
+});
+
+await check('the phone cache stamp for a transcript on disk is its size and time, statted each read', () => {
+  const history = require('../src/main/history.js');
+  const cwd = path.join(home, 'work', 'stamp');
+  const dir = path.join(home, '.claude', 'projects', cwd.replace(/[/.]/g, '-'));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${A}.jsonl`);
+  fs.writeFileSync(file, '{}\n');
+  const one = history.stamp(cwd, A);
+  fs.appendFileSync(file, '{"more":true}\n');
+  assert.notEqual(history.stamp(cwd, A), one, 'a write in the same second still moves the size');
+  assert.equal(history.stamp(cwd, 'zzzzzzzz-none'), null);
+  const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
+  assert.ok(/agent\.on\('message', \(m\) => \{\n    wrote\(agent\.sessionId\);/.test(main), 'every message a session sends here moves its stamp');
+});
+
+await check('a phone message is ok only once the window has it, and an error otherwise', async () => {
+  const timers = [];
+  const sent = [];
+  const relay = createRelay({
+    send: (p) => { sent.push(p); return true; },
+    timeoutMs: 50,
+    setTimer: (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; },
+    clearTimer: (t) => { t.cleared = true; },
+  });
+  const one = relay.forward({ chat: 'c1', text: 'hi' });
+  assert.equal(sent[0].chat, 'c1');
+  assert.equal(relay.settle(sent[0].id, { ok: true }), true);
+  assert.deepEqual(await one, { ok: true });
+  assert.equal(timers[0].cleared, true);
+  const two = relay.forward({ chat: 'c1', text: 'lost' });
+  timers[1].fn();
+  assert.match((await two).error, /did not take/);
+  assert.equal(relay.settle(sent[1].id, { ok: true }), false, 'a late answer changes nothing');
+  const three = relay.forward({ chat: 'c1', text: 'reload' });
+  relay.failAll('Conn reloaded');
+  assert.deepEqual(await three, { error: 'Conn reloaded' });
+  const none = createRelay({ send: () => false, setTimer: () => 0, clearTimer: () => {} });
+  assert.match((await none.forward({})).error, /no window/);
+  const refused = relay.forward({ chat: 'gone' });
+  relay.settle(sent.at(-1).id, { ok: false, error: 'That chat is not open in Conn any more.' });
+  assert.match((await refused).error, /not open/);
+});
+
+await check('a resume that comes back as a new session starts that session at its first handoff', () => {
+  const c = { provider: 'claude', session: A, segments: [{ provider: 'claude', session: A, from: 0 }, { provider: 'codex', session: B, from: 2 }, { provider: 'claude', session: A, from: 5, cut: 1 }], items: [] };
+  assert.equal(withSession(c, A, 'claude').segments[2].cut, 1, 'the same session keeps its cut');
+  const moved = withSession(c, C, 'claude');
+  assert.equal(moved.segments[2].session, C);
+  assert.equal(moved.segments[2].cut, 0);
+  assert.equal(withSession({ ...c, segments: c.segments.map((x, i) => (i === 2 ? { ...x, session: null, cut: 0 } : x)) }, C, 'claude').segments[2].cut, 0);
+});
+
+await check('where a stretch starts is read off the session\'s own handoff rows', () => {
+  const fork = { id: 'x0', kind: 'handoff', fork: true };
+  const segs = [{ provider: 'codex', session: F_, from: 0 }, { provider: 'claude', session: B, from: 3 }, { provider: 'codex', session: F_, from: 6 }];
+  const whole = [fork, user(1), reply(1), { id: 'h1', kind: 'handoff' }, user(2), reply(2), { id: 'h2', kind: 'handoff' }];
+  assert.equal(cutFor(whole, segs), 1, 'the fork\'s own handoff is in its first stretch');
+  // A long fork opened with only its end read in has no fork row loaded yet:
+  // the count is short until the rest is read, which sendTo does first.
+  const partial = [user(1), reply(1), { id: 'h0', kind: 'user' }, { id: 'h1', kind: 'handoff' }, user(2), reply(2), { id: 'h2', kind: 'handoff' }];
+  assert.equal(cutFor(partial, segs), 0);
+  const send = agentSource.slice(agentSource.indexOf('const sendTo = useCallback'), agentSource.indexOf('sendToRef.current = sendTo'));
+  assert.ok(send.indexOf('readWhole(key, chat)') < send.indexOf('segments: recut(c)'), 'the cut is counted again after the whole chat is read in');
+  assert.equal(cutFor([user(1)], [{ provider: 'claude', session: A, from: 0 }, { provider: 'codex', session: null, from: 1 }]), 0);
+});
+
+await check('a carried call that was still running reads as handed over, not finished', () => {
+  const h = buildHandoff({ items: [{ id: 't1', kind: 'tool', name: 'Bash', input: { command: 'sleep 9' }, state: 'input-available' }], from: 'claude', to: 'codex', window: 200000, fork: true });
+  const [row] = itemsFromEntries(unwrapHandoff(wrapMessage(h.text, 'x')).entries(), 'p:');
+  assert.equal(row.state, 'handed-over');
+  assert.equal(row.output, undefined);
+  const toolRow = fs.readFileSync(path.join(ROOT, 'src/renderer/ui/components/tool-row.jsx'), 'utf8');
+  assert.ok(/state === 'handed-over'/.test(toolRow) && /still running when handed over/.test(toolRow));
+});
+
+await check('hidden chats round-trip: added on delete, listed for Settings, removed by Show again', () => {
+  const hidden = require('../src/main/hidden-sessions.js');
+  assert.ok(hidden.FILE.startsWith(home));
+  hidden.set(A, { provider: 'copilot', project: '/work/shop', title: 'Fix login', at: 1700000000000, hiddenAt: 2 });
+  hidden.set(B, true);
+  hidden.set(C, { provider: 'cursor', project: '/work/shop', title: 'Old', at: 5, hiddenAt: 9 });
+  assert.deepEqual(hidden.list().map((h) => [h.session, h.provider || null, h.title || null]), [[C, 'cursor', 'Old'], [A, 'copilot', 'Fix login'], [B, null, null]]);
+  assert.equal(JSON.parse(fs.readFileSync(hidden.FILE, 'utf8'))[A].title, 'Fix login', 'written to disk');
+  assert.throws(() => hidden.set(A, 'yes'), /not a hidden chat/);
+  assert.equal(hidden.forget(A), true);
+  assert.deepEqual(hidden.list().map((h) => h.session), [C, B]);
+  assert.equal(hidden.forget(A), false);
+  const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
+  assert.ok(/ipcMain\.handle\('agent:hidden', \(\) => hiddenSessions\.list\(\)\)/.test(main));
+  assert.ok(/ipcMain\.handle\('agent:unhide'/.test(main) && /ipcMain\.handle\('agent:deleteHidden'/.test(main));
+});
+
+await check('the delete toast says plainly what stayed', () => {
+  assert.equal(deleteNote({ left: [] }), null);
+  const whole = deleteNote({ left: [{ provider: 'copilot' }], deleted: [] });
+  assert.equal(whole.title, 'Removed from Conn.');
+  assert.match(whole.description, /^Copilot kept its copy on disk\./);
+  const part = deleteNote({ left: [{ provider: 'copilot' }], deleted: ['claude', 'claude'] });
+  assert.equal(part.title, 'Deleted the Claude part.');
+  assert.match(part.description, /^Copilot kept its part on disk\./);
+  const two = deleteNote({ left: [{ provider: 'copilot' }, { provider: 'cursor' }], deleted: [] });
+  assert.match(two.description, /^Copilot and Cursor kept their copies on disk/);
+  for (const n of [whole, part, two]) assert.ok(!/except one part/.test(`${n.title} ${n.description}`));
 });
 
 fs.rmSync(home, { recursive: true, force: true });
