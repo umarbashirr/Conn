@@ -2522,6 +2522,7 @@ function registerIpc() {
     try {
       const dir = project && known(project) ? project : focusedCwd();
       const board = canvasIds.get(id);
+      const title = chatTitles.get(id) || railTitles.get(id) || null;
       const { removed, left } = await deleteChat({
         id,
         segments: segs.length ? segs : [{ session: id, provider: owners.get(id) }],
@@ -2531,9 +2532,12 @@ function registerIpc() {
       // stays on disk, hidden, so it does not come back as a chat of its own;
       // the record of what the chat was goes, since it would only name
       // sessions that are gone or hidden.
+      const agentOf = (session) => segs.find((x) => x.session === session)?.provider || owners.get(session) || null;
+      const deleted = removed.map(agentOf);
+      const kept = left.map((l) => ({ ...l, provider: l.provider || agentOf(l.session) }));
       removed.forEach(forgetMarks);
-      for (const l of left) {
-        hiddenSessions.set(l.session, true);
+      for (const l of kept) {
+        hiddenSessions.set(l.session, { provider: l.provider, project: dir, title, at: sessionAt.get(l.session) || null, hiddenAt: Date.now() });
         forgetMarks(l.session);
       }
       chatSegments.forget(id);
@@ -2541,7 +2545,7 @@ function registerIpc() {
       // from, and that one is still there to draw on.
       const root = board && !Object.values(canvasIds.all()).includes(board) ? boardRoot(dir, board) : null;
       if (root) await canvas.trashBoard(root);
-      return { ok: true, ...(left.length && { left: left.map(({ session, provider: p, error }) => ({ session, provider: p || owners.get(session) || null, error })) }) };
+      return { ok: true, deleted, ...(kept.length && { left: kept.map(({ session, provider: p, error }) => ({ session, provider: p, error })) }) };
     } catch (e) {
       return { error: e.message };
     }
@@ -2555,6 +2559,27 @@ function registerIpc() {
     for (const p of Array.isArray(list) ? list : []) {
       if (typeof p?.head === 'string' && typeof p?.key === 'string') pendingHandoffs.set(p.head, p.key);
     }
+  });
+  // Settings › Hidden chats: what a delete left on disk, to show again or to
+  // try deleting again once its agent can.
+  ipcMain.handle('agent:hidden', () => hiddenSessions.list());
+  ipcMain.handle('agent:unhide', (_e, { session } = {}) => {
+    // Its chat's record went with the delete, so it comes back as a chat of its own.
+    return { ok: hiddenSessions.forget(session) };
+  });
+  ipcMain.handle('agent:deleteHidden', async (_e, { session } = {}) => {
+    const entry = hiddenSessions.get(session);
+    if (!entry) return { error: 'That chat is not hidden.' };
+    const p = entry === true ? owners.get(session) : entry.provider;
+    const dir = (entry !== true && entry.project) || focusedCwd();
+    try {
+      await ((isProviderId(p) && rowOf(p)?.history) || ownerOf(session)).deleteSession(dir, session);
+    } catch (e) {
+      return { error: e.message };
+    }
+    hiddenSessions.forget(session);
+    owners.delete(session);
+    return { ok: true };
   });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };

@@ -214,6 +214,10 @@ contextBridge.exposeInMainWorld('conn', {
     setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
+    // What deletes left on disk, kept out of the rail. See Settings › Chat.
+    hidden: () => ipcRenderer.invoke('agent:hidden'),
+    unhide: (session) => ipcRenderer.invoke('agent:unhide', { session }),
+    deleteHidden: (session) => ipcRenderer.invoke('agent:deleteHidden', { session }),
     // Marking a chat done. Nothing is deleted: the rail folds it away and the
     // transcript stays exactly where it was.
     complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),

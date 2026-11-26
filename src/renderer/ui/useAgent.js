@@ -17,6 +17,7 @@ import { toast } from './shell/toast';
 import { buildHandoff, itemsFromEntries, labelOf, unwrapHandoff, windowFor, wrapMessage } from '../../shared/handoff';
 import { cutFor, headOf, persistable, providerAt, stitch, switchChat, withSession } from '../../shared/chat-segments';
 import { createSerial, modelEntry } from '../../shared/model-pick';
+import { deleteNote } from '../../shared/delete-note';
 
 const conn = () => window.conn;
 
@@ -1466,12 +1467,10 @@ export function useAgent() {
     if (session) {
       const res = await conn().agent.deleteSession(session, row.project).catch((e) => ({ error: e.message }));
       if (res?.error) return res;
-      // A switched chat ran on several agents, and one that cannot delete a
-      // chat from outside itself keeps its part. The rail keeps it hidden.
-      if (res?.left?.length) {
-        const names = [...new Set(res.left.map((l) => labelOf(l.provider)))].join(' and ');
-        toast('Chat deleted, except one part', `${names} could not delete its part of this chat, so it is still on disk, hidden from the rail. Delete it from inside ${names}.`);
-      }
+      // An agent that cannot delete a chat from outside itself keeps its part,
+      // or the whole chat. The rail keeps it hidden, and the toast says which.
+      const note = deleteNote(res || {});
+      if (note) toast(note.title, note.description);
     } else if (key) {
       // No transcript to remove, so the process is ours to stop. (With one,
       // main stops it before the unlink.)
