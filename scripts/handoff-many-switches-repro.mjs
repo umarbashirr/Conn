@@ -9,6 +9,7 @@
 
    Needs `npx vite build`, claude, codex and copilot on PATH, Xvfb. Same shims
    as handoff-switch-e2e-repro.mjs. SHOT_DIR names the screenshot folder. */
+import { drive, safeBoot, watchNet, cleanupShims, providerAddresses } from './handoff-harness.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,7 +18,6 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const drive = await import(path.join(ROOT, '.claude/skills/verify/drive.mjs'));
 const { boot, stop, click, hover, key, type, shot, evaluate } = drive;
 const SHOTS = process.env.SHOT_DIR || '/tmp/handoff-verify/r2';
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -41,7 +41,8 @@ const log = path.join(os.tmpdir(), `fake-responses-${process.pid}.jsonl`);
 const api = spawn(process.execPath, [path.join(ROOT, 'scripts/fake-responses-api.mjs'), log], { stdio: ['ignore', 'pipe', 'inherit'] });
 const port = await new Promise((resolve) => api.stdout.on('data', (d) => { const m = /port (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }));
 
-const s = await boot({ xvfb: true, claude: true });
+const s = await safeBoot({ codexPort: port });
+const net = watchNet(s, await providerAddresses());
 console.log(`session ${s.dir}`);
 const page = (expr) => evaluate(s, expr);
 const main = (expr) => evaluate(s, expr, { main: true });
@@ -81,7 +82,8 @@ const pick = async (provider) => {
     await sleep(300);
     await key(s, 'Enter');
   } else {
-    await click(s, provider === 'codex' ? CODEX : CLAUDE);
+    if (provider === 'codex') await click(s, CODEX);
+    else { await key(s, 'Right'); await sleep(300); await key(s, 'Enter'); }
   }
   await sleep(2500);
 };
@@ -239,9 +241,12 @@ try {
 } catch (e) {
   check('the run finished', false, e.stack);
 } finally {
-  if (!process.env.KEEP) await stop(s).catch(() => {});
-  if (restarted?.xvfb) restarted.xvfb.kill();
+  const off = net.stop();
+  check('no agent and no provider API was reached off the machine', !off.bad.length, off.bad);
+  console.log(`NOTE the app's own traffic off the machine (update checks, model download): ${JSON.stringify(off.app.map((x) => x.peer))}`);
+  if (!process.env.KEEP) await stop(s).catch((e) => console.log(`NOTE stop failed: ${e.message}`));
   api.kill();
+  cleanupShims();
   fs.rmSync(log, { force: true });
 }
 
@@ -261,9 +266,6 @@ async function restart(sess) {
   await main('setTimeout(() => electron.app.quit(), 100), 1').catch(() => {});
   await until(async () => !fs.existsSync(`/proc/${electronPid}`), 30000);
   await sleep(1500);
-  const display = `:${150 + Math.floor(Math.random() * 300)}`;
-  const xvfb = spawn('Xvfb', [display, '-screen', '0', '1600x1000x24', '-nolisten', 'tcp'], { stdio: 'ignore', detached: true });
-  await sleep(1500);
   const electron = createRequire(path.join(ROOT, 'package.json'))('electron');
   const args = ['--inspect=0', ROOT, '--remote-debugging-port=0', `--user-data-dir=${sess.userData}`, '--no-sandbox',
     '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'];
@@ -272,7 +274,10 @@ async function restart(sess) {
   const out = fs.openSync(logFile, 'a');
   const startLen = fs.statSync(logFile).size;
   delete env.XAUTHORITY;
-  const child = spawn(electron, args, { detached: true, stdio: ['ignore', out, out], env: { ...env, DISPLAY: display } });
+  delete env.DISPLAY;
+  // On a hidden display of its own, the way boot launches it; the harness
+  // checks HOME, CONN_CWD and PATH again before this spawn.
+  const child = spawn('xvfb-run', ['-a', '-s', '-screen 0 1600x1000x24', electron, ...args], { detached: true, stdio: ['ignore', out, out], env });
   child.unref();
   const tail = () => fs.readFileSync(logFile, 'utf8').slice(startLen);
   sess.inspect = Number(await until(async () => /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(tail())?.[1], 30000));
@@ -284,9 +289,9 @@ async function restart(sess) {
   await main("(() => { const win = () => electron.BrowserWindow.getAllWindows().find((w) => /index\\.html/.test(w.webContents.getURL())); globalThis.__decided = []; globalThis.__bounds = []; globalThis.__floatBox = () => null; globalThis.__floatFocused = () => false; globalThis.__focusView = () => win()?.webContents.focus(); return 1; })()");
   await main('electron.BrowserWindow.getAllWindows()[0].setContentSize(1440, 900)');
   await sleep(6000);
-  console.log(`restarted pid=${child.pid} display=${display}`);
+  console.log(`restarted pid=${child.pid}`);
   void execFileSync;
-  return { xvfb };
+  return {};
 }
 
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nall passed');

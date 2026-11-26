@@ -11,6 +11,7 @@
      session cannot go. Reports what the app does with the Claude part.
 
    Same harness and shims as handoff-switch-e2e-repro.mjs. */
+import { drive, safeBoot, watchNet, cleanupShims, providerAddresses } from './handoff-harness.mjs';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,7 +19,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const drive = await import(path.join(ROOT, '.claude/skills/verify/drive.mjs'));
 const { boot, stop, click, hover, key, type, shot, evaluate } = drive;
 const SHOTS = process.env.SHOT_DIR || '/tmp/handoff-verify/r2';
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -43,7 +43,8 @@ const log = path.join(os.tmpdir(), `fake-responses-${process.pid}.jsonl`);
 const api = spawn(process.execPath, [path.join(ROOT, 'scripts/fake-responses-api.mjs'), log], { stdio: ['ignore', 'pipe', 'inherit'] });
 const port = await new Promise((resolve) => api.stdout.on('data', (d) => { const m = /port (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }));
 
-const s = await boot({ xvfb: true, claude: true });
+const s = await safeBoot({ codexPort: port });
+const net = watchNet(s, await providerAddresses());
 console.log(`session ${s.dir}`);
 const page = (expr) => evaluate(s, expr);
 const main = (expr) => evaluate(s, expr, { main: true });
@@ -76,7 +77,10 @@ const pick = async (provider) => {
   await hover(s, provider === 'codex' ? 'ChatGPT' : provider === 'copilot' ? 'Copilot' : 'Claude');
   await sleep(700);
   if (provider === 'copilot') { await key(s, 'Right'); await sleep(300); await key(s, 'Enter'); }
-  else await click(s, provider === 'codex' ? 'Fast, go-to model for coding and everyday work.' : 'Best for everyday, complex tasks');
+  else if (provider === 'codex') await click(s, 'Fast, go-to model for coding and everyday work.');
+  // Claude lists its real rows once a session has taught it them; before
+  // that, only the stand-in row the harness pads the list with.
+  else { await key(s, 'Right'); await sleep(300); await key(s, 'Enter'); }
   await sleep(2500);
 };
 const claudeFile = (id) => {
@@ -193,8 +197,12 @@ try {
 } catch (e) {
   check('the run finished', false, e.stack);
 } finally {
-  if (!process.env.KEEP) await stop(s).catch(() => {});
+  const off = net.stop();
+  check('no agent and no provider API was reached off the machine', !off.bad.length, off.bad);
+  console.log(`NOTE the app's own traffic off the machine (update checks, model download): ${JSON.stringify(off.app.map((x) => x.peer))}`);
+  if (!process.env.KEEP) await stop(s).catch((e) => console.log(`NOTE stop failed: ${e.message}`));
   api.kill();
+  cleanupShims();
   fs.rmSync(log, { force: true });
 }
 

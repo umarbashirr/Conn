@@ -7,6 +7,7 @@
    one answered message, pick Copilot, wait GAP ms, send. Main logs every send
    (which CLI, whether it carried a handoff). Same harness as the other
    handoff repros. ROUNDS (default 4) and GAPS (default 0,300,800,1500). */
+import { drive, safeBoot, watchNet, cleanupShims, providerAddresses } from './handoff-harness.mjs';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -14,7 +15,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const drive = await import(path.join(ROOT, '.claude/skills/verify/drive.mjs'));
 const { boot, stop, click, hover, key, type, shot, evaluate } = drive;
 const SHOTS = process.env.SHOT_DIR || '/tmp/handoff-verify/r2';
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -39,7 +39,8 @@ const log = path.join(os.tmpdir(), `fake-responses-${process.pid}.jsonl`);
 const api = spawn(process.execPath, [path.join(ROOT, 'scripts/fake-responses-api.mjs'), log], { stdio: ['ignore', 'pipe', 'inherit'] });
 const port = await new Promise((resolve) => api.stdout.on('data', (d) => { const m = /port (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }));
 
-const s = await boot({ xvfb: true, claude: true });
+const s = await safeBoot({ codexPort: port });
+const net = watchNet(s, await providerAddresses());
 console.log(`session ${s.dir}`);
 const page = (expr) => evaluate(s, expr);
 const main = (expr) => evaluate(s, expr, { main: true });
@@ -68,7 +69,12 @@ const pick = async (provider) => {
   await hover(s, provider === 'codex' ? 'ChatGPT' : provider === 'copilot' ? 'Copilot' : 'Claude');
   await sleep(700);
   if (provider === 'copilot') { await key(s, 'Right'); await sleep(300); await key(s, 'Enter'); }
-  else await click(s, provider === 'codex' ? 'Fast, go-to model for coding and everyday work.' : 'Best for everyday, complex tasks');
+  else if (provider === 'codex') await click(s, 'Fast, go-to model for coding and everyday work.');
+  // Claude lists its real rows once a session has taught it them; before
+  // that, only the stand-in row the harness pads the list with.
+  // The first row of Claude's list, by keyboard: its names change once a
+  // session has taught the app the real list.
+  else { await key(s, 'Right'); await sleep(300); await key(s, 'Enter'); }
   await sleep(2500);
 };
 const claudeFile = (id) => {
@@ -97,6 +103,7 @@ try {
   fs.rmSync('/tmp/handoff-verify/r2/export-button.md', { force: true });
 
   await main("(() => { globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const send = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ cls, provider: this.provider, text: String(text) }); return send.call(this, text, images); }; } return 1; })()");
+  await main("(() => { const h = electron.ipcMain._invokeHandlers; const sm = h.get('agent:setModel'); globalThis.__sm = []; h.set('agent:setModel', async (e, a) => { const t = Date.now(); const r = await sm(e, a); globalThis.__sm.push({ model: a.model, provider: a.provider, ms: Date.now() - t }); return r; }); return 1; })()");
   const gaps = (process.env.GAPS || '0,300,800,1500').split(',').map(Number);
   const rounds = Number(process.env.ROUNDS || gaps.length);
   for (let r = 0; r < rounds; r++) {
@@ -105,7 +112,8 @@ try {
     await newChat();
     // A new chat follows the last pick; put it on Claude unless it already is.
     const on = await page("[...document.querySelectorAll('#composer button[data-slot=dropdown-menu-trigger]')].map((e) => e.innerText).join(' ')");
-    if (!/Opus|Sonnet|Haiku|Fable/.test(on)) await pick('claude');
+    // "Pick a model" on a fresh boot is Claude with no pick made yet.
+    if (!/Opus|Sonnet|Haiku|Fable|Pick a model/.test(on)) await pick('claude');
     await send(`${tag} ALPHA`);
     await waitReply(`heard: ${tag} ALPHA`);
     await sleep(1000);
@@ -124,14 +132,20 @@ try {
     const onCopilot = rows.some((l) => /→ Copilot/.test(l));
     const got = sent.map((x) => `${x.provider}${x.text.includes('<conn-handoff') ? '+handoff' : ''}`);
     const ok = onCopilot ? got.length === 1 && got[0] === 'copilot+handoff' : got.every((g) => g === 'claude');
+    const took = (await main('JSON.stringify(globalThis.__sm)').then(JSON.parse)).filter((x) => x.provider === 'copilot').at(-1);
+    console.log(`NOTE ${tag}: the switch to Copilot took ${took?.ms}ms in main; the message went ${gap}ms after the pick`);
     check(`gap ${gap}ms: the message goes with the switch, or the switch is refused`, ok, { sentTo: got, rows });
     await shot(s, path.join(SHOTS, `race-${tag}.png`));
   }
 } catch (e) {
   check('the run finished', false, e.stack);
 } finally {
-  if (!process.env.KEEP) await stop(s).catch(() => {});
+  const off = net.stop();
+  check('no agent and no provider API was reached off the machine', !off.bad.length, off.bad);
+  console.log(`NOTE the app's own traffic off the machine (update checks, model download): ${JSON.stringify(off.app.map((x) => x.peer))}`);
+  if (!process.env.KEEP) await stop(s).catch((e) => console.log(`NOTE stop failed: ${e.message}`));
   api.kill();
+  cleanupShims();
   fs.rmSync(log, { force: true });
 }
 

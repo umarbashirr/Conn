@@ -11,6 +11,7 @@
    FAIL. Two harness shims, both outside the code under test: the claude model
    list is padded when the stand-in API serves none, and the codex history
    server is restarted once the fake provider is configured. */
+import { drive, safeBoot, watchNet, cleanupShims, providerAddresses } from './handoff-harness.mjs';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,7 +19,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const drive = await import(path.join(ROOT, '.claude/skills/verify/drive.mjs'));
 const { boot, stop, click, hover, key, type, shot, evaluate } = drive;
 const SHOTS = process.env.SHOT_DIR || '/tmp/handoff-verify';
 fs.mkdirSync(SHOTS, { recursive: true });
@@ -42,7 +42,8 @@ const log = path.join(os.tmpdir(), `fake-responses-${process.pid}.jsonl`);
 const api = spawn(process.execPath, [path.join(ROOT, 'scripts/fake-responses-api.mjs'), log], { stdio: ['ignore', 'pipe', 'inherit'] });
 const port = await new Promise((resolve) => api.stdout.on('data', (d) => { const m = /port (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }));
 
-const s = await boot({ xvfb: true, claude: true });
+const s = await safeBoot({ codexPort: port });
+const net = watchNet(s, await providerAddresses());
 const page = (expr) => evaluate(s, expr);
 const main = (expr) => evaluate(s, expr, { main: true });
 const codexRequests = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
@@ -198,8 +199,12 @@ try {
 } catch (e) {
   check('the run finished', false, e.stack);
 } finally {
-  await stop(s).catch(() => {});
+  const off = net.stop();
+  check('no agent and no provider API was reached off the machine', !off.bad.length, off.bad);
+  console.log(`NOTE the app's own traffic off the machine (update checks, model download): ${JSON.stringify(off.app.map((x) => x.peer))}`);
+  await stop(s).catch((e) => console.log(`NOTE stop failed: ${e.message}`));
   api.kill();
+  cleanupShims();
   fs.rmSync(log, { force: true });
 }
 
