@@ -67,7 +67,7 @@ import { mentionsIn } from './lib/tokens.js';
 import { imageHead, plainText } from '../../shared/attachments.js';
 import { markUp } from '@/lib/attachments';
 import { withAnswers } from '../../shared/ask-answers.js';
-import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
+import { isInternalAnswerArtifact } from '../../shared/assistant-output.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
