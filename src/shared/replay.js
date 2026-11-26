@@ -20,14 +20,16 @@ const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, 
 // A stored prompt that carried a handoff is drawn as the handoff row and then
 // what was typed, never as the history that went with it. A fork's transcript
 // has nothing before that prompt, so what it carried is drawn back above the
-// row: that is what the fork was given.
+// row: that is what the fork was given. A handoff handed over as items of the
+// thread rather than as text is read back into this same shape before it gets
+// here (see codex-history), so it draws the same, and says it was injected.
 function userRows(id, said, extra) {
   const u = unwrapHandoff(said);
   if (!u.handoff) return [{ id, kind: 'user', text: said, ...extra }];
-  const { from, to, model, carried, total, scope, fork } = u;
+  const { from, to, model, carried, total, scope, fork, delivery } = u;
   return [
     ...(fork ? itemsFromEntries(u.entries(), `${id}:c:`) : []),
-    { id: `${id}:handoff`, kind: 'handoff', from, to, model, carried, total, scope, ...(fork && { fork }) },
+    { id: `${id}:handoff`, kind: 'handoff', from, to, model, carried, total, scope, method: delivery, ...(fork && { fork }) },
     { id, kind: 'user', text: u.text.trim(), handoff: true, ...extra },
   ];
 }
