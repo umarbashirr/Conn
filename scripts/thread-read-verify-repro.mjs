@@ -88,15 +88,26 @@ const openRow = async (title) => {
 };
 const requests = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
 const codexUser = () => requests().map((r) => (r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || '');
-// What codex's exec call got back from the tool, newest last.
-const toolOutputs = () => requests().flatMap((r) => (r.body?.input || []).filter((m) => m.type === 'custom_tool_call_output'))
-  .map((m) => (typeof m.output === 'string' ? m.output : m.output.map((x) => x.text || '').join('\n')));
+// What codex's exec call got back from the tool on the turn that started at
+// request `from`. Every request carries the whole thread, so a turn's first
+// request already repeats each earlier turn's outputs: only an output after the
+// turn's own user message is this turn's.
+const outputText = (m) => (typeof m.output === 'string' ? m.output : m.output.map((x) => x.text || '').join('\n'));
+const turnOutput = (from) => {
+  for (const r of requests().slice(from).reverse()) {
+    const input = r.body?.input || [];
+    const u = input.findLastIndex((m) => m.role === 'user');
+    const out = input.slice(u + 1).filter((m) => m.type === 'custom_tool_call_output').at(-1);
+    if (out) return outputText(out);
+  }
+  return null;
+};
 // One read through codex: send, wait for its answer, return the tool's text.
 let reads = 0;
 const codexRead = async (args) => {
-  const before = toolOutputs().length;
+  const from = requests().length;
   await send(`codex-read ${J(args)}`);
-  const got = await until(async () => (toolOutputs().length > before ? toolOutputs().at(-1) : null), 90000);
+  const got = await until(async () => turnOutput(from), 90000);
   await idle();
   reads += 1;
   return got || '';
