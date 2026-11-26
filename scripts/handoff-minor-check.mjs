@@ -67,6 +67,27 @@ await check('a chat that left one part comes back as that part, and a retry keep
   assert.ok(/hideParts\(\{/.test(main) && /showAgain\(\{ hidden: hiddenSessions, records: chatSegments, session \}\)/.test(main) && /afterRetry\(\{ hidden: hiddenSessions, session, removed \}\)/.test(main), 'main hides, shows and retries by chat');
 });
 
+// A phone send is taken once, at once.
+await check('a phone send carries its id to the window, which takes it once and at once', async () => {
+  assert.ok(/provider: parsed\.provider,\n\s+nonce,/.test(read('src/main/mobile-gate.js')), 'the gate passes the phone\'s id on');
+  const main = read('src/main/index.js');
+  assert.ok(/turnId: nonce\.slice\(0, 200\)/.test(main), 'main hands it to the window');
+  const { createRelay } = require('../src/main/window-relay.js');
+  const sent = [];
+  const relay = createRelay({ send: (p) => { sent.push(p); return true; }, setTimer: () => 0, clearTimer: () => {} });
+  const answer = relay.forward({ chat: 'c', text: 'hi', turnId: 'n7' });
+  assert.equal(sent[0].turnId, 'n7');
+  relay.settle(sent[0].id, { ok: true });
+  assert.deepEqual(await answer, { ok: true });
+  const agent = read('src/renderer/ui/useAgent.js');
+  const handler = agent.slice(agent.indexOf('offs.push(conn().agent.onPhoneTurn'), agent.indexOf('offs.push(conn().agent.onPhoneTurn') + 900);
+  assert.ok(/phoneTaken\.current\.has\(turnId\)/.test(handler), 'a repeat is answered and not queued again');
+  const queued = handler.indexOf('queued: [...c.queued');
+  const answered = handler.indexOf("phoneTurnTaken?.(id, { ok: true });\n    })");
+  assert.ok(queued > 0 && answered > queued, 'it is queued, then answered, with no read of the chat in between');
+  assert.ok(!/sendTo/.test(handler), 'the queue sends it, not a send the answer waits on');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nhandoff-minor-check: all passed');
 process.exit(failures.length ? 1 : 0);
