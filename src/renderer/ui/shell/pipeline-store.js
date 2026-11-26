@@ -17,6 +17,7 @@ import { toast as sonner } from 'sonner';
 import { onChatsGone, onTurnEnd } from '../lib/turn-events.js';
 import { project as projectState } from '../../project.js';
 import { grouped } from './rail-store';
+import { headOf } from '../../../shared/chat-segments';
 import { toast } from './toast';
 
 const state = { runs: [], loaded: false, dialog: false };
@@ -182,16 +183,18 @@ async function advance(id) {
 /* The stage's session id, as soon as the chat has one. It is what the stage
    is found by after a restart, and the chat's name is written against it
    then, so the rail keeps "Feature · Plan" rather than the prompt's first
-   line. */
+   line. A stage chat that changed agent is still known by its first session:
+   a later one is only part of it. */
 async function watchSession(id, index, key) {
   for (let i = 0; i < 300; i++) {
     const c = chats()?.chatOf(key);
     if (!c) return;
-    if (c.session) {
+    const head = headOf(c);
+    if (head) {
       const run = runOf(id);
       if (!run || run.stages[index]?.chat !== key) return;
-      if (run.stages[index].session !== c.session) put(stageSession(run, index, c.session));
-      if (c.renamed && c.title) conn().agent.rename(c.session, c.title).catch(() => {});
+      if (run.stages[index].session !== head) put(stageSession(run, index, head));
+      if (c.renamed && c.title) conn().agent.rename(head, c.title).catch(() => {});
       return;
     }
     await sleep(200);
@@ -237,7 +240,7 @@ async function ended({ chat, failed, error }) {
   const c = await settled(chat);
   const now = runOf(run.id);
   if (!now || now.stages[index]?.status !== 'running') return;
-  let next = stageSession(now, index, c?.session || null);
+  let next = stageSession(now, index, headOf(c));
   next = stageEnded(next, index, { failed, error, output: finalReply(c?.items) });
   put(next);
   announce(next, index);
@@ -318,7 +321,10 @@ export function openStage(run, stage) {
   }
   // A saved chat opens from disk, if the rail can see it there. One that was
   // deleted, or whose folder is closed, would open as an empty chat.
-  const saved = stage.session && grouped().some((g) => g.rows.concat(g.done || []).some((r) => r.id === stage.session));
+  // A stage saved before it was known by its chat's first session may name a
+  // later one, which the rail lists under the first.
+  const saved = stage.session && grouped().some((g) => g.rows.concat(g.done || [])
+    .some((r) => r.id === stage.session || r.segments?.some((x) => x.session === stage.session)));
   if (!saved) {
     toast(`Could not open ${stage.title}`, 'Its chat was deleted, or its folder is not open in this window.');
     return;

@@ -1160,7 +1160,8 @@ function HiddenChats() {
         <Row
           key={h.session}
           label={h.title || 'Untitled chat'}
-          hint={[AGENT_NAME[h.provider] || h.provider || 'Unknown agent', folderOf(h.project), h.at && new Date(h.at).toLocaleDateString()]
+          hint={[(h.providers?.length ? h.providers : [h.provider]).map((p) => AGENT_NAME[p] || p || 'Unknown agent').join(' and '),
+            folderOf(h.project), h.at && new Date(h.at).toLocaleDateString()]
             .filter(Boolean).join(' · ')}>
           <Button variant="outline" size="sm" disabled={busy === h.session} onClick={() => act(h.session, window.conn.agent.unhide)}>
             Show again

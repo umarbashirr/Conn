@@ -30,9 +30,10 @@ const canvasIds = require('./canvas-ids');
 const chatSegments = require('./chat-segments');
 const hiddenSessions = require('./hidden-sessions');
 const { deleteChat } = require('./delete-chat');
+const { hideParts, showAgain, afterRetry } = require('./hidden-chats');
 const { createStitchCache } = require('./stitch-cache');
 const { createRelay } = require('./window-relay');
-const { collapseRows, foldHits, followers, persistable, stitch } = require('../shared/chat-segments');
+const { cleanSegments, collapseRows, foldHits, followers, persistable, recordOf, stitch } = require('../shared/chat-segments');
 const { mayApplyModel } = require('../shared/model-pick');
 const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
@@ -330,7 +331,8 @@ function phoneLive() {
 /* The same for the phone, which asks again on every refresh. A session's
    stamp is what has touched it: every message a session run here has sent,
    counted as it arrives, and for a transcript on disk its size and when it was
-   written, statted on each read. A session with neither, one this run has
+   written, statted on each read. An ACP agent keeps no file Conn can stat, so
+   its stamp is the messages and the listing alone. A session with neither, one this run has
    never seen that the rail has not listed, is read fresh. */
 const sessionWrites = new Map();
 const wrote = (session) => { if (session) sessionWrites.set(session, (sessionWrites.get(session) || 0) + 1); };
@@ -1702,7 +1704,7 @@ const phoneRelay = createRelay({
   },
 });
 
-async function deliverTurn({ chat, text, images, project, session, provider, from }) {
+async function deliverTurn({ chat, text, images, project, session, provider, from, nonce }) {
   try {
     const phone = from === 'phone';
     // The handoff such a chat owes its next message lives in the window, so a
@@ -1710,7 +1712,8 @@ async function deliverTurn({ chat, text, images, project, session, provider, fro
     // The phone hears back only once the window has the message in the chat.
     const pendingKey = phone && session ? pendingHandoffs.get(session) : null;
     if (pendingKey) {
-      const res = await phoneRelay.forward({ chat: pendingKey, text, images });
+      // The phone's own id for this send, so a repeat of it is not sent twice.
+      const res = await phoneRelay.forward({ chat: pendingKey, text, images, ...(typeof nonce === 'string' && nonce && { turnId: nonce.slice(0, 200) }) });
       return res.ok ? { ok: true, forwarded: true } : res;
     }
     // The phone names a switched chat by its first session, but the chat is
@@ -2526,6 +2529,10 @@ function registerIpc() {
   // The sessions a switched chat is made of, written once the newest one has
   // an id. Ownership is learned here too, so a session the rail has not listed
   // yet still reads through the right agent.
+  // The chat a session id belongs to, for a caller that holds only an id: a
+  // Board card, a pipeline stage. A later session of a switched chat answers
+  // with the chat's first one, so it is never opened as a chat of its own.
+  ipcMain.handle('agent:segmentsOf', (_e, { id } = {}) => recordOf(chatSegments.all(), id));
   ipcMain.handle('agent:setSegments', (_e, { head, segments } = {}) => {
     try {
       if (!Array.isArray(segments) || segments[0]?.session !== head) throw new Error('the first segment must be the chat\'s own session');
@@ -2606,10 +2613,13 @@ function registerIpc() {
       const deleted = removed.map(agentOf);
       const kept = left.map((l) => ({ ...l, provider: l.provider || agentOf(l.session) }));
       removed.forEach(forgetMarks);
-      for (const l of kept) {
-        hiddenSessions.set(l.session, { provider: l.provider, project: dir, title, at: sessionAt.get(l.session) || null, hiddenAt: Date.now() });
-        forgetMarks(l.session);
-      }
+      // Hidden together, as the chat they were, so Show again gives back one
+      // chat. The record itself goes: it would name sessions that are gone.
+      hideParts({
+        hidden: hiddenSessions, head: id, segments: segs, left: kept,
+        meta: { project: dir, title, atOf: (session) => sessionAt.get(session) || null },
+      });
+      kept.forEach((l) => forgetMarks(l.session));
       chatSegments.forget(id);
       // A chat forked onto another model carries the board of the one it came
       // from, and that one is still there to draw on.
@@ -2633,23 +2643,28 @@ function registerIpc() {
   // Settings › Hidden chats: what a delete left on disk, to show again or to
   // try deleting again once its agent can.
   ipcMain.handle('agent:hidden', () => hiddenSessions.list());
-  ipcMain.handle('agent:unhide', (_e, { session } = {}) => {
-    // Its chat's record went with the delete, so it comes back as a chat of its own.
-    return { ok: hiddenSessions.forget(session) };
-  });
+  // Every hidden part of the chat comes back, joined again into one chat.
+  ipcMain.handle('agent:unhide', (_e, { session } = {}) => showAgain({ hidden: hiddenSessions, records: chatSegments, session }));
+  // Each hidden part of the chat is asked once more; what still will not go
+  // stays hidden, as what is left of that chat.
   ipcMain.handle('agent:deleteHidden', async (_e, { session } = {}) => {
-    const entry = hiddenSessions.get(session);
-    if (!entry) return { error: 'That chat is not hidden.' };
-    const p = entry === true ? owners.get(session) : entry.provider;
-    const dir = (entry !== true && entry.project) || focusedCwd();
-    try {
-      await ((isProviderId(p) && rowOf(p)?.history) || ownerOf(session)).deleteSession(dir, session);
-    } catch (e) {
-      return { error: e.message };
+    const parts = hiddenSessions.group(session);
+    if (!parts.length) return { error: 'That chat is not hidden.' };
+    const removed = [];
+    let error = null;
+    for (const part of parts) {
+      const p = part.provider || owners.get(part.session);
+      const dir = part.project || focusedCwd();
+      try {
+        await ((isProviderId(p) && rowOf(p)?.history) || ownerOf(part.session)).deleteSession(dir, part.session);
+        removed.push(part.session);
+        owners.delete(part.session);
+      } catch (e) {
+        error = error || e.message;
+      }
     }
-    hiddenSessions.forget(session);
-    owners.delete(session);
-    return { ok: true };
+    const { left } = afterRetry({ hidden: hiddenSessions, session, removed });
+    return left.length ? { error } : { ok: true };
   });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };
@@ -2960,11 +2975,15 @@ app.whenReady().then(async () => {
         win.show();
         win.focus();
         const text = (v, max = 500) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+        // A chat that changed agent comes with its sessions, so it opens whole
+        // here even before this window's rail has listed it.
+        const segments = cleanSegments(card?.segments);
         send('board:open', {
           key: text(card?.key, 200),
           session: text(card?.session, 200),
           project: text(card?.project),
           title: text(card?.title),
+          ...(segments && { segments: segments.map(({ provider: p, session }) => ({ provider: p, session })) }),
         });
         return { ok: true };
       },

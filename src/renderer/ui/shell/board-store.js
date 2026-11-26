@@ -179,17 +179,25 @@ export async function openCard(card) {
 /* The rail opens a live chat by its key and a stored one by its session id.
    A key this window no longer holds, from a card a moment old, falls back to
    the session; a chat with neither has nothing left to open. */
-async function openHere({ key, session, project, title, provider }) {
+// `vetted` is for a chat another window's Board asked this one to open: main
+// has checked its folder is open here, and a switched chat comes with its
+// sessions, so it opens whole even before this rail has listed it.
+async function openHere({ key, session, project, title, provider, segments, vetted = false }) {
   const live = key && liveKeys().includes(key);
   // A saved chat has to be one the rail can see: in a folder this window has
   // open, on disk. Anything else would open as an empty chat with an error.
-  const saved = !live && session && grouped().some((g) => g.rows.concat(g.done || []).some((r) => r.id === session));
-  if (!live && !saved) return { error: 'That chat is not open in this window any more.' };
+  const row = !live && session ? grouped().flatMap((g) => g.rows.concat(g.done || [])).find((r) => r.id === session) : null;
+  if (!live && !row && !(vetted && session)) return { error: 'That chat is not open in this window any more.' };
+  // A chat that changed agent opens whole, as the rail opens it, on the agent
+  // it was last on. The rail's row knows its sessions even when the card,
+  // from another window, does not.
+  const segs = row?.segments?.length > 1 ? row.segments : segments?.length > 1 ? segments : null;
   await window.connChat?.open({
     ...(live ? { key } : { id: session }),
     project: project || undefined,
     title: title || 'Chat',
-    ...(provider && { provider }),
+    ...((row?.provider || provider) && { provider: row?.provider || provider }),
+    ...(segs && { segments: segs }),
   });
   return { ok: true };
 }
@@ -201,8 +209,8 @@ if (typeof window !== 'undefined' && window.conn?.board) {
   // A gate opening or closing moves a card without the rail moving.
   subscribeRuns(() => { publishSoon(); changed(); });
   // Another window's Board picked a chat this window holds.
-  window.conn.board.onOpen(async ({ key, session, project, title } = {}) => {
-    const res = await openHere({ key, session, project, title });
+  window.conn.board.onOpen(async ({ key, session, project, title, segments } = {}) => {
+    const res = await openHere({ key, session, project, title, segments, vetted: true });
     if (res?.error) toast('Could not open that chat', res.error);
     else closeBoard();
   });

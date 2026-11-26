@@ -211,7 +211,7 @@ await check('a first session that will not go is left like any other, and the re
 await check('delete always drops the row and the record, and hides what was left', () => {
   const main = fs.readFileSync(path.join(ROOT, 'src/main/index.js'), 'utf8');
   const del = main.slice(main.indexOf("ipcMain.handle('agent:deleteSession'"), main.indexOf("ipcMain.on('agent:pendingHandoffs'"));
-  assert.ok(/hiddenSessions\.set\(l\.session, \{ provider: l\.provider, project: dir, title/.test(del));
+  assert.ok(/hideParts\(\{\s+hidden: hiddenSessions, head: id, segments: segs, left: kept/.test(del), 'what stayed is hidden, as the chat it was');
   assert.ok(/\n      chatSegments\.forget\(id\);/.test(del), 'the record goes unconditionally');
   assert.ok(/return \{ ok: true/.test(del));
 });

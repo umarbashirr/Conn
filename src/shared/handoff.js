@@ -54,7 +54,11 @@ const outputText = (out) => {
   return out;
 };
 
-const TOOL_STATUS = { 'output-available': 'done', 'output-error': 'failed', 'input-streaming': 'running', 'input-available': 'running' };
+// A call carried over while still running is still running when it is carried
+// on again, not done.
+const TOOL_STATUS = {
+  'output-available': 'done', 'output-error': 'failed', 'input-streaming': 'running', 'input-available': 'running', 'handed-over': 'running',
+};
 
 // One item as the target will read it, or null for what does not go across:
 // thinking, permission cards, notes that are not errors, earlier handoffs, and
