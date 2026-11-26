@@ -9,6 +9,7 @@ const path = require('path');
 const readline = require('readline');
 const { execFile } = require('child_process');
 const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
+const { typedText } = require('../shared/handoff');
 const chatTitles = require('./chat-titles');
 const shellEnv = require('./shell-env');
 const { parseQuery, snippetOf } = require('./transcript-search');
@@ -332,6 +333,17 @@ function located(cwd, id) {
   return { dir, file: path.join(dir, name) };
 }
 
+// What says a transcript has changed since it was last read: its size and
+// when it was written. Null when there is no transcript to stat.
+function stamp(cwd, id) {
+  try {
+    const st = fs.statSync(located(cwd, id).file);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
 // Deleting a chat for good. The transcript is the chat: drop the file and
 // `claude --resume` stops offering it, the rail stops listing it, and nothing
 // here has a second copy to go stale. A session that spawned agents or wrote a
@@ -436,7 +448,8 @@ function recent(cwd, bytes) {
 
 function saidIn(o) {
   if (o.isSidechain || o.isMeta || o.isCompactSummary) return '';
-  if (o.type === 'user') return humanText(o) || '';
+  // What was typed, not the history a switch carried in with it.
+  if (o.type === 'user') return typedText(humanText(o) || '');
   if (o.type !== 'assistant' || o.isApiErrorMessage) return '';
   const c = o.message?.content;
   if (typeof c === 'string') return c;
@@ -732,4 +745,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };
+module.exports = { stamp, listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };

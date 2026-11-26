@@ -233,12 +233,20 @@ function Appearance({ settings, set }) {
 // their owner configured, so the list is a suggestion rather than the limit.
 function ModelRow({ agent }) {
   const [draft, setDraft] = useState('');
-  const custom = agent.models.find((m) => m.value === agent.model)?.custom;
+  const custom = agent.models.find((m) => m.value === agent.model && m.provider === agent.provider)?.custom;
+  // Each entry is its CLI and its name: two CLIs can list the same name, and a
+  // value of the name alone would pick whichever came first.
+  const entry = (m) => `${m.provider}\u0000${m.value}`;
+  const current = agent.model ? `${agent.provider}\u0000${agent.model}` : '';
+  const choose = (v) => {
+    const at = v.indexOf('\u0000');
+    agent.changeModel(v.slice(at + 1), v.slice(0, at));
+  };
 
   const add = () => {
     const value = draft.trim();
     setDraft('');
-    if (value) agent.changeModel(value);
+    if (value) agent.changeModel(value, agent.provider);
   };
 
   return (
@@ -250,14 +258,14 @@ function ModelRow({ agent }) {
             // An empty value is what Radix reads as "nothing picked yet", so a
             // model this app has not been told about leaves the placeholder up
             // rather than blanking the trigger.
-            <Select value={agent.model || ''} onValueChange={agent.changeModel}>
+            <Select value={current} onValueChange={choose}>
               <SelectTrigger className="min-w-36">
                 <SelectValue placeholder="Pick a model" />
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
                   {agent.models.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>{m.displayName || m.value}</SelectItem>
+                    <SelectItem key={entry(m)} value={entry(m)}>{m.displayName || m.value}</SelectItem>
                   ))}
                 </SelectGroup>
               </SelectContent>
@@ -1116,6 +1124,61 @@ export const updatesBehind = (updates) => !!(updates.app.behind || updates.claud
   || updates.codex?.behind || updates.cursor?.behind || updates.grok?.behind || updates.opencode?.behind || updates.copilot?.behind
   || updates.restart?.ready);
 
+const AGENT_NAME = { claude: 'Claude', codex: 'ChatGPT', copilot: 'Copilot', cursor: 'Cursor', grok: 'Grok', opencode: 'OpenCode' };
+const folderOf = (dir) => (dir ? dir.split(/[/\\]/).filter(Boolean).pop() || dir : null);
+
+/* What deletes left behind. A chat is always removed from the rail when it is
+   deleted, but an agent that cannot delete a chat from outside itself keeps
+   its copy, and that copy is kept out of the rail. Listed here so it can be
+   brought back, or deleted once the agent allows it. */
+function HiddenChats() {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(null);
+  const load = () => window.conn.agent.hidden().then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+
+  const act = async (session, run, done) => {
+    setBusy(session);
+    const res = await run(session).catch((e) => ({ error: e.message }));
+    setBusy(null);
+    if (res?.error) toast('Could not do that', res.error);
+    else {
+      if (done) toast(done);
+      window.connRail?.refresh();
+    }
+    load();
+  };
+
+  return (
+    <Section
+      title="Hidden chats"
+      note="Chats you deleted that their agent kept on disk, because it cannot delete a chat from outside itself. Conn keeps them out of the rail.">
+      {rows && !rows.length && (
+        <Row label="Nothing hidden" hint="Every chat you deleted is gone from disk too." />
+      )}
+      {(rows || []).map((h) => (
+        <Row
+          key={h.session}
+          label={h.title || 'Untitled chat'}
+          hint={[(h.providers?.length ? h.providers : [h.provider]).map((p) => AGENT_NAME[p] || p || 'Unknown agent').join(' and '),
+            folderOf(h.project), h.at && new Date(h.at).toLocaleDateString()]
+            .filter(Boolean).join(' · ')}>
+          <Button variant="outline" size="sm" disabled={busy === h.session} onClick={() => act(h.session, window.conn.agent.unhide)}>
+            Show again
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy === h.session}
+            onClick={() => act(h.session, window.conn.agent.deleteHidden, 'Deleted from disk')}>
+            Try deleting again
+          </Button>
+        </Row>
+      ))}
+    </Section>
+  );
+}
+
 export function SettingsPanel({ section, ...props }) {
   if (!props.settings) return null;
   return (
@@ -1128,6 +1191,7 @@ export function SettingsPanel({ section, ...props }) {
       {section === 'permissions' && <PermissionRules />}
       {section === 'chat' && <ChatPrefs {...props} />}
       {section === 'chat' && <DictationPrefs {...props} />}
+      {section === 'chat' && <HiddenChats />}
       {section === 'terminal' && <TerminalPrefs {...props} />}
       {section === 'keyboard' && <KeyboardPage {...props} />}
       {section === 'updates' && <Updates {...props} />}

@@ -59,6 +59,7 @@ function Card({ card, lane }) {
       data-slot="board-card"
       data-lane={lane}
       data-where={card.where}
+      data-provider={card.provider || undefined}
       aria-label={card.title}
       title={outside ? (attach ? `Copy "${attach}"` : 'Running in a terminal outside Conn') : `Open ${card.title}`}
       onClick={open}

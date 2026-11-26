@@ -112,6 +112,8 @@ export function ToolRow({ name, input, state, at, end, right, thumb = null, defa
   const Icon = ICONS[name] || (name.startsWith('browser_') ? GlobeIcon : WrenchIcon);
   const running = state === 'input-available' || state === 'input-streaming';
   const failed = state === 'output-error';
+  // Carried into a fork while it was still going: no result, and not a failure.
+  const handedOver = state === 'handed-over';
   const summary = toolSummary(name, input);
 
   // A shimmering word is a state, not a clock: it sweeps at the same rate
@@ -152,6 +154,7 @@ export function ToolRow({ name, input, state, at, end, right, thumb = null, defa
           {took && (
             <span className="font-mono text-[11px] tabular-nums text-muted-foreground/50">{clock(took)}</span>
           )}
+          {handedOver && <span className="text-[11px] text-muted-foreground/70">still running when handed over</span>}
           {right}
           {!open && thumb && <Thumb block={thumb} />}
         </span>

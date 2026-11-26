@@ -1,5 +1,7 @@
 'use strict';
 
+const { typedText } = require('./handoff');
+
 const PASTE = /<pasted_content\b[^>]*>[\s\S]*?(<\/pasted_content[^>]*>|$)/g;
 const PLACEHOLDER = /\[(Image #\d+|Pasted text #\d+|Attached )[^\]]*\]/g;
 
@@ -11,7 +13,7 @@ const ATTACHED = /^\[(?:preview (?:element|area)|attached [a-z]+)\][^\n]*(?:\n {
 const NOTE = /\n {2}note: ([^\n]+)/g;
 
 function chatTitle(text) {
-  let raw = String(text || '');
+  let raw = typedText(String(text || ''));
   const notes = [];
   for (let m; (m = ATTACHED.exec(raw));) {
     for (const n of m[0].matchAll(NOTE)) notes.push(n[1]);

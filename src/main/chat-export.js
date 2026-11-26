@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { plainText } = require('../shared/attachments');
+const { typedText } = require('../shared/handoff');
 const { toolLabel, toolName, toolSummary } = require('../shared/tool-summary');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,7 +79,8 @@ function toMarkdown({ title, project, messages, now = new Date() }) {
   for (const m of messages) {
     const content = m.message?.content;
     if (m.type === 'user') {
-      const said = plainText(textOf(content));
+      // What was typed, not the history a switch sent along with it.
+      const said = plainText(typedText(textOf(content)));
       if (said) say('You', nestMessage(said));
       continue;
     }

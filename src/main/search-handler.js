@@ -6,7 +6,9 @@ const LIMIT = 20;
 // The agent:search handler. A newer search from the same window aborts the one
 // before it, because the palette has already stopped listening for its answer.
 // Providers whose history has no search are named in titleOnly.
-function createAgentSearch({ rows, dirs, owners }) {
+// `fold` gets the merged hits and hands back the ones to show, so a chat made
+// of several sessions answers as one.
+function createAgentSearch({ rows, dirs, owners, fold = (hits) => hits }) {
   const running = new Map();
 
   return async (e, { query } = {}) => {
@@ -26,6 +28,7 @@ function createAgentSearch({ rows, dirs, owners }) {
       })));
       const merged = mergeResults(lists, LIMIT);
       for (const r of merged.results) owners.set(r.id, r.provider);
+      merged.results = fold(merged.results);
       return { ...merged, titleOnly: all.filter((row) => !row.history.search).map((row) => ({ id: row.id, label: row.label })) };
     } finally {
       if (running.get(from) === ctl) running.delete(from);

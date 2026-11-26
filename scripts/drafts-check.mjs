@@ -174,4 +174,8 @@ function rig({ saved, broken = false } = {}) {
   assert.equal(odd.readDraft('s2'), 'real', 'the strings beside it still are');
 }
 
+// A chat that changed agent keeps its draft under the session it started on.
+assert.equal(storageKeyOf({ session: 'second-session', segments: [{ session: 'first-session' }, { session: 'second-session' }] }), 'first-session');
+assert.equal(storageKeyOf({ session: null, segments: [{ session: 'first-session' }, { session: null }], project: '/p' }), 'first-session');
+
 console.log('drafts-check: all passed');

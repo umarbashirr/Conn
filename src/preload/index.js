@@ -147,7 +147,8 @@ contextBridge.exposeInMainWorld('conn', {
   },
 
   chat: {
-    export: (id, project, title, lastText) => ipcRenderer.invoke('chat:export', { id, project, title, lastText }),
+    // `segments` is a switched chat's run of sessions, which export reads whole.
+    export: (id, project, title, lastText, segments) => ipcRenderer.invoke('chat:export', { id, project, title, lastText, segments }),
   },
 
   // The agent writes what a frame contains. The board reads frames, moves,
@@ -187,7 +188,7 @@ contextBridge.exposeInMainWorld('conn', {
   agent: {
     onActivity: on('agent:activity'),
     // `provider` is which CLI this chat runs on. It rides along on every send
-    // because a chat keeps the one it was made on, whatever the picker says now.
+    // because each chat has its own, whatever the picker last said elsewhere.
     send: (chat, session, text, images, project, provider) =>
       ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
@@ -205,7 +206,10 @@ contextBridge.exposeInMainWorld('conn', {
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
     prefs: (chat, prefs) => ipcRenderer.invoke('agent:prefs', { chat, ...prefs }),
     models: (chat, provider) => ipcRenderer.invoke('agent:models', { chat, provider }),
-    setModel: (chat, model) => ipcRenderer.invoke('agent:setModel', { chat, model }),
+    // `provider` is the CLI the model was picked under: two can share a name.
+    setModel: (chat, model, provider) => ipcRenderer.invoke('agent:setModel', { chat, model, provider }),
+    // Only what the chat will start its next session on, whatever is running.
+    restoreModel: (chat, model, provider) => ipcRenderer.invoke('agent:restoreModel', { chat, model, provider }),
     setProvider: (chat, provider) => ipcRenderer.invoke('agent:setProvider', { chat, provider }),
     // How hard the model thinks. The CLI takes this when a session starts and
     // has no setter for it, so changing it parks this chat when idle and the
@@ -227,9 +231,17 @@ contextBridge.exposeInMainWorld('conn', {
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     search: (query) => ipcRenderer.invoke('agent:search', { query }),
-    transcript: (id, project, { limit, end } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end }),
+    transcript: (id, project, { limit, end, provider } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider }),
+    // The sessions a chat that changed agent is made of, oldest first.
+    setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
+    // The switched chat a session id belongs to, as { head, segments }, or null.
+    segmentsOf: (id) => ipcRenderer.invoke('agent:segmentsOf', { id }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
+    // What deletes left on disk, kept out of the rail. See Settings › Chat.
+    hidden: () => ipcRenderer.invoke('agent:hidden'),
+    unhide: (session) => ipcRenderer.invoke('agent:unhide', { session }),
+    deleteHidden: (session) => ipcRenderer.invoke('agent:deleteHidden', { session }),
     // Marking a chat done. Nothing is deleted: the rail folds it away and the
     // transcript stays exactly where it was.
     complete: (id, done) => ipcRenderer.invoke('agent:complete', { id, done }),
@@ -250,6 +262,12 @@ contextBridge.exposeInMainWorld('conn', {
     onError: on('agent:error'),
     onClosed: on('agent:closed'),
     onEcho: on('agent:echo'),
+    // A phone message for a chat whose handoff only this window holds.
+    onPhoneTurn: on('agent:phoneTurn'),
+    // Whether that message made it into the chat, so the phone can be told.
+    phoneTurnTaken: (id, result) => ipcRenderer.send('agent:phoneTurnTaken', { id, ...result }),
+    // The chats with a handoff waiting on their next message, as { head, key }.
+    pendingHandoffs: (list) => ipcRenderer.send('agent:pendingHandoffs', { list }),
     onDecided: on('agent:decided'),
     notify: (note) => ipcRenderer.send('agent:notify', note),
     onReveal: on('agent:reveal'),

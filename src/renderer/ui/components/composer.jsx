@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpIcon, CameraIcon, CheckIcon, ChevronDownIcon, CornerDownLeftIcon, CrosshairIcon, EyeIcon, FileIcon,
-  FolderIcon, GitBranchIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
+  FolderIcon, GitBranchIcon, GitForkIcon, HandIcon, LoaderCircleIcon, MessageSquareIcon, MicIcon, MicOffIcon, PaletteIcon, PaperclipIcon, PencilIcon,
   PlugZapIcon, PlusIcon, SearchIcon, ShieldOffIcon, SquareIcon, XIcon, ZapIcon,
 } from 'lucide-react';
 
@@ -150,16 +150,20 @@ const SectionLabel = ({ children }) => (
   </DropdownMenuLabel>
 );
 
-function ModelItems({ rows, current, onPick }) {
+// `flat` lists older models under their own heading instead of behind one more
+// submenu, for a list that is itself already a submenu.
+// A pick is the row's CLI and its name together: two CLIs can list the same
+// name. `currentProvider` keeps the tick on the CLI the chat is on.
+function ModelItems({ rows, current, currentProvider, onPick, flat = false }) {
   const all = new Set(rows.map((m) => m.value));
   const long = current?.endsWith(LONG);
-  const pick = (value) => onPick(long && all.has(value + LONG) ? value + LONG : value);
+  const pick = (m) => onPick(long && all.has(m.value + LONG) ? m.value + LONG : m.value, m.provider);
   const { latest, legacy } = splitLegacy(oncePerModel(rows));
-  const selected = (m) => m.value === shortOf(current);
+  const selected = (m) => m.value === shortOf(current) && (!currentProvider || !m.provider || m.provider === currentProvider);
   const item = (m) => (
     <DropdownMenuItem
       key={m.value}
-      onSelect={() => pick(m.value)}
+      onSelect={() => pick(m)}
       title={m.blurb || undefined}
       className={cn('items-start gap-2 py-1.5', selected(m) && 'bg-accent/50')}>
       <div className="flex min-w-0 flex-1 flex-col">
@@ -178,7 +182,7 @@ function ModelItems({ rows, current, onPick }) {
       {legacy.length > 0 && (
         <>
           <DropdownMenuSeparator />
-          {legacyOpen ? (
+          {legacyOpen || flat ? (
             <>
               <SectionLabel>Legacy</SectionLabel>
               {legacy.map(item)}
@@ -290,12 +294,14 @@ function ModelPicker({ agent, settings }) {
   // With one CLI here and one missing there are still two rows, so the nesting
   // stays: flattening would put the models and the locked row side by side.
   const nested = groups.length > 1;
+  const forkable = groups.filter((g) => !g.locked && g.rows.length);
   const { on: long, capable } = agent.longContext || {};
 
   // A model the list has not heard of still has to name itself on the trigger:
   // a proxy routes names no probe here can see, and a chat resumed on one would
   // otherwise leave the button blank.
-  const row = agent.models.find((m) => m.value === current);
+  const row = agent.models.find((m) => m.value === current && m.provider === agent.provider)
+    || agent.models.find((m) => m.value === current);
   const label = [
     row && !row.custom ? cleanModelName(row) : prettyModelId(current) || 'Pick a model',
     agent.effort && effortLabel(agent.effort),
@@ -353,13 +359,13 @@ function ModelPicker({ agent, settings }) {
             );
           }
           if (!nested) {
-            return <ModelItems key={g.id} rows={g.rows} current={current} onPick={agent.changeModel} />;
+            return <ModelItems key={g.id} rows={g.rows} current={current} currentProvider={agent.provider} onPick={agent.changeModel} />;
           }
           return (
             <DropdownMenuSub key={g.id}>
               <DropdownMenuSubTrigger><ProviderName id={g.id} /></DropdownMenuSubTrigger>
               <DropdownMenuSubContent className="w-72 max-w-none">
-                <ModelItems rows={g.rows} current={current} onPick={agent.changeModel} />
+                <ModelItems rows={g.rows} current={current} currentProvider={agent.provider} onPick={agent.changeModel} />
                 {VISIBILITY[g.id] && (
                   <>
                     <DropdownMenuSeparator />
@@ -373,6 +379,31 @@ function ModelPicker({ agent, settings }) {
             </DropdownMenuSub>
           );
         })}
+        {/* Picking a model above moves this chat. Forking leaves it where it is
+            and carries the conversation into a new chat instead. */}
+        {agent.items.length > 0 && forkable.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="gap-2">
+                <GitForkIcon className="size-3.5" />
+                Fork to a New Chat
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-[min(var(--radix-dropdown-menu-content-available-height),32rem)] w-72 max-w-none overflow-y-auto">
+                {/* One level, every CLI under its own heading: a submenu inside
+                    this one opened over the main menu, and the pointer's way
+                    to it crossed rows that closed it. */}
+                {forkable.map((g, i) => (
+                  <div key={g.id}>
+                    {i > 0 && <DropdownMenuSeparator />}
+                    {nested && <SectionLabel><ProviderName id={g.id} /></SectionLabel>}
+                    <ModelItems rows={g.rows} current="" onPick={agent.forkTo} flat />
+                  </div>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </>
+        )}
         <DropdownMenuSeparator />
         {agent.efforts?.length > 0 && (
           <Segmented

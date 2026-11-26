@@ -148,7 +148,7 @@ export default function Palette() {
     .filter((r) => !shown.has(r.id))
     .map((r) => ({
       ...(byId.get(r.id) || {
-        chat: { id: r.id, project: r.project, provider: r.provider, title: r.title || 'Untitled chat', at: r.at },
+        chat: { id: r.id, project: r.project, provider: r.provider, title: r.title || 'Untitled chat', at: r.at, segments: r.segments },
         folder: folders.find((f) => f.dir === r.project) || { name: r.project.split(/[/\\]/).filter(Boolean).pop() },
       }),
       snippet: r.snippet,

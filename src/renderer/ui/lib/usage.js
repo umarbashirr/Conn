@@ -88,6 +88,22 @@ export const requestSize = (u) => (u?.input_tokens || 0)
   + (u?.cache_read_input_tokens || 0)
   + (u?.cache_creation_input_tokens || 0);
 
+/* How full a stored session's window was when it last answered: the reading
+   an ACP agent reported, or else the newest main-thread request in the
+   transcript. Zero when the transcript does not say, as codex's do not. */
+export function storedContext(t) {
+  const reading = t?.usage?.message?.usage;
+  if (reading) return requestSize(reading);
+  const messages = t?.messages || [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.type !== 'assistant' || !m.message?.usage) continue;
+    const size = requestSize(m.message.usage);
+    if (size) return size;
+  }
+  return 0;
+}
+
 // An assistant message on the main thread. A subagent has its own window, so
 // its requests say nothing about how full this conversation is.
 function withRequest(usage, apiUsage) {

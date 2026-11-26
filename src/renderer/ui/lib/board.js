@@ -92,7 +92,9 @@ export function cardsFromRail(groups, { isDone = () => false } = {}) {
         session: row.key && row.id === row.key ? null : row.id,
         title: row.title || 'Untitled chat',
         project: row.project || g.dir,
-        provider: row.provider || null,
+        // Drawn by the agent it is on now, which for a chat that changed agent
+        // is not the one its first session ran on.
+        provider: row.agent || row.provider || null,
         at: row.at || 0,
         busy: !!row.busy,
         waiting: !!row.waiting,
@@ -102,6 +104,9 @@ export function cardsFromRail(groups, { isDone = () => false } = {}) {
         gate: !!row.gate,
         activity: row.activity || null,
         pipeline: row.pipeline || null,
+        // A chat that changed agent: every session it ran on, first one first.
+        // Opening the card opens all of it, and none of them is an outside card.
+        segments: row.segments?.length > 1 ? row.segments.map(({ provider, session }) => ({ provider, session })) : null,
       });
     }
   }
@@ -164,13 +169,20 @@ export function externalCards(list, now = Date.now()) {
 export function board({ local = [], peers = [], external = [], now = Date.now() }) {
   const lanes = Object.fromEntries(LANES.map((l) => [l.id, []]));
   const held = new Set();
-  const hold = (cards) => { for (const c of cards) if (c.session) held.add(c.session); };
+  // Every session a card's chat ran on is that card's, so a switched chat's
+  // later Claude session is never drawn again as an outside one.
+  const hold = (cards) => {
+    for (const c of cards) {
+      if (c.session) held.add(c.session);
+      for (const x of c.segments || []) if (x?.session) held.add(x.session);
+    }
+  };
   const place = (card, lane) => { if (lane) lanes[lane].push(card); };
 
   for (const c of local) place({ ...c, where: 'here' }, laneOf(c, now));
   hold(local);
   for (const p of peers) {
-    const cards = (p.cards || []).filter((c) => !(c.session && held.has(c.session)));
+    const cards = (p.cards || []).filter((c) => !(c.session && held.has(c.session)) && !(c.segments || []).some((x) => held.has(x?.session)));
     for (const c of cards) place({ ...c, title: c.title || 'Untitled chat', where: 'peer', pid: p.pid }, laneOf(c, now));
     hold(cards);
   }

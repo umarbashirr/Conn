@@ -31,6 +31,7 @@ const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
 const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
+const { typedText } = require('../shared/handoff');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
 const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
@@ -116,6 +117,24 @@ const iso = (sec) => (typeof sec === 'number' ? new Date(sec * 1000).toISOString
 // same reason it is in history.js.
 // `stamp` is codex's own updatedAt and nothing else. `at` falls back to times
 // that never change, which would make a thread look unwritten to.
+/* Where codex says each thread's rollout file is, as thread/list and
+   thread/read report it. Nothing here reads one; stamp() only stats it, so a
+   stitched transcript the phone holds learns a write in the same second. */
+const rollouts = new Map();
+
+// The rollout's size and when it was written, or null when codex never said
+// where it is or it is not there.
+function stamp(cwd, id) {
+  const file = rollouts.get(id);
+  if (!file) return null;
+  try {
+    const st = fs.statSync(file);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
 async function threads(cwd, limit) {
   let res;
   try {
@@ -136,6 +155,7 @@ async function threads(cwd, limit) {
     // which is the same thing history.js digs out of the transcript head.
     // chatTitle folds the whitespace itself, and needs the line breaks first
     // to find an attachment block.
+    if (typeof t.path === 'string' && t.path) rollouts.set(t.id, t.path);
     const title = chatTitle(t.name || t.preview);
     if (!title) continue;
     rows.push({ id: t.id, title: title.slice(0, TITLE_MAX), at: ms(t.updatedAt ?? t.recencyAt ?? t.createdAt), stamp: t.updatedAt });
@@ -161,7 +181,8 @@ async function sayingsOf(id, stamp) {
   for (const turn of res?.thread?.turns || []) {
     for (const item of turn.items || []) {
       if (item.type === 'userMessage') {
-        texts.push((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n'));
+        // What was typed, not the history a switch carried in with it.
+        texts.push(typedText((item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n')));
       } else if (item.type === 'agentMessage') {
         texts.push(item.text || '');
       }
@@ -327,6 +348,7 @@ const agents = new Map();
 async function readSession(cwd, id, opts) {
   const res = await call('thread/read', { threadId: id, includeTurns: true });
   if (!res?.thread) throw new Error(`no transcript for session ${id}`);
+  if (typeof res.thread.path === 'string' && res.thread.path) rollouts.set(id, res.thread.path);
 
   const found = [];
   const out = [];
@@ -356,4 +378,4 @@ async function readSubagent(cwd, session, agentId) {
   return { ...t, id: agentId };
 }
 
-module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close };
+module.exports = { stamp, listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close };
