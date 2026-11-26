@@ -114,6 +114,29 @@ await check('an open switched chat is drawn by the agent it is on, and stays one
   assert.equal(card.provider, 'copilot');
 });
 
+// Already held before this work, checked so it stays so.
+await check('completed and pinned are keyed on the row, which is the chat\'s first session', () => {
+  const rail = read('src/renderer/ui/shell/rail-store.js');
+  assert.ok(/state\.completed\[row\.id\] = Date\.now\(\)/.test(rail) && /export const isDone = \(row\) => !!row\?\.id && Object\.hasOwn\(state\.completed, row\.id\)/.test(rail));
+  assert.ok(/const id = row\?\.id;/.test(rail.slice(rail.indexOf('export async function pinChat'))));
+  const { collapseRows } = require('../src/shared/chat-segments.js');
+  const rows = collapseRows([{ id: A, at: 1 }, { id: C, at: 3 }], { [A]: bare });
+  assert.deepEqual(rows.map((r) => r.id), [A], 'the rail lists the chat under its first session only');
+  assert.equal(cardsFromRail([{ dir: '/w', rows }], { isDone: (r) => r.id === A }).length, 0, 'a completed switched chat is off the Board');
+});
+await check('a turn or a question on its current session puts the card in Working or Needs you', () => {
+  const base = { id: A, key: 'k1', title: 't', segments: bare, at: now };
+  assert.equal(laneOf(cardsFromRail([{ dir: '/w', rows: [{ ...base, waiting: true }] }])[0], now), 'needs');
+  assert.equal(laneOf(cardsFromRail([{ dir: '/w', rows: [{ ...base, busy: true }] }])[0], now), 'working');
+  // The live half is the window's chat, by key: its items, whichever session they came from.
+  assert.ok(/waiting: hasUndecidedPerm\(c\.items\)/.test(read('src/renderer/ui/useAgent.js')));
+});
+await check('hand-back goes by the chat and its pages, never a session', () => {
+  const strip = read('src/renderer/ui/components/hand-back-strip.jsx');
+  assert.ok(!/session/.test(strip));
+  assert.ok(/id: `main:\$\{chat\}`, label: 'the main thread', chat/.test(read('src/main/index.js')), 'a page is held by the chat key');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nboard-switched-check: all passed');
 process.exit(failures.length ? 1 : 0);
