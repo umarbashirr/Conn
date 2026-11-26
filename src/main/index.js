@@ -358,7 +358,14 @@ async function threadSessionsOf(chat) {
   const live = sessions.get(chat);
   let session = live?.sessionId || null;
   let p = live?.provider || chatPrefs.providerOf(chat, null);
-  if (!session && chat.startsWith('h:')) [, p, session] = chat.match(/^h:([^:]+):(.+)$/) || [];
+  if (!session && chat.startsWith('h:')) {
+    // A phone's name for a saved chat. Only one this window's rail lists, as
+    // its own row or a part of a switched chat's, never any session id that
+    // happens to be spelled into a key.
+    const [, named, id] = chat.match(/^h:([^:]+):(.+)$/) || [];
+    const rows = id ? await sessionsIn(dir) : [];
+    if (rows.some((r) => r.id === id || r.segments?.some((x) => x.session === id))) [p, session] = [named, id];
+  }
   if (!session) throw new Error(`No chat ${chat} in this window.`);
   const rec = recordOf(chatSegments.all(), session);
   return { dir, segments: rec ? rec.segments : [{ provider: p || owners.get(session), session }] };

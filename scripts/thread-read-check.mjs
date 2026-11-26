@@ -215,6 +215,14 @@ await check('the row counts what came back whichever way the agent hands the res
   assert.equal(threadReadTitle('input-available', null), 'Reading earlier items');
 });
 
+await check('a phone\'s name for a chat reads it only when this window\'s rail lists that session', () => {
+  const main = read('src/main/index.js');
+  const fn = main.slice(main.indexOf('async function threadSessionsOf'), main.indexOf('const threadRead = createThreadReader'));
+  assert.ok(/const rows = id \? await sessionsIn\(dir\) : \[\];/.test(fn), 'the rail is read');
+  assert.ok(/rows\.some\(\(r\) => r\.id === id \|\| r\.segments\?\.some\(\(x\) => x\.session === id\)\)\) \[p, session\] = \[named, id\];/.test(fn), 'and only a session it lists is taken');
+  assert.ok(!/\[, p, session\] = chat\.match/.test(fn), 'not any session spelled into the key');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nthread-read-check: all passed');
 process.exit(failures.length ? 1 : 0);
