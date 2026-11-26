@@ -4,11 +4,13 @@
  * The same names and the same return shapes as history.js, so index.js picks a
  * module per provider and every handler behind it stays as it was.
  *
- * Nothing here reads a file. codex writes rollouts under ~/.codex/sessions and
- * calls that path unstable in its own schema, while the app-server serves the
- * same material through thread/list and thread/read. Binding to the protocol
+ * Almost nothing here reads a file. codex writes rollouts under ~/.codex/sessions
+ * and calls that path unstable in its own schema, while the app-server serves
+ * the same material through thread/list and thread/read. Binding to the protocol
  * costs a process where history.js costs a readdir, and it is still the right
  * side to bind to: the format on disk is theirs to change without telling us.
+ * The one exception is a handoff handed over as thread items, which thread/read
+ * never shows; see injectedHandoffs.
  *
  * So the process is held open rather than spawned per question. The rail
  * refreshes on mount and again every time the palette opens, and one refresh
@@ -31,7 +33,7 @@ const { AppServer } = require('./codex-rpc');
 const { codexBinary, CLIENT } = require('./codex-driver');
 const shellEnv = require('./shell-env');
 const { chatTitle, TITLE_MAX } = require('../shared/chat-title');
-const { typedText } = require('../shared/handoff');
+const { typedText, injectedPrompt, CLOSE } = require('../shared/handoff');
 const { clip } = require('./transcript-clip');
 const { codexFiles } = require('../shared/unified-diff');
 const { parseQuery, snippetOf, wordCache } = require('./transcript-search');
@@ -283,11 +285,62 @@ function outputFor(item) {
   return [item.status || 'done', false];
 }
 
+/* The handoffs a thread was handed as items (thread/inject_items), by the turn
+   each went ahead of, as the texts of those items in order. thread/read shows
+   turns only, and an injected item belongs to none, so it is not there at all:
+   the history it carried never turns into bubbles, and neither does the row
+   that should say a handoff happened, nor the cut a switched chat's stretch
+   starts at. Those come from the rollout, where codex 0.171.0 writes each
+   injected item as a `response_item` message ahead of the `task_started` of
+   the turn that followed. A block is the run from a header saying
+   delivery="injected" to the closing tag; one with no turn after it, as when
+   the turn it went with never started, goes with whichever turn comes next,
+   which is the message that was sent again. A rollout that cannot be read, or
+   reads some other way, gives none: the chat then draws without those rows,
+   which is how it looked before. */
+const INJECTED = /^\s*<conn-handoff[^>]*\bdelivery="injected"/;
+function injectedHandoffs(file) {
+  const out = new Map();
+  let raw = '';
+  try { raw = file ? fs.readFileSync(file, 'utf8') : ''; } catch { return out; }
+  if (!raw.includes('conn-handoff')) return out;
+  let block = null;
+  let done = null;
+  for (const line of raw.split('\n')) {
+    if (!block && !line.includes('conn-handoff') && !line.includes('"task_started"')) continue;
+    let o;
+    try { o = JSON.parse(line); } catch { continue; }
+    const p = o?.payload || {};
+    if (o?.type === 'event_msg' && p.type === 'task_started') {
+      const turn = p.turn_id || p.turn_attribution?.turn_id;
+      if (done && turn) out.set(turn, done);
+      block = null;
+      done = null;
+      continue;
+    }
+    if (o?.type !== 'response_item' || p.type !== 'message' || !Array.isArray(p.content)) continue;
+    const text = p.content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('');
+    if (INJECTED.test(text)) {
+      block = [text];
+      done = null;
+    } else if (block) {
+      block.push(text);
+      if (text.trim() === CLOSE) {
+        done = block;
+        block = null;
+      }
+    }
+  }
+  return out;
+}
+
 /* One stored item as the messages the panel replays. Zero of them for anything
    the live path also drops: review-mode markers and compaction notices never
    reached the transcript while the chat ran, and showing them now would make a
-   replayed chat say more than it ever did. */
-function messagesFor(item, at, found) {
+   replayed chat say more than it ever did. `handed` is the texts of a handoff
+   injected ahead of this item's turn, which its first message is read back
+   with, the way an inline one was stored. */
+function messagesFor(item, at, found, handed = null) {
   if (item.type === 'reasoning') {
     const thinking = (item.summary || []).join('\n\n');
     if (!thinking.trim()) return [];
@@ -302,7 +355,8 @@ function messagesFor(item, at, found) {
       .map((c) => c.text || '')
       .join('\n');
     if (!said.trim()) return [];
-    return [{ type: 'user', message: { role: 'user', content: [{ type: 'text', text: said }] }, at }];
+    const text = (handed && injectedPrompt(handed, said)) || said;
+    return [{ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, at }];
   }
 
   if (item.type === 'agentMessage') {
@@ -352,12 +406,23 @@ async function readSession(cwd, id, opts) {
 
   const found = [];
   const out = [];
+  const injected = injectedHandoffs(rollouts.get(id));
+  // A codex that one day shows injected items as turn items shows them as
+  // bubbles; the handoff row stands for them already.
+  const carriedTexts = new Set([...injected.values()].flat());
   for (const turn of res.thread.turns || []) {
     // Items carry no time of their own, so a turn's messages all take the time
     // the turn started. The panel groups by message rather than by minute, so
     // the granularity costs nothing.
     const at = iso(turn.startedAt ?? turn.completedAt ?? res.thread.createdAt);
-    for (const item of turn.items || []) out.push(...messagesFor(item, at, found));
+    let handed = injected.get(turn.id) || null;
+    for (const item of turn.items || []) {
+      const said = item.type === 'agentMessage' ? item.text
+        : item.type === 'userMessage' ? (item.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n') : null;
+      if (said && carriedTexts.has(said)) continue;
+      out.push(...messagesFor(item, at, found, item.type === 'userMessage' ? handed : null));
+      if (item.type === 'userMessage') handed = null;
+    }
   }
   agents.set(id, found);
 
@@ -378,4 +443,4 @@ async function readSubagent(cwd, session, agentId) {
   return { ...t, id: agentId };
 }
 
-module.exports = { stamp, listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close };
+module.exports = { stamp, listSessions, search, readSession, readSubagent, listSubagents, deleteSession, close, injectedHandoffs };
