@@ -58,6 +58,8 @@ const { exportChat } = require('./chat-export');
 const { LANDS_WITHIN } = require('./history');
 const { createAgentSearch } = require('./search-handler');
 const planLimits = require('./plan-limits');
+const { createBoard } = require('./board');
+const pipelines = require('./pipelines');
 // What the CLI takes for --effort. Anything else is refused rather than passed on.
 const EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 const { PaneLease, READS } = require('./pane-lease');
@@ -94,6 +96,9 @@ let paneSeq = 0;
 // chat that is working keeps working while you read another one, which is the
 // whole reason this is a map and not a single session.
 const sessions = new Map();
+// The Board's view past this window: other windows' chats and the CLI's own
+// sessions. This window's cards are whatever its renderer last published.
+const board = createBoard({ claudeBin: () => claudeBinary() });
 let bridge = null;
 let registry = null;
 const rowOf = (p) => registry?.get(p) || registry?.get('claude');
@@ -175,19 +180,40 @@ function agentOn(tab) {
 
 const captionOf = (h) => (String(h.id).startsWith('main:') ? 'The agent is using this page' : `${h.label} is using this page`);
 
+const humanOn = (tab) => !!tab && leases.get(tab)?.human;
+
+// The Hand back pill, floating at the bottom of the page. The view is only
+// the pill's size, so every click on the rest of the page reaches the page.
+const PILL = { width: 352, height: 60, bottom: 10 };
+function pillBox(box) {
+  const width = Math.min(PILL.width, box.width);
+  return {
+    x: Math.round(box.x + (box.width - width) / 2),
+    y: Math.round(box.y + Math.max(0, box.height - PILL.height - PILL.bottom)),
+    width,
+    height: Math.min(PILL.height, box.height),
+  };
+}
+
+function placeOverlay(o, host, box, tab) {
+  const agent = agentOn(tab);
+  if (agent) return o.show(host, box, { tab, caption: captionOf(agent), mode: 'agent' });
+  if (humanOn(tab)) return o.show(host, pillBox(box), { tab, caption: '', mode: 'human' });
+  return o.hide();
+}
+
 function syncOverlays() {
   const boxTab = shownTab && shownTab !== poppedTab && panes.has(shownTab) ? shownTab : null;
-  const boxAgent = !paneCovered && lastBounds && agentOn(boxTab);
-  if (boxAgent && win && !win.isDestroyed()) overlays.box.show(win, lastBounds, { tab: boxTab, caption: captionOf(boxAgent) });
+  if (!paneCovered && lastBounds && boxTab && win && !win.isDestroyed()) placeOverlay(overlays.box, win, lastBounds, boxTab);
   else overlays.box.hide();
 
-  const outAgent = popout && !popout.isDestroyed() && agentOn(poppedTab);
-  if (outAgent) overlays.popout.show(popout, popoutBox(), { tab: poppedTab, caption: captionOf(outAgent) });
+  if (popout && !popout.isDestroyed() && poppedTab) placeOverlay(overlays.popout, popout, popoutBox(), poppedTab);
   else overlays.popout.hide();
 
   // Keys the person types should not reach a page they cannot click either.
+  // A page that is theirs keeps its keys.
   for (const o of Object.values(overlays)) {
-    if (o.tab && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
+    if (o.tab && o.mode === 'agent' && panes.get(o.tab)?.pane.wc.isFocused()) o.focus();
   }
   // The person can still talk to the agent while it has the page.
   composerFloat.raise();
@@ -970,7 +996,12 @@ async function applyProvider(next) {
 // not one with a chat still working, not the one on screen, and not the main
 // checkout of a worktree that is open. When every folder is one of those,
 // nothing closes and the open is refused.
+// Folders a pipeline run in this window still needs: one running a stage or
+// waiting at a gate. The renderer says which, whenever a run moves.
+let pipelineFolders = new Set();
+
 function folderBusy(dir) {
+  if (pipelineFolders.has(dir)) return true;
   for (const [chat, cwd] of chatProjects) {
     if (cwd !== dir) continue;
     const a = sessions.get(chat);
@@ -1975,6 +2006,10 @@ function registerIpc() {
     // Straight onto the page, so the scroll that follows the click lands.
     panes.get(tab)?.pane.wc.focus();
   });
+  ipcMain.on('overlay:handBack', (e) => {
+    const tab = Object.values(overlays).find((o) => o.owns(e.sender))?.tab;
+    if (tab) leaseFor(tab).handBack();
+  });
   ipcMain.handle('preview:handBack', (_e, { tab } = {}) => {
     leaseFor(tab || shownTab).handBack();
     return { ok: true };
@@ -2434,6 +2469,41 @@ function registerIpc() {
   // Every open project, because the rail is one list of folders now rather than
   // one folder's list. Each transcript is read once and its title cached, so the
   // cost of a refresh is a readdir and a stat per project.
+  // The Board. This window's cards come from its own renderer and are kept
+  // here only so the other windows can read them over the bridge.
+  ipcMain.handle('board:publish', (_e, { cards } = {}) => ({ ok: true, count: board.publish(cards) }));
+  ipcMain.handle('board:peers', () => board.peers());
+  ipcMain.handle('board:openPeer', (_e, { pid, card } = {}) => board.openOn(Number(pid), card));
+  ipcMain.handle('board:outside', () => board.outside());
+
+  // Pipelines. The files are read fresh on every list, so an edit shows on the
+  // next open. A folder this window does not have open gets only yours.
+  ipcMain.handle('pipelines:list', (_e, { dir } = {}) => {
+    const root = typeof dir === 'string' && open.has(path.resolve(dir)) ? path.resolve(dir) : null;
+    return { pipelines: pipelines.list(root), userDir: pipelines.userDir() };
+  });
+  ipcMain.handle('pipelines:example', () => {
+    try { return pipelines.writeExample(); } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('runs:list', () => pipelines.listRuns());
+  ipcMain.handle('pipelines:hold', (_e, { dirs } = {}) => {
+    pipelineFolders = new Set((Array.isArray(dirs) ? dirs : []).filter((d) => typeof d === 'string' && d).map((d) => path.resolve(d)));
+    return { ok: true };
+  });
+  ipcMain.handle('runs:save', (_e, { run } = {}) => {
+    try { return pipelines.saveRun(run); } catch (e) { return { error: e.message }; }
+  });
+  ipcMain.handle('runs:remove', (_e, { id } = {}) => pipelines.removeRun(id));
+  // A pipeline stage's mode, model and CLI, set on its chat before the first
+  // message. The composer's own pickers also change what new chats start on;
+  // a stage must not, so this only writes the chat's own preferences.
+  ipcMain.handle('agent:prefs', (_e, { chat, mode, model, provider: runs } = {}) => {
+    if (typeof chat !== 'string' || !chat) return { error: 'no chat' };
+    if (isMode(mode)) chatPrefs.setMode(chat, mode);
+    if (typeof model === 'string' && model) chatPrefs.setModel(chat, model);
+    if (isProviderId(runs)) chatPrefs.setProvider(chat, runs);
+    return { ok: true };
+  });
   ipcMain.handle('agent:history', async () => ({
     // codex answers over a round trip rather than a readdir, so the projects
     // are asked about together instead of one after another.
@@ -2870,6 +2940,34 @@ app.whenReady().then(async () => {
       if (win.isMinimized()) win.restore();
       win.show();
       win.focus();
+    },
+    board: {
+      cards: () => board.cards(),
+      // Another window's Board picked one of this window's chats. The window
+      // comes forward and the renderer opens the chat, the same as a click on
+      // its row in the rail.
+      open: (card) => {
+        if (!win || win.isDestroyed()) return { error: 'no window' };
+        // Only a chat this window holds, or a saved one in a folder it has
+        // open. A card can be a few seconds old, and a chat deleted since must
+        // not come back as an empty one under a folder nobody opened.
+        const key = typeof card?.key === 'string' ? card.key : null;
+        const dir = typeof card?.project === 'string' && card.project ? path.resolve(card.project) : null;
+        const held = !!key && chatProjects.has(key);
+        const saved = typeof card?.session === 'string' && !!card.session && !!dir && known(dir);
+        if (!held && !saved) return { error: 'That chat is not open in that window any more.' };
+        if (win.isMinimized()) win.restore();
+        win.show();
+        win.focus();
+        const text = (v, max = 500) => (typeof v === 'string' && v ? v.slice(0, max) : null);
+        send('board:open', {
+          key: text(card?.key, 200),
+          session: text(card?.session, 200),
+          project: text(card?.project),
+          title: text(card?.title),
+        });
+        return { ok: true };
+      },
     },
     ...(bridgeDev ? {
       command: (name, open) => { send('app:command', { name, open }); return { ok: true, name, open }; },

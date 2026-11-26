@@ -93,4 +93,20 @@ function find(cwd) {
   return last && alive(last.pid) ? last : null;
 }
 
-module.exports = { find, forDir, write, clear, projectFile, slug, DIR, LAST };
+// Every window that is still running, once each. A window writes one file per
+// folder it has open, all carrying the same url, token and pid, so they are
+// told apart by pid. A crashed window's files are skipped, not deleted: the
+// window that owns the name cleans them up when it next publishes.
+function windows() {
+  let names = [];
+  try { names = fs.readdirSync(PROJECTS).filter((n) => n.endsWith('.json')); } catch { return []; }
+  const byPid = new Map();
+  for (const name of names) {
+    const s = read(path.join(PROJECTS, name));
+    if (!s || !Number.isInteger(s.pid) || byPid.has(s.pid) || !alive(s.pid)) continue;
+    byPid.set(s.pid, { url: s.url, token: s.token, pid: s.pid, cwds: projects(s) });
+  }
+  return [...byPid.values()];
+}
+
+module.exports = { find, forDir, windows, write, clear, projectFile, slug, DIR, LAST };

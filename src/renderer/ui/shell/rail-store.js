@@ -154,6 +154,7 @@ function rows(dir, sessions) {
       row.waiting = c.waiting;
       row.agents = c.agents;
       row.shells = c.shells;
+      row.failed = c.failed;
       row.activity = c.activity;
       // A name typed in the rail beats the first message, including for the
       // moment before that name has been written down.
@@ -170,6 +171,8 @@ function rows(dir, sessions) {
       waiting: c.waiting,
       agents: c.agents,
       shells: c.shells,
+      failed: c.failed,
+      provider: c.provider,
       activity: c.activity,
     });
   }

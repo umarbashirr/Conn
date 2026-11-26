@@ -12,6 +12,7 @@ import { AgentRow } from '@/components/agent-row';
 import { PlanRow } from '@/components/plan-row';
 import { ReasoningRow } from '@/components/reasoning-row';
 import { FleetStrip } from '@/components/fleet-strip';
+import { CARRY_ON, HandBackStrip } from '@/components/hand-back-strip';
 import { SubagentSheet } from '@/components/subagent-sheet';
 import { ChatFloor } from '@/components/working-panel';
 import { ChatOverview } from '@/components/chat-overview';
@@ -57,6 +58,9 @@ import { useCatalog } from './useCatalog';
 import { useProject } from './useProject';
 import { useSettings, useUpdates } from './useSettings';
 import { enterFullPage, leaveFullPage, runCommand, toast } from '../app.js';
+import { BoardPage } from '@/components/board-page';
+import { PipelineDialog } from '@/components/pipeline-dialog';
+import { boardState, closeBoard, getBoardVersion, openBoard, subscribeBoard, toggleBoard } from './shell/board-store.js';
 import { closeSheet, getSheet, openSheet, publish, subscribeAgents, toggleSheetFull } from './shell/agents-store.js';
 import { ComposerFloat, focusFloat } from './shell/composer-float.js';
 import { PortalHost } from './lib/portal-host.js';
@@ -320,11 +324,15 @@ export default function App() {
   // otherwise the section on screen, so Help → Check for updates lands on
   // updates and the skills chip lands on skills.
   const [customizeAt, setCustomizeAt] = useState(null);
+  // The Board, in the chat's place too, but with the rail left up.
+  useSyncExternalStore(subscribeBoard, getBoardVersion, getBoardVersion);
+  const boardOpen = boardState().open;
   useLayoutEffect(() => {
-    if (customizeAt === null) leaveFullPage();
-    else enterFullPage();
-  }, [customizeAt]);
-  const customize = useCallback((at) => setCustomizeAt(at), []);
+    if (customizeAt !== null) enterFullPage();
+    else if (boardOpen) enterFullPage({ keepRail: true });
+    else leaveFullPage();
+  }, [customizeAt, boardOpen]);
+  const customize = useCallback((at) => { closeBoard(); setCustomizeAt(at); }, []);
   const closeCustomize = useCallback(() => setCustomizeAt(null), []);
   const customizeAtRef = useRef(customizeAt);
   customizeAtRef.current = customizeAt;
@@ -336,6 +344,7 @@ export default function App() {
   const showChat = useCallback(() => {
     setUsageOpen(false);
     setCustomizeAt(null);
+    closeBoard();
   }, []);
   const agentRef = useRef(agent);
   agentRef.current = agent;
@@ -474,6 +483,16 @@ export default function App() {
       },
       customize: (at) => customize(typeof at === 'string' ? at : 'mcp'),
       usage: openUsage,
+      // What a pipeline run needs from the chats: start one off screen, send to
+      // it, read it back.
+      spawn: agent.spawn,
+      sendTo: agent.sendTo,
+      chatOf: agent.chatOf,
+      board: (show) => {
+        if (show === true) return openBoard();
+        if (show === false) return closeBoard();
+        return toggleBoard();
+      },
       exportChat,
       copyLastReply,
       dictate: dictation.toggle,
@@ -498,7 +517,7 @@ export default function App() {
       },
     };
     return () => { window.addAttachment = null; window.sendToAgent = null; window.connChat = null; };
-  }, [agent.send, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, closeCustomize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
+  }, [agent.send, agent.sendTo, agent.spawn, agent.chatOf, agent.open, agent.reset, agent.clear, agent.removeChat, agent.renameChat, customize, closeCustomize, openUsage, showChat, dictation.toggle, exportChat, copyLastReply]);
 
   // Escape also stops the turn when focus is nowhere or in the transcript.
   // Customize hides the chat, and its own Escape only runs with focus inside
@@ -683,6 +702,7 @@ export default function App() {
         <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
         <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
         <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
+        <PipelineDialog />
         <CustomizePage
           section={customizeAt}
           onSection={setCustomizeAt}
@@ -693,6 +713,18 @@ export default function App() {
           reset={reset}
           agent={agent}
           updates={updates} />
+      </>
+    );
+  }
+
+  if (boardOpen) {
+    return (
+      <>
+        <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
+        <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
+        <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
+        <PipelineDialog />
+        <BoardPage />
       </>
     );
   }
@@ -723,6 +755,7 @@ export default function App() {
       <RestartDialog updates={updates} busy={anyTurnRunning} open={restartOpen} onDismiss={dismissRestart} />
       <WhatsNewDialog release={whatsNew} onDismiss={dismissWhatsNew} />
       <UsagePage providers={agent.providers} open={usageOpen} onClose={closeUsage} />
+      <PipelineDialog />
       <div className="flex h-[38px] flex-none items-center border-b border-border/60 px-4 text-sm text-foreground/90">
         <span className="truncate">{agent.title}</span>
         {agent.busy && <TurnClock since={agent.startedAt} />}
@@ -795,6 +828,11 @@ export default function App() {
       <FleetStrip
         shells={agent.running.filter((a) => a.kind !== 'agent')}
         onShow={(a) => document.getElementById(`row-${a.id}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' })} />
+
+      <HandBackStrip
+        items={agent.chats.find((c) => c.key === agent.activeKey)?.items}
+        busy={agent.busy}
+        onContinue={() => agent.send(CARRY_ON)} />
 
       <NextSteps steps={shownSteps} onPick={takeStep} />
 

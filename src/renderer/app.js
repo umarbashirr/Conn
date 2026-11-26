@@ -686,11 +686,19 @@ function hideRight() {
    the meantime, to sign in or update, is one you are watching, so it stays. */
 let beforeFullPage = null;
 
-export function enterFullPage() {
-  if (beforeFullPage) return;
-  beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen };
-  setPreviewFull(false);
-  setLayout({ railOpen: false, rightOpen: false });
+// keepRail is the Board's: it takes the chat's place and the right column's
+// room, and leaves the rail, which is how you get back to one folder.
+// With the rail left up, showing or hiding it is yours, and leaving the page
+// keeps what you chose rather than putting back what it was on the way in.
+export function enterFullPage({ keepRail = false } = {}) {
+  if (!beforeFullPage) {
+    beforeFullPage = { railOpen: state.railOpen, rightOpen: state.rightOpen, keepRail };
+    setPreviewFull(false);
+  } else if (beforeFullPage.keepRail && !keepRail) {
+    beforeFullPage.railOpen = state.railOpen;
+  }
+  beforeFullPage.keepRail = keepRail;
+  setLayout({ railOpen: keepRail ? state.railOpen : false, rightOpen: false });
   syncRight();
 }
 
@@ -698,7 +706,7 @@ export function leaveFullPage() {
   const was = beforeFullPage;
   if (!was) return;
   beforeFullPage = null;
-  setLayout({ railOpen: was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
+  setLayout({ railOpen: was.keepRail ? state.railOpen : was.railOpen, rightOpen: was.rightOpen || state.rightOpen });
   syncRight();
   requestAnimationFrame(() => { syncBounds(); resizeActive(); });
 }
@@ -802,6 +810,11 @@ export function runCommand(name, arg) {
     // the way the settings dialog does.
     case 'palette': return window.connPalette?.toggle();
     case 'usage': return window.connChat?.usage?.();
+    case 'runPipeline': return window.connPipelines?.open();
+    case 'board':
+      if (arg === true) return window.connChat?.board?.(true);
+      if (arg === false) return window.connChat?.board?.(false);
+      return window.connChat?.board?.();
     case 'previewFull':
       if (arg === true || arg === false) return setPreviewFull(arg);
       return setPreviewFull();
