@@ -228,8 +228,8 @@ function carriedEntries(block) {
 }
 
 // A call still running when the chat was handed over has no result to show,
-// which is not the same as having failed.
-const TOOL_STATE = { failed: 'output-error' };
+// which is neither failed nor finished: it has a state of its own.
+const TOOL_STATE = { failed: 'output-error', running: 'handed-over' };
 const parsed = (s) => {
   try { return JSON.parse(s); } catch { return s; }
 };
