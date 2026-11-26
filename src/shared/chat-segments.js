@@ -78,7 +78,9 @@ function collapseRows(rows, records) {
       hidden.add(s.session);
       at = Math.max(at, other.at || 0);
     }
-    heads.set(head, { ...row, at, segments: segs });
+    // The agent the chat is on now, which is the last segment's, for what
+    // draws the chat by who is running it.
+    heads.set(head, { ...row, at, segments: segs, agent: segs[segs.length - 1].provider });
   }
   return rows
     .filter((r) => !hidden.has(r.id))

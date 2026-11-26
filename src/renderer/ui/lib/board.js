@@ -92,7 +92,9 @@ export function cardsFromRail(groups, { isDone = () => false } = {}) {
         session: row.key && row.id === row.key ? null : row.id,
         title: row.title || 'Untitled chat',
         project: row.project || g.dir,
-        provider: row.provider || null,
+        // Drawn by the agent it is on now, which for a chat that changed agent
+        // is not the one its first session ran on.
+        provider: row.agent || row.provider || null,
         at: row.at || 0,
         busy: !!row.busy,
         waiting: !!row.waiting,
