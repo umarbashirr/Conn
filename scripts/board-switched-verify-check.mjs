@@ -21,7 +21,14 @@ const FOLLOWER = 'bbbbbbbb-0000-4000-8000-000000000002';
 // The rail's row for a chat that went Codex -> Claude: one row under its first
 // session, with the run of sessions on it (collapseRows in shared/chat-segments).
 const segments = [{ provider: 'codex', session: HEAD }, { provider: 'claude', session: FOLLOWER }];
-const groups = [{ dir: '/work/shop', rows: [{ id: HEAD, title: 'Fix login', provider: 'codex', at: now - 1000, segments }] }];
+// Built the way main builds it, so the row carries whatever collapseRows adds.
+const { createRequire } = await import('node:module');
+const { collapseRows } = createRequire(import.meta.url)('../src/shared/chat-segments.js');
+const listed = [
+  { id: HEAD, title: 'Fix login', provider: 'codex', at: now - 2000 },
+  { id: FOLLOWER, title: 'later message', provider: 'claude', at: now - 1000 },
+];
+const groups = [{ dir: '/work/shop', rows: collapseRows(listed, { [HEAD]: segments }) }];
 
 check('a switched chat is one card', () => {
   assert.equal(cardsFromRail(groups).length, 1);

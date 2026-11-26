@@ -22,7 +22,7 @@ import path from 'node:path';
 
 const GATE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'hv-gate-')), 'allow-delete');
 process.env.STUB_ACP_DELETE_GATE = GATE;
-const { drive, safeBoot, watchNet, cleanupShims, providerAddresses } = await import('./handoff-harness.mjs');
+const { drive, safeBoot, watchNet, cleanupShims, providerAddresses, assertSafeEnv } = await import('./handoff-harness.mjs');
 const { spawn } = await import('node:child_process');
 const { fileURLToPath } = await import('node:url');
 const { createRequire } = await import('node:module');
@@ -51,6 +51,9 @@ const until = async (fn, ms = 30000) => {
 };
 
 const log = path.join(os.tmpdir(), `fake-responses-${process.pid}.jsonl`);
+const FAIL_ONCE = path.join(path.dirname(GATE), 'failed-once');
+// Inherited rather than passed: an env passed to a spawn is checked for a throwaway HOME.
+process.env.FAKE_FAIL_ONCE = FAIL_ONCE;
 const api = spawn(process.execPath, [path.join(ROOT, 'scripts/fake-responses-api.mjs'), log], { stdio: ['ignore', 'pipe', 'inherit'] });
 const port = await new Promise((resolve) => api.stdout.on('data', (d) => { const m = /port (\d+)/.exec(String(d)); if (m) resolve(Number(m[1])); }));
 const s = await safeBoot({ codexPort: port });
@@ -128,6 +131,7 @@ async function gate() {
 }
 
 try {
+  await main("(() => { const h = electron.ipcMain._invokeHandlers; const send = h.get('agent:send'); h.set('agent:send', (e, a) => { globalThis.__lastChat = a.chat; return send(e, a); }); globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const orig = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ provider: this.provider, text: String(text) }); return orig.call(this, text, images); }; } return 1; })()");
   await click(s, 'Later').catch(() => {});
   if (only('P')) {
     // ---- P: the phone ------------------------------------------------------
@@ -163,6 +167,18 @@ try {
     note('gate answer when the window does not have the chat', bad);
     check('P: a send the window does not take is an error, not a silent ok', !!bad?.error, bad);
     g.close();
+    // The window's side directly: the same phone send id handed over twice.
+    await pick('claude');
+    await main(`(() => { globalThis.__taken = []; if (!globalThis.__tapped) { globalThis.__tapped = true; electron.ipcMain.on('agent:phoneTurnTaken', (_e, a) => globalThis.__taken.push(a)); } return 1; })()`);
+    const before2 = (await main("JSON.stringify(globalThis.__sends || [])").then(JSON.parse)).length;
+    const k = await main(`(() => { return globalThis.__lastChat || null; })()`);
+    const twice = `(() => { const w = electron.BrowserWindow.getAllWindows().find((x) => /index\\.html/.test(x.webContents.getURL())); for (const id of ['r1', 'r2']) w.webContents.send('agent:phoneTurn', { id, turnId: 'dup-turn-1', chat: ${JSON.stringify(k)}, text: 'ph DUP sent twice', images: [] }); return 1; })()`;
+    await main(twice);
+    await sleep(8000);
+    const taken = await main('JSON.stringify(globalThis.__taken)').then(JSON.parse);
+    const sentDup = (await main("JSON.stringify(globalThis.__sends || [])").then(JSON.parse)).slice(before2).filter((x) => x.text.endsWith('ph DUP sent twice'));
+    note('acks for the two hand-overs', taken);
+    check('P: a phone send id the window already took is acked and not sent again', taken.length === 2 && taken.every((x) => x.ok) && sentDup.length === 1, { taken, sent: sentDup.length });
     await shot(s, path.join(SHOTS, 'P-phone.png'));
   }
 } catch (e) {
@@ -219,7 +235,10 @@ try {
     await shot(s, path.join(SHOTS, 'H-hidden-chats.png'), { preview: false });
     const date = new Date().toLocaleDateString('en-US');
     check('H: the Copilot part is listed under its chat\'s title with agent, folder and date', /hid ALPHA[\s\S]*Copilot · shop · /.test(list), list);
-    check('H: both kept parts of the two-agent chat are listed', (list.match(/both ALPHA/g) || []).length === 2 && /Cursor · shop/.test(list), list);
+    // Both kept parts are one hidden chat: one row naming both agents.
+    const bothRow = await page("(() => { const leaf = [...document.querySelectorAll('*')].find((e) => e.children.length === 0 && e.textContent.trim() === 'both ALPHA'); let el = leaf; while (el && !el.querySelector('button')) el = el.parentElement; return el ? el.innerText : null; })()");
+    note('the two-agent chat\'s hidden row', bothRow);
+    check('H: the two-agent chat is one hidden row naming both agents', !!bothRow && /(Copilot and Cursor|Cursor and Copilot) · shop/.test(bothRow) && (list.match(/both ALPHA/g) || []).length === 1, { bothRow });
     void date;
 
     // Try deleting again: refused, then allowed.
@@ -257,10 +276,64 @@ try {
     note('rail after Show again on both parts', back);
     const bothRows = back.filter((r) => /both /.test(r) || r === 'Copilot chat' || r === 'Cursor chat');
     check('H: Show again brings the two-agent chat back as one chat', bothRows.length === 1, back);
+    const bothTitle = bothRows[0];
+    if (bothTitle) {
+      await click(s, bothTitle);
+      await sleep(6000);
+      const shownBoth = await page("(document.querySelector('#agent-root') || document.body).innerText");
+      const pos = ['acp heard: both ALPHA', 'acp heard: both BRAVO'].map((w) => shownBoth.lastIndexOf(w));
+      check('H: the chat Show again brought back reads in order, both stretches', pos[0] >= 0 && pos[1] > pos[0] && /Copilot → Cursor/.test(shownBoth), { pos, text: shownBoth.slice(0, 300) });
+    }
     check('H: Show again brings back every kept part (none lost from the rail)', bothRows.length >= 1 && !Object.keys(conn('hidden-sessions.json')).length, { back, hidden: conn('hidden-sessions.json') });
   }
 } catch (e) {
   check('the H run finished', false, e.stack);
+}
+
+try {
+  if (only('S')) {
+    // ---- S: Show again on what is left of a Claude -> Copilot chat -----------
+    // Claude deletes its part; Copilot keeps its part, whose first message is
+    // the one that carried the handoff.
+    await newChat();
+    await toClaude();
+    await send('rem ALPHA');
+    await until(() => has('heard: rem ALPHA'));
+    await idle();
+    await pick('copilot');
+    await send('rem BRAVO');
+    await until(() => has('acp heard: rem BRAVO'), 60000);
+    await idle();
+    await sleep(2000);
+    await reload();
+    const before = await rows();
+    await deleteRow('rem ALPHA');
+    await click(s, 'Customize');
+    await sleep(1000);
+    await click(s, 'Chat');
+    await sleep(1500);
+    const leaves = "[...document.querySelectorAll('*')].filter((e) => e.children.length === 0 && e.textContent.trim() === 'rem ALPHA')";
+    const at = await page(`(() => { for (const leaf of ${leaves}) { let el = leaf; while (el && !el.querySelector('button')) el = el.parentElement; const b = el && [...el.querySelectorAll('button')].find((x) => x.innerText.trim() === 'Show again'); if (b) { b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return Math.round(r.x + r.width / 2) + ',' + Math.round(r.y + r.height / 2); } } return null; })()`);
+    check('S: the kept Copilot part is listed under its chat\'s title', !!at, 'no Show again button for rem ALPHA');
+    if (at) await click(s, `xy=${at}`);
+    await sleep(2500);
+    await key(s, 'Escape');
+    await reload();
+    const after = await rows();
+    note('rail before the delete / after Show again', { before, after });
+    const added = after.filter((r) => !before.includes(r) || r === 'rem ALPHA');
+    check('S: Show again puts the kept part back in the rail', added.length >= 1, { before, after });
+    if (added.length) {
+      await click(s, added[0]);
+      await sleep(5000);
+      const shown = await page("(document.querySelector('#agent-root') || document.body).innerText");
+      check('S: and it opens on what Copilot kept', shown.includes('acp heard: rem BRAVO'), shown.slice(0, 300));
+      note('S: the row it came back as', added[0]);
+    }
+    await shot(s, path.join(SHOTS, 'S-show-again-remnant.png'), { preview: false });
+  }
+} catch (e) {
+  check('the S run finished', false, e.stack);
 }
 
 try {
@@ -321,14 +394,20 @@ try {
 
 try {
   if (only('L')) {
-    // ---- L: a pipeline stage on a chat that was switched at its gate ---------
+    // ---- L: pipeline stages on a chat switched at its gate ---------------------
+    // plan (gate) on Claude; switched to ChatGPT at the gate; "more" continues
+    // it, fails once and is retried, and gates; a true restart; then "last"
+    // continues the same chat from disk.
     const pdir = path.join(s.home, '.conn', 'pipelines');
     fs.mkdirSync(pdir, { recursive: true });
     fs.writeFileSync(path.join(pdir, 'switchy.yml'), [
-      'name: Switchy', 'stages:', '  - id: plan', '    prompt: plan it now', '    gate: true',
-      '  - id: more', '    prompt: "carry on from {{plan}}"', '    same: plan', '',
+      'name: Switchy', 'stages:',
+      '  - id: plan', '    prompt: plan it now', '    provider: claude', '    gate: true',
+      '  - id: more', '    prompt: "fail-once-token carry on from {{plan}}"', '    same: plan', '    gate: true',
+      '  - id: last', '    prompt: last word after the restart', '    same: plan', '',
     ].join('\n'));
     const runCard = () => page(`(() => { const c = [...document.querySelectorAll('[data-slot="pipeline-run"]')].find((x) => x.getAttribute('aria-label') === 'Switchy run'); return c && { status: c.dataset.status, stages: Object.fromEntries([...c.querySelectorAll('[data-slot="pipeline-stage"]')].map((b) => [b.dataset.stage, b.dataset.status])) }; })()`);
+    const runFile = () => fs.readdirSync(path.join(s.home, '.conn', 'runs')).map((n) => JSON.parse(fs.readFileSync(path.join(s.home, '.conn', 'runs', n), 'utf8'))).find((r) => JSON.stringify(r).includes('Switchy'));
     await key(s, 'Ctrl+K');
     await type(s, 'Run pipeline');
     await key(s, 'Enter');
@@ -337,7 +416,7 @@ try {
     await sleep(500);
     await click(s, 'Start');
     const gated = await until(async () => { const r = await runCard(); return r?.status === 'waiting' && r; }, 60000);
-    note('run at the gate', gated);
+    note('run at the first gate', gated);
     await click(s, 'css=[data-slot="pipeline-stage"][data-stage="plan"]');
     await sleep(2500);
     await pick('codex');
@@ -347,30 +426,62 @@ try {
     await key(s, 'Ctrl+Shift+M');
     await sleep(1000);
     await click(s, 'css=[data-slot="pipeline-run"] [data-action="continue"]');
-    const done = await until(async () => { const r = await runCard(); return r?.stages.more === 'done' && r; }, 60000);
-    note('run after the same: stage', done || await runCard());
-    await sleep(1500);
-    const runs = fs.readdirSync(path.join(s.home, '.conn', 'runs')).map((n) => JSON.parse(fs.readFileSync(path.join(s.home, '.conn', 'runs', n), 'utf8')));
-    const run = runs.find((r) => JSON.stringify(r).includes('Switchy'));
+    const failed = await until(async () => { const r = await runCard(); return r?.status === 'failed' && r; }, 60000);
+    note('run after the first try of "more"', failed || await runCard());
+    check('L: the stage on the switched chat fails once (the stand-in refuses it)', !!failed && failed.stages.more === 'failed', failed || await runCard());
+    await click(s, 'css=[data-slot="pipeline-run"] [data-action="retry"]');
+    const regated = await until(async () => { const r = await runCard(); return r?.status === 'waiting' && r.stages.more !== 'failed' && r; }, 60000);
+    note('run after Retry', regated || await runCard());
+    check('L: Retry sends the stage again, on the agent the chat is on now', !!regated && codexUsers().some((u) => u.includes('fail-once-token')) && fs.existsSync(FAIL_ONCE), regated || await runCard());
     const recs = conn('chat-segments.json');
-    const head = Object.keys(recs).find((h) => recs[h].some((x) => x.provider === 'codex'));
-    note('stage sessions on disk', run?.stages?.map((x) => [x.id, x.session]));
+    const run1 = runFile();
+    const planSession = run1?.stages?.[0]?.session;
+    const head = Object.keys(recs).find((h) => h === planSession || recs[h].some((x) => x.session === planSession));
+    note('stage sessions on disk', run1?.stages?.map((x) => [x.id, x.session]));
     note('the plan chat\'s record', recs[head]);
-    const followerIds = new Set((recs[head] || []).slice(1).map((x) => x.session));
-    check('L: a stage on a switched chat is saved under the chat\'s first session, not a later one', !(run?.stages || []).some((x) => followerIds.has(x.session) && x.session !== head), run?.stages?.map((x) => [x.id, x.session]));
+    check('L: the plan stage really ran on Claude and the chat moved to ChatGPT', !!head && recs[head]?.[0]?.provider === 'claude' && recs[head].some((x) => x.provider === 'codex'), recs[head]);
+    check('L: every stage that ran is saved under the chat\'s first session', !!head && (run1?.stages || []).filter((x) => x.session).every((x) => x.session === head), run1?.stages?.map((x) => [x.id, x.session]));
     await shot(s, path.join(SHOTS, 'L-pipeline.png'), { preview: false });
-    // After a reload the stage's chat is only on disk: open it from its chip.
+
     await reload();
     await click(s, 'Later').catch(() => {});
     await key(s, 'Ctrl+Shift+M');
     await sleep(1500);
     await click(s, 'css=[data-slot="pipeline-stage"][data-stage="more"]');
-    await sleep(1500);
+    await sleep(4000);
     const t3 = await toasts();
     const shown = await page("(document.querySelector('#agent-root') || document.body).innerText");
-    note('opening the "more" stage after a reload: toasts', t3);
-    check('L: the same: stage on a switched chat opens after a reload, whole', !t3.some((x) => /Could not open/.test(x)) && shown.includes('codex heard: pl talk it over on chatgpt') && shown.includes('plan it now'), { t3, shown: shown.slice(0, 300) });
-    await shot(s, path.join(SHOTS, 'L-open-stage-after-reload.png'), { preview: false });
+    check('L: the same: stage opens after a reload, whole', !t3.some((x) => /Could not open/.test(x)) && shown.includes('codex heard: pl talk it over on chatgpt') && shown.includes('plan it now'), { t3, shown: shown.slice(0, 300) });
+
+    // A true restart, then Continue: "last" takes up the plan chat from disk.
+    const beforeRec = conn('chat-segments.json')[head];
+    await restart(s);
+    await click(s, 'Later').catch(() => {});
+    await key(s, 'Ctrl+Shift+M');
+    await sleep(2000);
+    const afterRestart = await runCard();
+    note('run after the restart', afterRestart);
+    const codexBefore = codexUsers().length;
+    await click(s, 'css=[data-slot="pipeline-run"] [data-action="continue"]');
+    const finished = await until(async () => { const r = await runCard(); return r?.stages.last === 'done' && r; }, 90000);
+    note('run after Continue past the restart', finished || await runCard());
+    const lastSent = codexUsers().slice(codexBefore);
+    note('what Codex got after the restart', lastSent.map((x) => x.slice(-80)));
+    check('L: after a restart, a same: stage continues the switched chat on the agent it is on now', !!finished && lastSent.some((x) => x.endsWith('last word after the restart')), { finished, lastSent: lastSent.map((x) => x.slice(-60)) });
+    await sleep(2000);
+    const afterRec = conn('chat-segments.json')[head];
+    note('record after the restart stage', afterRec);
+    check('L: and the chat\'s record keeps every stretch it had', !!afterRec && beforeRec.every((x) => afterRec.some((y) => y.session === x.session && y.provider === x.provider)), { beforeRec, afterRec });
+    const run2 = runFile();
+    check('L: every stage is still saved under the chat\'s first session', (run2?.stages || []).filter((x) => x.session).every((x) => x.session === head), run2?.stages?.map((x) => [x.id, x.session]));
+    await click(s, 'css=[data-slot="pipeline-stage"][data-stage="last"]');
+    await sleep(5000);
+    const whole = await page("(document.querySelector('#agent-root') || document.body).innerText");
+    const at = ['plan it now', 'codex heard: pl talk it over on chatgpt', 'last word after the restart'].map((w) => whole.lastIndexOf(w));
+    check('L: the stage chat opens whole and in order after the restart', at.every((x, i) => x >= 0 && (i === 0 || x > at[i - 1])), { at, text: whole.slice(0, 400) });
+    const r = await rows();
+    check('L: the stage chat is one row', r.filter((x) => /Switchy/.test(x)).length === 1, r);
+    await shot(s, path.join(SHOTS, 'L-after-restart.png'), { preview: false });
   }
 } catch (e) {
   check('the L run finished', false, e.stack);
@@ -411,6 +522,38 @@ try {
   fs.rmSync(log, { force: true });
   fs.rmSync(path.dirname(GATE), { recursive: true, force: true });
   cleanupShims();
+}
+
+async function restart(sess) {
+  const pid = Number(await main('process.pid'));
+  const env = JSON.parse(await main('JSON.stringify(process.env)'));
+  assertSafeEnv(env, 'app');
+  await main('setTimeout(() => electron.app.quit(), 100), 1').catch(() => {});
+  await until(async () => !fs.existsSync(`/proc/${pid}`), 30000);
+  await sleep(1500);
+  const electron = createRequire(path.join(ROOT, 'package.json'))('electron');
+  const args = ['--inspect=0', ROOT, '--remote-debugging-port=0', `--user-data-dir=${sess.userData}`, '--no-sandbox',
+    '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'];
+  const logFile = path.join(sess.dir, 'app.log');
+  fs.rmSync(path.join(sess.userData, 'DevToolsActivePort'), { force: true });
+  const out = fs.openSync(logFile, 'a');
+  const startLen = fs.statSync(logFile).size;
+  delete env.XAUTHORITY;
+  delete env.DISPLAY;
+  const child = spawn('xvfb-run', ['-a', '-s', '-screen 0 1600x1000x24', electron, ...args], { detached: true, stdio: ['ignore', out, out], env });
+  child.unref();
+  const tail = () => fs.readFileSync(logFile, 'utf8').slice(startLen);
+  sess.inspect = Number(await until(async () => /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(tail())?.[1], 30000));
+  sess.cdp = Number(await until(async () => fs.readFileSync(path.join(sess.userData, 'DevToolsActivePort'), 'utf8').split('\n')[0], 30000));
+  sess.pid = child.pid;
+  fs.writeFileSync(path.join(sess.dir, 'session.json'), JSON.stringify(sess));
+  await until(() => page('!!window.connChat'), 45000);
+  await main("(() => { const win = () => electron.BrowserWindow.getAllWindows().find((w) => /index\\.html/.test(w.webContents.getURL())); globalThis.__decided = []; globalThis.__bounds = []; globalThis.__floatBox = () => null; globalThis.__floatFocused = () => false; globalThis.__focusView = () => win()?.webContents.focus(); return 1; })()");
+  await main('electron.BrowserWindow.getAllWindows()[0].setContentSize(1440, 900)');
+  // Same shims as boot: the codex history server and the padded Claude list.
+  await main("(() => { req('./codex-history').close(); const { Driver } = req('./driver'); const orig = Driver.prototype.current; Driver.prototype.current = function (o) { const r = orig.call(this, o); return r.models.length ? r : { ...r, models: [{ value: 'claude-opus-5-5', displayName: 'Opus 5.5 (stand-in)' }] }; }; return 1; })()");
+  await sleep(6000);
+  console.log(`restarted pid=${child.pid}`);
 }
 
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nall passed');
