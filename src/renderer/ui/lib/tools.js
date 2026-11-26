@@ -82,6 +82,17 @@ const DONE = {
 
 const IN_FLIGHT = new Set(['input-available', 'input-streaming']);
 
+// conn_thread_read's row: how many of this chat's earlier items came back.
+export function threadReadTitle(state, output) {
+  if (IN_FLIGHT.has(state)) return 'Reading earlier items';
+  if (state === 'output-error') return 'Read earlier items';
+  const text = toolText(output);
+  const m = /^(\d+) of this chat's \d+ items/.exec(text || '');
+  if (!m) return 'Read earlier items';
+  const n = Number(m[1]);
+  return `Read ${n} earlier ${n === 1 ? 'item' : 'items'}`;
+}
+
 // The word a row leads with. Browser tools are named by what they are, not by
 // a verb, so they never take one. A failed call keeps its name too: "Ran" or
 // "Edited" in red would claim the work happened.

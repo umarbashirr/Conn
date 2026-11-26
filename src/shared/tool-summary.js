@@ -23,6 +23,10 @@ const SUMMARY = {
   WebSearch: (i) => i.query,
   Agent: (i) => i.description,
   Task: (i) => i.description,
+  // Which earlier items of this chat it asked for.
+  conn_thread_read: (i) => (Array.isArray(i.ids) && i.ids.length ? i.ids.join(', ')
+    : i.query ? `"${i.query}"${i.before ? ` before ${i.before}` : ''}`
+      : i.around ? `around ${i.around}` : i.before ? `before ${i.before}` : 'the latest'),
   Skill: (i) => i.skill,
   ExitPlanMode: nothing,
   browser_navigate: (i) => bareUrl(i.url),
@@ -84,7 +88,7 @@ function toolLabel(name) {
   return BROWSER_BY_ROUTE.get(bare.slice('browser_'.length)) ?? bare;
 }
 
-const NAMES = new Map([['ExitPlanMode', 'Proposed plan']]);
+const NAMES = new Map([['ExitPlanMode', 'Proposed plan'], ['conn_thread_read', 'Read earlier items']]);
 
 // What a person calls it: "Screenshot", not browser_screenshot.
 const toolName = (label) =>
