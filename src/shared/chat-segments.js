@@ -238,7 +238,12 @@ function cutFor(items, segments) {
   for (let j = 0; j < k; j++) {
     if (segments[j].session !== session) continue;
     const end = segments[j + 1].from;
-    for (let i = segments[j].from; i < end; i++) if (items[i]?.kind === 'handoff') n += 1;
+    // A fork's first stretch starts with what it copied from the chat it was
+    // forked from, handoff rows included, and none of those is in the fork's
+    // own transcript: that starts at the fork's own row.
+    let start = segments[j].from;
+    for (let i = end - 1; i >= start; i--) if (items[i]?.kind === 'handoff' && items[i].fork) { start = i; break; }
+    for (let i = start; i < end; i++) if (items[i]?.kind === 'handoff') n += 1;
   }
   return n;
 }
