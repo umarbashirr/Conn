@@ -205,6 +205,16 @@ await check('a handoff reads every message as stored, not the lighter window a c
   write(C, [line('user', 'a different chat about PAYMENTS'), said('ok')]);
 });
 
+await check('the row counts what came back whichever way the agent hands the result over', async () => {
+  await import('./renderer-esm.mjs');
+  const { threadReadTitle } = await import('../src/renderer/ui/lib/tools.js');
+  const text = "2 of this chat's 9 items, oldest first.";
+  assert.equal(threadReadTitle('output-available', text), 'Read 2 earlier items', 'claude, as text');
+  assert.equal(threadReadTitle('output-available', [{ type: 'text', text }]), 'Read 2 earlier items', 'claude, as blocks');
+  assert.equal(threadReadTitle('output-available', { content: [{ type: 'text', text: "1 of this chat's 9 items, oldest first." }] }), 'Read 1 earlier item', 'codex, as the MCP result');
+  assert.equal(threadReadTitle('input-available', null), 'Reading earlier items');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nthread-read-check: all passed');
 process.exit(failures.length ? 1 : 0);

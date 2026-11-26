@@ -86,7 +86,9 @@ const IN_FLIGHT = new Set(['input-available', 'input-streaming']);
 export function threadReadTitle(state, output) {
   if (IN_FLIGHT.has(state)) return 'Reading earlier items';
   if (state === 'output-error') return 'Read earlier items';
-  const text = toolText(output);
+  // Claude hands the result over as text or blocks; codex as the MCP result
+  // itself, { content: [blocks] }.
+  const text = toolText(Array.isArray(output?.content) ? output.content : output);
   const m = /^(\d+) of this chat's \d+ items/.exec(text || '');
   if (!m) return 'Read earlier items';
   const n = Number(m[1]);
