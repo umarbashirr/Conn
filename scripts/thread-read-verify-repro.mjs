@@ -253,6 +253,24 @@ try {
   check('S: carried or quoted history is not returned as an ordinary turn: handoff text never appears in an answer', !/<conn-handoff/.test(after), after.slice(0, 300));
   note('S: how an answer starts', after.split('\n').slice(0, 2));
 
+  // ---- M: the first turn after a switch, again and again ---------------------
+  // Each switch back to ChatGPT starts codex and its MCP servers afresh; the
+  // read rides on that first turn, the one the handoff travels with.
+  let misses = 0;
+  const firsts = Number(process.env.FIRST_TURNS || 3);
+  for (let i = 0; i < firsts; i++) {
+    await pick('codex');
+    const o = await codexRead({ ids: ['h2'] });
+    const miss = /is not a function/.test(o);
+    if (miss) misses += 1;
+    note(`M: first turn ${i + 1} after a switch to ChatGPT`, miss ? 'tool missing' : itemText(o, 'h2'));
+    await pick('claude');
+    await send(`back on claude ${i}`);
+    await until(() => has(`heard: back on claude ${i}`), 60000);
+    await idle();
+  }
+  check(`M: the tool is there on the first turn after a switch, ${firsts} times out of ${firsts}`, misses === 0, { misses, firsts });
+
   // ---- F: forks name no tool; the stub Copilot does --------------------------
   await click(s, `xy=${await trigger()}`);
   await sleep(400);
