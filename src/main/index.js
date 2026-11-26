@@ -30,6 +30,7 @@ const canvasIds = require('./canvas-ids');
 const chatSegments = require('./chat-segments');
 const hiddenSessions = require('./hidden-sessions');
 const { deleteChat } = require('./delete-chat');
+const { hideParts, showAgain, afterRetry } = require('./hidden-chats');
 const { createStitchCache } = require('./stitch-cache');
 const { createRelay } = require('./window-relay');
 const { cleanSegments, collapseRows, foldHits, followers, persistable, recordOf, stitch } = require('../shared/chat-segments');
@@ -2610,10 +2611,13 @@ function registerIpc() {
       const deleted = removed.map(agentOf);
       const kept = left.map((l) => ({ ...l, provider: l.provider || agentOf(l.session) }));
       removed.forEach(forgetMarks);
-      for (const l of kept) {
-        hiddenSessions.set(l.session, { provider: l.provider, project: dir, title, at: sessionAt.get(l.session) || null, hiddenAt: Date.now() });
-        forgetMarks(l.session);
-      }
+      // Hidden together, as the chat they were, so Show again gives back one
+      // chat. The record itself goes: it would name sessions that are gone.
+      hideParts({
+        hidden: hiddenSessions, head: id, segments: segs, left: kept,
+        meta: { project: dir, title, atOf: (session) => sessionAt.get(session) || null },
+      });
+      kept.forEach((l) => forgetMarks(l.session));
       chatSegments.forget(id);
       // A chat forked onto another model carries the board of the one it came
       // from, and that one is still there to draw on.
@@ -2637,23 +2641,28 @@ function registerIpc() {
   // Settings › Hidden chats: what a delete left on disk, to show again or to
   // try deleting again once its agent can.
   ipcMain.handle('agent:hidden', () => hiddenSessions.list());
-  ipcMain.handle('agent:unhide', (_e, { session } = {}) => {
-    // Its chat's record went with the delete, so it comes back as a chat of its own.
-    return { ok: hiddenSessions.forget(session) };
-  });
+  // Every hidden part of the chat comes back, joined again into one chat.
+  ipcMain.handle('agent:unhide', (_e, { session } = {}) => showAgain({ hidden: hiddenSessions, records: chatSegments, session }));
+  // Each hidden part of the chat is asked once more; what still will not go
+  // stays hidden, as what is left of that chat.
   ipcMain.handle('agent:deleteHidden', async (_e, { session } = {}) => {
-    const entry = hiddenSessions.get(session);
-    if (!entry) return { error: 'That chat is not hidden.' };
-    const p = entry === true ? owners.get(session) : entry.provider;
-    const dir = (entry !== true && entry.project) || focusedCwd();
-    try {
-      await ((isProviderId(p) && rowOf(p)?.history) || ownerOf(session)).deleteSession(dir, session);
-    } catch (e) {
-      return { error: e.message };
+    const parts = hiddenSessions.group(session);
+    if (!parts.length) return { error: 'That chat is not hidden.' };
+    const removed = [];
+    let error = null;
+    for (const part of parts) {
+      const p = part.provider || owners.get(part.session);
+      const dir = part.project || focusedCwd();
+      try {
+        await ((isProviderId(p) && rowOf(p)?.history) || ownerOf(part.session)).deleteSession(dir, part.session);
+        removed.push(part.session);
+        owners.delete(part.session);
+      } catch (e) {
+        error = error || e.message;
+      }
     }
-    hiddenSessions.forget(session);
-    owners.delete(session);
-    return { ok: true };
+    const { left } = afterRetry({ hidden: hiddenSessions, session, removed });
+    return left.length ? { error } : { ok: true };
   });
   ipcMain.on('agent:active', (_e, { chat, session } = {}) => {
     activeChat = { chat: chat || 'main', session: session || null };
