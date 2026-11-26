@@ -13,6 +13,7 @@ const { spawn } = require('child_process');
 const state = require('../../cli/state');
 const { launchSpec, killTree } = require('./launch');
 const shellEnv = require('./shell-env');
+const { cleanSegments } = require('../shared/chat-segments');
 
 // A window that does not answer in this long is skipped for this round rather
 // than holding up the rest.
@@ -73,6 +74,10 @@ function cleanCard(c) {
   if (activity) out.activity = activity;
   const pipeline = cleanPipeline(c.pipeline);
   if (pipeline) out.pipeline = pipeline;
+  // A chat that changed agent: its sessions, so every window holds all of them
+  // and none comes back as an outside card.
+  const segments = cleanSegments(c.segments);
+  if (segments) out.segments = segments.map(({ provider, session }) => ({ provider, session }));
   return out;
 }
 
