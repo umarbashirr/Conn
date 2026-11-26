@@ -37,7 +37,7 @@ const { createThreadReader } = require('./thread-read');
 const { THREAD_ROUTE } = require('./bridge');
 const { cleanSegments, collapseRows, foldHits, followers, persistable, recordOf, stitch } = require('../shared/chat-segments');
 const { mayApplyModel } = require('../shared/model-pick');
-const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
+const { carriesHandoff, unwrapHandoff, wrapMessage } = require('../shared/handoff');
 const { CANVAS_ID, CANVAS_DIR, boardDir } = require('../shared/canvas');
 const attachments = require('./attachments');
 const dictation = require('./dictation');
@@ -1750,7 +1750,27 @@ const phoneRelay = createRelay({
   },
 });
 
-async function deliverTurn({ chat, text, images, project, session, provider, from, nonce }) {
+/* A handoff as the window sends it with a message: its text, the same as
+   thread items for an agent that takes them, and for a chat the agent was in
+   before, the whole chat as text. Anything else is no handoff. */
+const HANDOFF_BYTES = 8 << 20;
+function handoffOf(h) {
+  if (!h || typeof h.text !== 'string' || !h.text || h.text.length > HANDOFF_BYTES) return null;
+  const items = Array.isArray(h.items) && h.items.every((it) => it && typeof it === 'object' && it.type === 'message') ? h.items : null;
+  const whole = typeof h.whole === 'string' && h.whole && h.whole.length <= HANDOFF_BYTES ? h.whole : null;
+  return { text: h.text, items, whole };
+}
+
+/* A message with a handoff. An agent that can take it as thread items says
+   how it went (see CodexSession.sendHandoff); every other one is handed the
+   text in front of the message, as before. */
+async function sendWithHandoff(agent, text, images, handoff) {
+  if (typeof agent.sendHandoff === 'function') return { forkAt: null, how: await agent.sendHandoff(text, images, handoff) };
+  return { forkAt: agent.send(wrapMessage(handoff.text, text), images), how: { delivery: 'inline' } };
+}
+
+async function deliverTurn({ chat, text, images, project, session, provider, from, nonce, handoff: rawHandoff }) {
+  const handoff = handoffOf(rawHandoff);
   try {
     const phone = from === 'phone';
     // The handoff such a chat owes its next message lives in the window, so a
@@ -1782,7 +1802,11 @@ async function deliverTurn({ chat, text, images, project, session, provider, fro
       project,
       provider,
     });
-    const forkAt = agent.send(text, images);
+    const { forkAt, how } = handoff ? await sendWithHandoff(agent, text, images, handoff) : { forkAt: agent.send(text, images), how: null };
+    // No new thread could be had for a handoff whose inject went unanswered:
+    // the session is gone, and the window carries the whole chat next time.
+    if (how?.lost) return { error: 'codex stopped while the chat was being handed to it', lost: true };
+    if (handoff && !how?.delivery) return { error: 'the message never reached the agent' };
     const echo = { text, chat: target, project: cwdOfChat(target), id: `echo:${Date.now()}`, ...(forkAt && { forkAt }) };
     if (phone) {
       // The window shows the phone's prompt only in a tab it already has.
@@ -1790,7 +1814,12 @@ async function deliverTurn({ chat, text, images, project, session, provider, fro
     } else {
       mobileGate.publish('agent:echo', forPhone(echo));
     }
-    return { ok: true, sessionId: agent.sessionId || null, ...(forkAt && { forkAt }) };
+    return {
+      ok: true,
+      sessionId: agent.sessionId || null,
+      ...(forkAt && { forkAt }),
+      ...(how?.delivery && { delivery: how.delivery, ...(how.whole && { whole: true }) }),
+    };
   } catch (err) {
     return { error: err.message };
   }
@@ -1983,13 +2012,14 @@ function registerIpc() {
   // `session` is what the chat was last known as. A chat parked while idle has
   // no session under it any more, so the first message back resumes that
   // transcript rather than opening a second one beside it.
-  ipcMain.handle('agent:send', (_e, { chat, session, text, images, project, provider: on }) => deliverTurn({
+  ipcMain.handle('agent:send', (_e, { chat, session, text, images, project, provider: on, handoff }) => deliverTurn({
     chat,
     text,
     images,
     project,
     session,
     provider: on,
+    handoff,
   }));
   ipcMain.handle('agent:rewind-files', async (_e, { chat, session, uuid, project, provider: on, dryRun } = {}) => {
     const live = sessions.get(chat);

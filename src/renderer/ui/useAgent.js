@@ -17,7 +17,8 @@ import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, storedContext, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
-import { buildHandoff, labelOf, windowFor, wrapMessage } from '../../shared/handoff';
+import { buildHandoff, handoffItems, labelOf, windowFor } from '../../shared/handoff';
+import { owedAfter, rowDelivered } from '../../shared/handoff-delivery';
 import { readThread, replay, replayStored } from '../../shared/replay';
 import { NAME as THREAD_TOOL } from '../../shared/thread-tool';
 import { cutFor, headOf, persistable, providerAt, switchChat, withSession } from '../../shared/chat-segments';
@@ -104,6 +105,13 @@ function before(items, id, uuids) {
   }).map((it) => (it.forkAt ? { ...it, forkAt: uuids[it.forkAt] } : it));
 }
 
+// The chat with no session for its newest stretch, so the next message starts
+// one rather than resuming the thread it was on.
+const withoutSession = (c) => ({
+  session: null,
+  ...(c.segments?.length && { segments: c.segments.map((x, i) => (i === c.segments.length - 1 ? { ...x, session: null, cut: 0 } : x)) }),
+});
+
 // The segments with the newest one's start counted off the chat's items.
 const recut = (c) => c.segments.map((x, i) => (i === c.segments.length - 1 ? { ...x, cut: cutFor(c.items, c.segments) } : x));
 
@@ -129,9 +137,10 @@ function widened(c, fresh, span, session) {
    the ones conn_thread_read finds again later, and `reader` that tool's name
    when the agent the chat goes to has it. Without a thread the handoff is
    built from the window's own items, whose ids nothing could read back, so it
-   names no tool. */
-function handoffFor(chat, text, images = [], { thread = null, reader = null } = {}) {
-  const h = chat.handoff;
+   names no tool. `whole` builds it as though the agent had never been in the
+   chat, for a thread that turns out to hold none of it. */
+function handoffFor(chat, text, images = [], { thread = null, reader = null, whole = false } = {}) {
+  const h = whole ? { ...chat.handoff, since: 0, used: 0 } : chat.handoff;
   // The row's own name for the model goes in the header, so the row reads the
   // same after a reopen as it does now.
   const row = chat.items.find((it) => it.id === h.marker);
@@ -1069,6 +1078,9 @@ export function useAgent() {
     }
     const reader = providersRef.current.find((p) => p.id === chat.provider)?.threadRead ? THREAD_TOOL : null;
     const carry = owed ? handoffFor(chat, text, images, { thread, reader }) : null;
+    // An agent handed only what it missed may have to take it on a new thread
+    // (see CodexSession.sendHandoff), which needs the whole chat instead.
+    const whole = carry && owed.since ? handoffFor(chat, text, images, { thread, reader, whole: true }) : null;
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
@@ -1085,33 +1097,45 @@ export function useAgent() {
       // chat is read in. See cutFor.
       ...(carry && c.segments?.length > 1 && { segments: recut(c) }),
       items: [
-        ...(carry ? c.items.map((it) => (it.id === owed.marker
-          ? { ...it, pending: false, carried: carry.carried, total: carry.total, scope: carry.scope }
-          : it)) : c.items),
+        ...(carry ? c.items.map((it) => (it.id === owed.marker ? rowDelivered(it, { carry }) : it)) : c.items),
         { id, kind: 'user', text, images, ...(resent && { resent }) },
       ],
     }));
+    // What main said about the handoff, kept through a failure: one that went
+    // is never carried again, whatever became of the turn.
+    let res = null;
     try {
-      const res = await conn().agent.send(
-        key, session === undefined ? chat?.session || null : session, carry ? wrapMessage(carry.text, text) : text, images,
+      // The message goes as typed and the handoff beside it, so main can hand
+      // it to an agent that takes thread items as items; any other is handed
+      // the text in front of the message, the same as before.
+      res = await conn().agent.send(
+        key, session === undefined ? chat?.session || null : session, text, images,
         chat?.project || focusedProject.current, chat?.provider || providerRef.current,
+        carry ? { text: carry.text, items: handoffItems(carry), ...(whole && { whole: whole.text }) } : undefined,
       );
+      // Which way the handoff went, on its row, which says so from now on.
+      if (carry && res?.delivery) edit(key, (c) => ({ ...c, items: c.items.map((it) => (it.id === owed.marker ? rowDelivered(it, { carry, whole, res }) : it)) }));
       // A session that could not start says why. Worth printing as it stands:
       // it names the missing CLI, and prefixing it would only muddy that.
       if (res?.error) throw new Error(res.error, { cause: 'said' });
       if (res?.forkAt) patch(key, id, { forkAt: res.forkAt });
     } catch (e) {
       const said = e.cause === 'said';
-      if (owed) carried.current.delete(owed.marker);
+      // Owed again only if it never went; see owedAfter.
+      const again = carry ? owedAfter(owed, res) : null;
+      if (again) carried.current.delete(owed.marker);
       turnEnded({ chat: key, failed: true, error: said ? e.message : `could not reach the agent: ${e.message}` });
       edit(key, (c) => ({
         ...c,
         busy: false,
         // Nothing reached the agent, so the next message carries it instead,
         // and the row says so again rather than counting what never went.
-        handoff: carry && !c.handoff ? owed : c.handoff,
-        items: [...(carry ? c.items.map((it) => (it.id === owed.marker
-          ? { ...it, pending: true, carried: undefined, total: undefined, scope: undefined }
+        // One that may have reached a thread nobody can read back goes, whole,
+        // to a thread not started yet.
+        handoff: again && !c.handoff ? again : c.handoff,
+        ...(again?.fresh && withoutSession(c)),
+        items: [...(again ? c.items.map((it) => (it.id === owed.marker
+          ? { ...it, pending: true, carried: undefined, total: undefined, scope: undefined, method: undefined }
           : it)) : c.items), {
           id: uid('e'), kind: 'note', error: true,
           text: said ? e.message : `could not reach the agent: ${e.message}`,

@@ -1133,6 +1133,8 @@ function AssistantRow({ item }) {
 /* Where the chat changed hands. Before the next message goes it only says who
    to; after, it says how much of the chat went across, because a handoff that
    had to leave things out should not read as one that carried everything. */
+const HANDOFF_METHOD = { injected: 'injected', inline: 'inline', 'new-thread': 'inline on a new thread' };
+
 function HandoffRow({ item }) {
   const what = item.fork
     ? `Forked from ${item.from}${item.to && item.to !== item.from ? ` to ${item.to}` : ''}`
@@ -1142,7 +1144,10 @@ function HandoffRow({ item }) {
     : item.total
       ? `carried ${item.carried} of ${item.total} ${item.total === 1 ? 'item' : 'items'}`
       : 'nothing new to carry';
-  const label = [what, item.model, carried].filter(Boolean).join(' · ');
+  // How it went, once it has: as past items of the agent's own thread, or as
+  // text ahead of the message, on a new thread when the old one was in doubt.
+  const method = item.pending ? null : HANDOFF_METHOD[item.method] || null;
+  const label = [what, item.model, carried, method].filter(Boolean).join(' · ');
   return (
     <div data-handoff={item.id} role="separator" aria-label={label} className="flex items-center gap-3 py-1 text-[11px] text-muted-foreground">
       <span className="h-px flex-1 bg-border" />

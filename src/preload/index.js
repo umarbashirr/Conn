@@ -189,8 +189,10 @@ contextBridge.exposeInMainWorld('conn', {
     onActivity: on('agent:activity'),
     // `provider` is which CLI this chat runs on. It rides along on every send
     // because each chat has its own, whatever the picker last said elsewhere.
-    send: (chat, session, text, images, project, provider) =>
-      ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider }),
+    // `handoff`, when the message carries one, is { text, items, whole }: see
+    // sendTo in useAgent.js. `text` is then only what was typed.
+    send: (chat, session, text, images, project, provider, handoff) =>
+      ipcRenderer.invoke('agent:send', { chat, session, text, images, project, provider, ...(handoff && { handoff }) }),
     interrupt: (chat) => ipcRenderer.invoke('agent:interrupt', { chat }),
     // A Claude chat cut back to just before one of its messages, as a new
     // session. Null when nothing came before it.
