@@ -150,7 +150,8 @@ try {
   check('the row is gone', !(await railRows()).some((r) => /del (ALPHA|BRAVO)/.test(r)), await railRows());
   check('the Claude transcript is gone', head1 && !claudeFile(head1));
   check('the Copilot part is hidden', !!conn('hidden-sessions.json')[cop1], conn('hidden-sessions.json'));
-  check('the person is told a part stayed', t1.some((t) => /except one part/.test(t)), t1);
+  // Wording settled by the user: say which part went and which agent kept its part.
+  check('the person is told a part stayed', t1.some((t) => /Deleted the Claude part\./.test(t) && /Copilot kept its part on disk/.test(t)), t1);
   await reload();
   check('the Copilot part does not come back after a reload', !(await railRows()).some((r) => /del (ALPHA|BRAVO)/.test(r)), await railRows());
   await shot(s, path.join(SHOTS, 'delete-follower-refused.png'));
