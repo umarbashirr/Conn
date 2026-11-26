@@ -15,7 +15,7 @@ import { account, blankUsage, byModel, storedContext, totals, withStop } from '@
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
 import { buildHandoff, itemsFromEntries, labelOf, unwrapHandoff, windowFor, wrapMessage } from '../../shared/handoff';
-import { headOf, persistable, providerAt, stitch, switchChat, withSession } from '../../shared/chat-segments';
+import { cutFor, headOf, persistable, providerAt, stitch, switchChat, withSession } from '../../shared/chat-segments';
 import { createSerial, modelEntry } from '../../shared/model-pick';
 
 const conn = () => window.conn;
@@ -198,9 +198,8 @@ function before(items, id, uuids) {
   }).map((it) => (it.forkAt ? { ...it, forkAt: uuids[it.forkAt] } : it));
 }
 
-// Whether a replayed transcript is a fork's: its first handoff is the one it
-// was forked with, which comes before anything else in it.
-const isFork = (items) => !!items.find((it) => it.kind === 'handoff')?.fork;
+// The segments with the newest one's start counted off the chat's items.
+const recut = (c) => c.segments.map((x, i) => (i === c.segments.length - 1 ? { ...x, cut: cutFor(c.items, c.segments) } : x));
 
 // The chat with a wider stretch of its stored transcript read in. Rows read in
 // ahead push every later one along, so a switch made since opening, which
@@ -212,7 +211,6 @@ function widened(c, fresh, span, session) {
     ...c,
     items: rewindow(c.items, c.stored.count, fresh),
     stored: storedOf(session, span, fresh.length),
-    forked: c.forked || isFork(fresh),
     segments: (c.segments || []).map((x, i) => (i ? { ...x, from: x.from + more } : x)),
     handoff: c.handoff?.since ? { ...c.handoff, since: c.handoff.since + more } : c.handoff,
   };
@@ -1086,6 +1084,9 @@ export function useAgent() {
       stopped: false,
       title: c.title === 'New chat' ? chatTitle(text).slice(0, TITLE_MAX) : c.title,
       handoff: carry ? null : c.handoff,
+      // Where this stretch starts in its session, counted now that the whole
+      // chat is read in. See cutFor.
+      ...(carry && c.segments?.length > 1 && { segments: recut(c) }),
       items: [
         ...(carry ? c.items.map((it) => (it.id === owed.marker
           ? { ...it, pending: false, carried: carry.carried, total: carry.total, scope: carry.scope }
@@ -1525,7 +1526,6 @@ export function useAgent() {
           items: stitched.items,
           segments,
           stored: null,
-          forked: isFork(byId[segs[0].session] || []),
           usage: last?.context ? { ...usage, context: last.context } : usage,
         };
       });
@@ -1585,7 +1585,6 @@ export function useAgent() {
           ...c,
           items: next,
           stored: storedOf(s.id, span, next.length),
-          forked: isFork(next),
           usage: context ? { ...usage, context } : usage,
         };
       });
@@ -1686,8 +1685,6 @@ export function useAgent() {
         marker,
       ],
       handoff: { since: 0, used: 0, from: chat.provider, marker: marker.id, segments: by },
-      // Its first stretch starts on a handoff of its own. See switchChat.
-      forked: true,
       usage: { ...blankUsage(), model: value },
     };
     chatsRef.current = [...chatsRef.current, next];

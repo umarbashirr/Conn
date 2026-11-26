@@ -208,11 +208,10 @@ function switchChat(c, { provider, model, id, label = (p) => p }) {
   }
   const prior = priorOf([...segs, { provider, from: items.length }], provider);
   const session = prior?.session || null;
-  // Which handoff in that session's transcript this stretch will start at: a
-  // fresh session's first, or one past every handoff already sent into it. A
-  // fork's first stretch began on one of its own.
-  const cut = session ? segs.filter((x, j) => x.session === session && (j > 0 || c.forked)).length : 0;
-  segs.push({ provider, session, from: items.length, cut });
+  // Provisional: counted again when the handoff is sent, once the whole chat
+  // is read in. See cutFor.
+  segs.push({ provider, session, from: items.length });
+  segs[segs.length - 1].cut = cutFor(items, segs);
   return {
     ...c,
     provider,
@@ -223,18 +222,44 @@ function switchChat(c, { provider, model, id, label = (p) => p }) {
   };
 }
 
+/* Which handoff in its own session's transcript the newest segment starts at:
+   the handoff rows already in that session, read off the chat's own items
+   rather than worked out from what kind of chat it is. Every stretch before
+   this one on the same session contributes the handoff rows it holds, which
+   is its opening row for a switch, or a fork's own row for its first. A
+   fresh session starts at its first. */
+function cutFor(items, segments) {
+  const k = segments.length - 1;
+  const session = segments[k]?.session;
+  if (!session) return 0;
+  let n = 0;
+  for (let j = 0; j < k; j++) {
+    if (segments[j].session !== session) continue;
+    const end = segments[j + 1].from;
+    for (let i = segments[j].from; i < end; i++) if (items[i]?.kind === 'handoff') n += 1;
+  }
+  return n;
+}
+
 /* The chat once its newest session has an id. In a switched chat that id
    belongs to the newest segment. A session from any CLI but the one the chat
    is on now is not this chat's: a turn the old CLI was still finishing
    reports in after the switch, and taking its id would put one CLI's session
-   in another's segment. */
+   in another's segment. A resume that comes back as a new session starts that
+   new session's transcript, so its stretch starts at that session's first
+   handoff. */
 function withSession(c, sessionId, provider) {
   if (!sessionId) return c;
   if (provider && provider !== c.provider) return c;
+  const last = c.segments?.length - 1;
   const segs = c.segments?.length > 1
-    ? c.segments.map((x, i) => (i === c.segments.length - 1 ? { ...x, session: sessionId } : x))
+    ? c.segments.map((x, i) => {
+      if (i !== last) return x;
+      const moved = x.session && x.session !== sessionId;
+      return { ...x, session: sessionId, ...(moved && { cut: 0 }) };
+    })
     : c.segments || [];
   return { ...c, segments: segs, session: sessionId };
 }
 
-module.exports = { withSession, cleanSegments, persistable, followers, foldHits, collapseRows, providerAt, priorOf, stitch, headOf, switchChat };
+module.exports = { cutFor, withSession, cleanSegments, persistable, followers, foldHits, collapseRows, providerAt, priorOf, stitch, headOf, switchChat };
