@@ -136,6 +136,25 @@ await check('Codex: the app-server is launched with the conn server and this cha
   assert.ok(proved(results.codex), results.codex.text.slice(0, 200));
 });
 
+await check('Codex: the first turn, which carries the handoff, waits for codex to start the conn server', async () => {
+  const timeline = path.join(home, 'codex-timeline');
+  const bin = shim('codex-slow', path.join(ROOT, 'scripts/mock-codex-cli.js'), `export MOCK_CODEX_MCP_MS=900 MOCK_CODEX_TIMELINE=${JSON.stringify(timeline)}\n`);
+  const { preferBinary } = require('../src/main/codex-driver.js');
+  const row = require('../src/main/providers/codex.js').create({ cacheDir: path.join(home, 'cache') });
+  preferBinary(bin);
+  const session = row.createSession({ cwd, mode: 'ask', mcp, bridgeEnv, shared: [] });
+  await session.start();
+  session.send('the message that carries the handoff');
+  const marks = await until(async () => {
+    const lines = fs.existsSync(timeline) ? fs.readFileSync(timeline, 'utf8').trim().split('\n') : [];
+    return lines.some((l) => l.startsWith('turn')) ? lines : null;
+  }, 15000);
+  session.stop?.();
+  const at = (what) => Number((marks || []).find((l) => l.startsWith(what))?.split(' ')[1]);
+  assert.ok(marks, 'the turn was sent');
+  assert.ok(at('ready') && at('turn') >= at('ready'), `turn at ${at('turn')}, the server ready at ${at('ready')}`);
+});
+
 for (const id of ['copilot', 'cursor', 'opencode', 'grok']) {
   await check(`${id}: the agent is handed the conn server with this chat, and that server reads it`, async () => {
     const log = path.join(home, `${id}.jsonl`);
