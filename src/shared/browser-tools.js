@@ -216,7 +216,7 @@ function browserTools(z) {
     },
     {
       name: 'browser_batch', bridgeTool: 'batch', label: 'Browser steps', title: 'Browser steps',
-      description: 'Run up to 15 browser steps in one call, in order. Each action is {tool, ...args}: a browser tool without browser_ (navigate, click, fill, press, wait, text, screenshot...) and its args. Stops at the first step that fails.',
+      description: 'Up to 15 browser steps in order: {tool, ...args}, bare names (click, fill...). Stops on failure. SDK-host hooks on single tools miss steps; match browser_batch or * and inspect actions, or call tools alone.',
       schema: { actions: z.array(z.object({ tool: z.string() }).passthrough()).max(BATCH_MAX) },
       format: 'batch',
     },

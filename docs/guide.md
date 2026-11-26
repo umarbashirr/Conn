@@ -524,6 +524,16 @@ claude mcp add conn -- node /path/to/conn/mcp/server.js
 
 Screenshots come back as images, so the model sees the layout instead of a description of it.
 
+**Hooks in SDK hosts.** An app embedding Claude through the Agent SDK can supply hooks when it
+starts the CLI. Conn cannot see those hooks. A host hook matching only an individual browser tool,
+such as `browser_evaluate`, does not run for that tool inside `browser_batch`: the host sees the
+batch call, not a separate call for each step. The host's permission callback and matching hooks
+receive the batch input, including its `actions` list.
+
+To check batched steps, match `browser_batch` (using its full MCP tool name where required) or `*`
+in the host hook and inspect the actions. Alternatively, call the individual tool on its own so
+its hook runs. Batching remains available to SDK hosts.
+
 ## Keys
 
 The chords below belong to the app. In the terminal, plain `Ctrl+L` and the rest still go
