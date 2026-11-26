@@ -34,7 +34,7 @@ const initMs = process.env.STUB_ACP_INIT_MS || '';
 for (const name of ['copilot', 'cursor-agent', 'opencode', 'grok']) {
   fs.writeFileSync(path.join(SHIMS, name), [
     '#!/bin/sh',
-    `export STUB_ACP_NAME=${name} STUB_ACP_LOG=${JSON.stringify(STUB_LOG)}${initMs ? ` STUB_ACP_INIT_MS=${initMs}` : ''}${process.env.STUB_ACP_DELETE ? ` STUB_ACP_DELETE=${process.env.STUB_ACP_DELETE}` : ''}`,
+    `export STUB_ACP_NAME=${name} STUB_ACP_LOG=${JSON.stringify(STUB_LOG)}${initMs ? ` STUB_ACP_INIT_MS=${initMs}` : ''}${process.env.STUB_ACP_DELETE ? ` STUB_ACP_DELETE=${process.env.STUB_ACP_DELETE}` : ''}${process.env.STUB_ACP_DELETE_GATE ? ` STUB_ACP_DELETE_GATE=${JSON.stringify(process.env.STUB_ACP_DELETE_GATE)}` : ''}`,
     `exec ${JSON.stringify(nodeBin)} ${JSON.stringify(path.join(ROOT, 'scripts/stub-acp-agent.mjs'))} "$@"`,
     '',
   ].join('\n'), { mode: 0o755 });
