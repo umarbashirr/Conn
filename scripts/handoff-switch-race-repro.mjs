@@ -103,7 +103,7 @@ try {
   await click(s, 'Later').catch(() => {});
   fs.rmSync('/tmp/handoff-verify/r2/export-button.md', { force: true });
 
-  await main("(() => { globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const send = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ cls, provider: this.provider, text: String(text) }); return send.call(this, text, images); }; } return 1; })()");
+  await main("(() => { globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const send = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ cls, provider: this.provider, text: String(text) }); return send.call(this, text, images); }; const sh = C.prototype.sendHandoff; if (sh) C.prototype.sendHandoff = function (text, images, h) { globalThis.__sends.push({ cls, provider: this.provider, text: `${h.text}\n\nUser message:\n${text}` }); this.send = (t, i) => send.call(this, t, i); return sh.call(this, text, images, h).finally(() => { delete this.send; }); }; } return 1; })()");
   await main("(() => { const h = electron.ipcMain._invokeHandlers; const sm = h.get('agent:setModel'); globalThis.__sm = []; h.set('agent:setModel', async (e, a) => { const t = Date.now(); const r = await sm(e, a); globalThis.__sm.push({ model: a.model, provider: a.provider, ms: Date.now() - t }); return r; }); return 1; })()");
   const gaps = (process.env.GAPS || '0,300,800,1500').split(',').map(Number);
   const rounds = Number(process.env.ROUNDS || gaps.length);

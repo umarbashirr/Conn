@@ -62,7 +62,8 @@ console.log(`session ${s.dir}`);
 const page = (e) => evaluate(s, e);
 const main = (e) => evaluate(s, e, { main: true });
 const codexUsers = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [])
-  .map((r) => (r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || '');
+  // An injected handoff reads as the text it carries.
+  .map((r) => r.seen?.handed ?? ((r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || ''));
 const conn = (f) => { try { return JSON.parse(fs.readFileSync(path.join(s.home, '.conn', f), 'utf8')); } catch { return {}; } };
 const stubStore = (name) => { try { return JSON.parse(fs.readFileSync(path.join(s.home, '.stub-acp', `${name}.json`), 'utf8')); } catch { return {}; } };
 const FIXED = ['New chat', 'Search', 'Board', 'Check for updates', 'Customize', 'Usage'];
@@ -131,7 +132,7 @@ async function gate() {
 }
 
 try {
-  await main("(() => { const h = electron.ipcMain._invokeHandlers; const send = h.get('agent:send'); h.set('agent:send', (e, a) => { globalThis.__lastChat = a.chat; return send(e, a); }); globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const orig = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ provider: this.provider, text: String(text) }); return orig.call(this, text, images); }; } return 1; })()");
+  await main("(() => { const h = electron.ipcMain._invokeHandlers; const send = h.get('agent:send'); h.set('agent:send', (e, a) => { globalThis.__lastChat = a.chat; return send(e, a); }); globalThis.__sends = []; for (const [mod, cls] of [['./agent', 'AgentSession'], ['./codex', 'CodexSession'], ['./providers/acp-session', 'AcpSession']]) { const C = req(mod)[cls]; const orig = C.prototype.send; C.prototype.send = function (text, images) { globalThis.__sends.push({ provider: this.provider, text: String(text) }); return orig.call(this, text, images); }; const sh = C.prototype.sendHandoff; if (sh) C.prototype.sendHandoff = function (text, images, h) { globalThis.__sends.push({ provider: this.provider, text: `${h.text}\n\nUser message:\n${text}` }); this.send = (t, i) => orig.call(this, t, i); return sh.call(this, text, images, h).finally(() => { delete this.send; }); }; } return 1; })()");
   await click(s, 'Later').catch(() => {});
   if (only('P')) {
     // ---- P: the phone ------------------------------------------------------
