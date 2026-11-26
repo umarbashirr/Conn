@@ -1449,37 +1449,6 @@ export function useAgent() {
     switchTo(next.key);
   }, [switchTo]);
 
-  /* A chat started for someone else: a pipeline's stage. It joins the list
-     without taking the screen, so a run can start its next stage while you
-     read something else, and carries its name from the start so the rail
-     never shows it as the first line of a prompt. Its mode, model and CLI are
-     set on it alone; the composer's pickers stay as they are. */
-  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title, resume } = {}) => {
-    const next = {
-      ...blankChat(project || focusedProject.current, runs || providerRef.current, m || startMode.current),
-      title: String(title || 'New chat').slice(0, RENAME_MAX),
-      renamed: !!title,
-      // Whoever started it says when it is done, so the usual "is done" toast
-      // and notification stay out of the way.
-      quiet: true,
-      // A saved chat taken up again, after the window that ran it went away:
-      // the next message resumes that session, and its history is replayed
-      // so opening it shows what it already did.
-      ...(resume && { session: resume }),
-    };
-    if (resume) {
-      const t = await conn().agent.transcript(resume, next.project).catch(() => null);
-      if (t) {
-        const span = storedWindow(t);
-        const items = replayStored(t, span.from);
-        Object.assign(next, { items, stored: storedOf(resume, span, items.length), usage: t.usage ? account(next.usage, t.usage) : next.usage });
-      }
-    }
-    chatsRef.current = [...chatsRef.current, next];
-    setChats(chatsRef.current);
-    await conn().agent.prefs?.(next.key, { mode: next.mode, model: wanted, provider: next.provider }).catch(() => {});
-    return next.key;
-  }, []);
 
   /* Pointing the chat on screen at another folder, which is what the chip under
      the box is for. A chat nobody has typed in yet moves: the chip names the
@@ -1605,6 +1574,52 @@ export function useAgent() {
       }));
     }
   }, [edit]);
+
+  /* A chat started for someone else: a pipeline's stage. It joins the list
+     without taking the screen, so a run can start its next stage while you
+     read something else, and carries its name from the start so the rail
+     never shows it as the first line of a prompt. Its mode, model and CLI are
+     set on it alone; the composer's pickers stay as they are. */
+  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title, resume } = {}) => {
+    // A saved stage chat that later changed agent resumes on the session it is
+    // on now and draws every stretch, never its first or a later session alone.
+    const rec = resume ? await conn().agent.segmentsOf?.(resume).catch(() => null) : null;
+    const whole = rec?.segments?.length > 1 ? rec.segments : null;
+    const last = whole?.[whole.length - 1];
+    const next = {
+      ...blankChat(project || focusedProject.current, runs || providerRef.current, m || startMode.current),
+      title: String(title || 'New chat').slice(0, RENAME_MAX),
+      renamed: !!title,
+      // Whoever started it says when it is done, so the usual "is done" toast
+      // and notification stay out of the way.
+      quiet: true,
+      // A saved chat taken up again, after the window that ran it went away:
+      // the next message resumes that session, and its history is replayed
+      // so opening it shows what it already did.
+      ...(resume && { session: resume }),
+      ...(whole && {
+        provider: last.provider,
+        session: last.session,
+        segments: whole.map((x) => ({ ...x, from: 0 })),
+      }),
+    };
+    if (resume && !whole) {
+      const t = await conn().agent.transcript(resume, next.project).catch(() => null);
+      if (t) {
+        const span = storedWindow(t);
+        const items = replayStored(t, span.from);
+        Object.assign(next, { items, stored: storedOf(resume, span, items.length), usage: t.usage ? account(next.usage, t.usage) : next.usage });
+      }
+    }
+    chatsRef.current = [...chatsRef.current, next];
+    setChats(chatsRef.current);
+    if (whole) await openSegments(next, whole);
+    // The stage's model belongs to the CLI it was set up on, which is not the
+    // one a chat that changed agent is on now.
+    const model = whole && last.provider !== runs ? undefined : wanted;
+    await conn().agent.prefs?.(next.key, { mode: next.mode, model, provider: next.provider }).catch(() => {});
+    return next.key;
+  }, [openSegments]);
 
   // Open a stored chat. One already in memory is just brought forward, live
   // turn and all. One off disk is replayed here and resumed on the next
