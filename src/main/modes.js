@@ -128,6 +128,8 @@ function decide(mode, tool, input) {
   const browser = browserTool(tool);
   const looking = browser && READS.has(browser);
   if (looking || READ_ONLY.has(tool)) return ALLOW;
+  // Reading this chat's own earlier items changes nothing, plan mode included.
+  if (/conn_thread_read$/.test(String(tool))) return ALLOW;
   // A batch does nothing of its own. Each of its steps is put to this same
   // question as it comes up, so asking about the batch as well would only
   // ask twice, and in plan mode would refuse the steps that only look.

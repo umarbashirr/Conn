@@ -33,6 +33,8 @@ const { deleteChat } = require('./delete-chat');
 const { hideParts, showAgain, afterRetry } = require('./hidden-chats');
 const { createStitchCache } = require('./stitch-cache');
 const { createRelay } = require('./window-relay');
+const { createThreadReader } = require('./thread-read');
+const { THREAD_ROUTE } = require('./bridge');
 const { cleanSegments, collapseRows, foldHits, followers, persistable, recordOf, stitch } = require('../shared/chat-segments');
 const { mayApplyModel } = require('../shared/model-pick');
 const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
@@ -336,16 +338,45 @@ function phoneLive() {
    never seen that the rail has not listed, is read fresh. */
 const sessionWrites = new Map();
 const wrote = (session) => { if (session) sessionWrites.set(session, (sessionWrites.get(session) || 0) + 1); };
-const readStitchedCached = createStitchCache({
-  read: (dir, segs) => readStitched(dir, segs),
-  stampOf: (dir, session, p) => {
-    const file = rowOf(p)?.history?.stamp?.(dir, session) || null;
-    const seen = sessionWrites.get(session) || 0;
-    const listed = sessionAt.get(session) || 0;
-    if (!file && !seen && !listed) return null;
-    return `${file || ''}#${seen}@${listed}`;
+function sessionStamp(dir, session, p) {
+  const file = rowOf(p)?.history?.stamp?.(dir, session) || null;
+  const seen = sessionWrites.get(session) || 0;
+  const listed = sessionAt.get(session) || 0;
+  if (!file && !seen && !listed) return null;
+  return `${file || ''}#${seen}@${listed}`;
+}
+const readStitchedCached = createStitchCache({ read: (dir, segs) => readStitched(dir, segs), stampOf: sessionStamp });
+
+/* conn_thread_read, for the chat whose agent calls it. The sessions a chat ran
+   on come from the window when it has the chat open, since a switch it has not
+   written down yet is still this chat's, and otherwise from what is on disk. */
+const threadSegments = new Map();
+async function threadSessionsOf(chat) {
+  const dir = cwdOfChat(chat);
+  const listed = threadSegments.get(chat);
+  if (listed?.length) return { dir, segments: listed };
+  const live = sessions.get(chat);
+  let session = live?.sessionId || null;
+  let p = live?.provider || chatPrefs.providerOf(chat, null);
+  if (!session && chat.startsWith('h:')) [, p, session] = chat.match(/^h:([^:]+):(.+)$/) || [];
+  if (!session) throw new Error(`No chat ${chat} in this window.`);
+  const rec = recordOf(chatSegments.all(), session);
+  return { dir, segments: rec ? rec.segments : [{ provider: p || owners.get(session), session }] };
+}
+const threadRead = createThreadReader({
+  sessionsOf: threadSessionsOf,
+  readSession: async (dir, session, p) => {
+    const h = (isProviderId(p) && rowOf(p)?.history) || ownerOf(session);
+    const t = await h.readSession(dir, session, { whole: true });
+    return { ...t, subagents: h.listSubagents?.(dir, session) || [] };
   },
+  stampOf: sessionStamp,
 });
+
+// Whether a session on this CLI can call conn_thread_read: Claude has it among
+// its own in-process tools, and every other agent through Conn's MCP server,
+// which offers it when it is started for a chat.
+const hasThreadRead = (row) => row.catalogKind === 'claude' || (!row.noConnServer && fs.existsSync(mcpServerPath(ROOT)));
 
 async function readStitched(dir, segs) {
   const read = {};
@@ -434,6 +465,7 @@ function providerStates() {
       account: accountFor(row.id),
       message: d.message || (!d.installed ? row.missing : null) || null,
       count: (d.models || []).length,
+      threadRead: hasThreadRead(row),
     };
   });
 }
@@ -1255,7 +1287,9 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
     bridgeEnv: { ...bridge.env(), CONN_CHAT: chat },
     mcp: previewMcp(cwd),
     shared: mcpRegistry.launchList(nodeBin()),
-    invoke: (tool, args, actor, opts) => driveTool(tool, args, { cwd, actor: actorOf(chat, actor), ...opts }),
+    invoke: (tool, args, actor, opts) => (tool === THREAD_ROUTE
+      ? threadRead(chat, args).then((result) => (opts?.report ? { result } : result))
+      : driveTool(tool, args, { cwd, actor: actorOf(chat, actor), ...opts })),
   });
   agent.provider = runs;
   sessions.set(chat, agent);
@@ -1477,6 +1511,11 @@ function askBridge(chat, tool, args, { reason, signal, batch }) {
    rather than guessed at. No name is a terminal, which drives the chat on
    screen as it always has. */
 async function runBridgeTool(tool, args, from, named = null, { report = false, signal = null, ask = false, batch, claudeCode = false } = {}) {
+  // Read only the chat the calling server was started for, never one on screen.
+  if (tool === THREAD_ROUTE) {
+    const result = await threadRead(named, args);
+    return report ? { result } : result;
+  }
   if (named && !chatProjects.has(named)) throw new Error(`no chat ${named} in this window`);
   const chat = named || chatForTool(from);
   // Each step comes back through here under its own route, so it is judged,
@@ -2570,10 +2609,13 @@ function registerIpc() {
       return { error: e.message };
     }
   });
-  ipcMain.handle('agent:transcript', async (_e, { id, project, limit, end, provider: on }) => {
+  // `whole` reads every message as stored, long texts and pictures included,
+  // for a handoff, which copies them word for word; drawing a chat does not
+  // need that and reads a lighter window.
+  ipcMain.handle('agent:transcript', async (_e, { id, project, limit, end, provider: on, whole }) => {
     const dir = project && known(project) ? project : focusedCwd();
     const h = (isProviderId(on) && rowOf(on)?.history) || ownerOf(id);
-    const t = await h.readSession(dir, id, { limit, end });
+    const t = await h.readSession(dir, id, whole === true ? { whole: true } : { limit, end });
     // Which agents ran, so a replayed chat draws their rows straight away. The
     // transcripts behind them are only read if someone opens one.
     return { ...t, subagents: h.listSubagents(dir, id) };
@@ -2633,6 +2675,15 @@ function registerIpc() {
   // The window's answer to a phone message handed to it: in the chat, or why not.
   ipcMain.on('agent:phoneTurnTaken', (_e, { id, ok, error } = {}) => {
     phoneRelay.settle(id, { ok: !!ok, error });
+  });
+  // The sessions each open chat ran on, current one included, as the window
+  // has them, for conn_thread_read. Replaced whole on every change.
+  ipcMain.on('agent:threadSegments', (_e, { list } = {}) => {
+    threadSegments.clear();
+    for (const t of Array.isArray(list) ? list : []) {
+      const segs = (t?.segments || []).filter((s) => isProviderId(s?.provider) && typeof s?.session === 'string' && s.session);
+      if (typeof t?.key === 'string' && segs.length) threadSegments.set(t.key, segs.map(({ provider: p, session, cut }) => ({ provider: p, session, ...(Number.isInteger(cut) && { cut }) })));
+    }
   });
   ipcMain.on('agent:pendingHandoffs', (_e, { list } = {}) => {
     pendingHandoffs.clear();

@@ -10,6 +10,10 @@ const path = require('path');
 const state = require('../../cli/state');
 const { TOOLS } = require('./tools');
 
+// conn_thread_read's route. Not a browser tool, so not in TOOLS: it reads the
+// calling chat, which only the x-conn-chat header names.
+const THREAD_ROUTE = 'thread_read';
+
 // The same folder can arrive spelled two ways, relative or with a trailing
 // slash, and each spelling would earn its own state file. Settle on one form
 // here so the set in memory matches the files on disk.
@@ -207,7 +211,7 @@ class Bridge {
 
     if (!url.pathname.startsWith('/tool/')) return send(404, { error: 'not found' });
     const name = url.pathname.slice('/tool/'.length);
-    if (!Object.hasOwn(TOOLS, name)) return send(404, { error: `unknown tool ${name}`, tools: Object.keys(TOOLS) });
+    if (!Object.hasOwn(TOOLS, name) && name !== THREAD_ROUTE) return send(404, { error: `unknown tool ${name}`, tools: Object.keys(TOOLS) });
 
     let body = '';
     for await (const chunk of req) {
@@ -238,4 +242,4 @@ class Bridge {
   }
 }
 
-module.exports = { Bridge, TOOLS };
+module.exports = { Bridge, TOOLS, THREAD_ROUTE };

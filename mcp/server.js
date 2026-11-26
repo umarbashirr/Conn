@@ -11,6 +11,7 @@ const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio
 
 const state = require('../cli/state');
 const { browserTools, toolContent, planBatch, batchContent } = require('../src/shared/browser-tools');
+const threadTool = require('../src/shared/thread-tool');
 
 /* The flags that hand the claude CLI permission rules, hooks, or the skills
    and agents that declare hooks, none of which is in a settings file the
@@ -116,6 +117,15 @@ for (const t of table) {
   }));
   if (t.format === 'batch') batch = tool;
 }
+// Reading the chat this server was started for. A server started from a shell
+// belongs to no chat, so it is not offered there.
+if (process.env.CONN_CHAT) {
+  server.registerTool(threadTool.NAME, { description: threadTool.DESCRIPTION, inputSchema: threadTool.schema(z) }, wrap(async (a, signal) => {
+    const { result } = await call('thread_read', a, signal);
+    return { content: [{ type: 'text', text: String(result ?? '') }] };
+  }));
+}
+
 // A client lists the tools only once it has said it is initialized, so the
 // batch is gone before Claude Code looks.
 server.server.oninitialized = () => {

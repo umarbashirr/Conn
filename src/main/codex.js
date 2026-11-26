@@ -233,7 +233,11 @@ class CodexSession extends EventEmitter {
          installed Conn launched from the desktop has no node on its PATH, and
          a real node cannot read the archive, so the server never started and
          codex saw no browser tools. */
-      const { command, args, env } = this.previews;
+      // The chat this session belongs to rides in the server's environment, so
+      // its calls name it rather than the chat on screen; conn_thread_read
+      // reads only that chat.
+      const { command, args } = this.previews;
+      const env = { ...this.previews.env, ...this.bridgeEnv };
       out.push(`mcp_servers.conn.command=${JSON.stringify(command)}`);
       out.push(`mcp_servers.conn.args=${JSON.stringify(args)}`);
       for (const [k, v] of Object.entries(env)) {
