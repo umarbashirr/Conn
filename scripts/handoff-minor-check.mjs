@@ -88,6 +88,33 @@ await check('a phone send carries its id to the window, which takes it once and 
   assert.ok(!/sendTo/.test(handler), 'the queue sends it, not a send the answer waits on');
 });
 
+// The phone cache stamps a codex chat by its rollout file.
+await check('a codex thread is stamped by its rollout file\'s size and time', async () => {
+  const { preferBinary } = require('../src/main/codex-driver.js');
+  const codexHistory = require('../src/main/codex-history.js');
+  const says = path.join(home, 'codex-says.json');
+  const rollout = path.join(home, 'rollout.jsonl');
+  fs.writeFileSync(rollout, '{"a":1}\n');
+  fs.writeFileSync(says, JSON.stringify({ updatedAt: 1, asked: 'hi', text: 'Done.' }));
+  const bin = path.join(home, 'codex');
+  fs.writeFileSync(bin, `#!/bin/sh\nMOCK_CODEX_REASON=1 MOCK_CODEX_SAYS="${says}" MOCK_CODEX_ROLLOUT="${rollout}" exec "${process.execPath}" "${path.join(ROOT, 'scripts/mock-codex-cli.js')}" "$@"\n`, { mode: 0o755 });
+  preferBinary(bin);
+  const project = path.join(home, 'codex-project');
+  fs.mkdirSync(project, { recursive: true });
+  try {
+    const [row] = await codexHistory.listSessions(project);
+    assert.ok(row?.id, 'the mock lists a thread');
+    const one = codexHistory.stamp(project, row.id);
+    assert.ok(one, 'a listed thread has a stamp');
+    fs.appendFileSync(rollout, '{"b":2}\n');
+    assert.notEqual(codexHistory.stamp(project, row.id), one, 'a write in the same second moves it');
+    assert.equal(codexHistory.stamp(project, 'unknown-thread'), null);
+  } finally {
+    codexHistory.close?.();
+  }
+  assert.ok(/rowOf\(p\)\?\.history\?\.stamp\?\.\(dir, session\)/.test(read('src/main/index.js')), 'the phone cache asks every agent\'s history for one');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nhandoff-minor-check: all passed');
 process.exit(failures.length ? 1 : 0);
