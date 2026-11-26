@@ -52,7 +52,7 @@ const segmentsOnDisk = () => {
 const railRows = async () => {
   await page('window.connRail?.refresh()');
   await sleep(1500);
-  return JSON.parse(await page("JSON.stringify([...document.querySelectorAll('li[data-sidebar=menu-item]')].map((e) => e.innerText.split('\\n')[0]))")).filter((r) => !['New chat', 'Search', 'Check for updates', 'Customize', 'Usage'].includes(r));
+  return JSON.parse(await page("JSON.stringify([...document.querySelectorAll('li[data-sidebar=menu-item]')].map((e) => e.innerText.split('\\n')[0]))")).filter((r) => !['New chat', 'Search', 'Board', 'Check for updates', 'Customize', 'Usage'].includes(r));
 };
 const handoffRows = () => page("JSON.stringify([...document.querySelectorAll('[data-handoff]')].map((e) => e.getAttribute('aria-label')))").then(JSON.parse);
 const reload = async () => {

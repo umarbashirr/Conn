@@ -57,6 +57,17 @@ await check('cut: counted from the stretch\'s own session\'s handoff rows, fork 
   assert.equal(cutFor(items, segs), 1);
 });
 
+// A fork made from a chat that had itself changed agent copies that chat's
+// handoff rows into its first stretch. They are not in the fork's own
+// transcript, which holds only its own handoff and the ones sent into it.
+await check('cut: a live fork of a switched chat, switched away and back, starts at its own transcript\'s handoff', () => {
+  const H = (id, extra = {}) => ({ id, kind: 'handoff', ...extra });
+  const U = (id) => ({ id, kind: 'user' });
+  const items = [U('h0'), H('s1:h0:handoff'), U('s1:h0'), H('h2:handoff'), U('h2'), H('hF', { fork: true }), U('u1'), H('hB'), U('u2'), H('hC')];
+  const segs = [{ session: 'F', from: 0 }, { session: 'B', from: 7 }, { session: 'F', from: 9 }];
+  assert.equal(cutFor(items, segs), 1, `counted ${cutFor(items, segs)}: the copied rows are counted as the fork's own`);
+});
+
 await check('cut: a resume that comes back on a new session starts that session at 0', () => {
   const c = { provider: 'claude', session: 'A-old', segments: [{ provider: 'codex', session: 'B', from: 0 }, { provider: 'claude', session: 'A-old', from: 3, cut: 2 }], items: [] };
   const moved = withSession(c, 'A-new', 'claude');
