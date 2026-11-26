@@ -19,6 +19,7 @@ import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
 import { buildHandoff, labelOf, windowFor, wrapMessage } from '../../shared/handoff';
 import { readThread, replay, replayStored } from '../../shared/replay';
+import { NAME as THREAD_TOOL } from '../../shared/thread-tool';
 import { cutFor, headOf, persistable, providerAt, switchChat, withSession } from '../../shared/chat-segments';
 import { createSerial, modelEntry } from '../../shared/model-pick';
 import { deleteNote } from '../../shared/delete-note';
@@ -124,15 +125,30 @@ function widened(c, fresh, span, session) {
 // The handoff a chat's next message carries, sized against the model it is
 // going to. A fork names the segments of the chat it was copied from, so the
 // items it carries still say which agent did them.
-function handoffFor(chat, text, images = []) {
+/* `thread` is the chat as it stands on disk (see threadOnDisk), whose ids are
+   the ones conn_thread_read finds again later, and `reader` that tool's name
+   when the agent the chat goes to has it. Without a thread the handoff is
+   built from the window's own items, whose ids nothing could read back, so it
+   names no tool. */
+function handoffFor(chat, text, images = [], { thread = null, reader = null } = {}) {
   const h = chat.handoff;
-  const by = h.segments || chat.segments;
   // The row's own name for the model goes in the header, so the row reads the
   // same after a reopen as it does now.
   const row = chat.items.find((it) => it.id === h.marker);
+  let items = chat.items;
+  let since = h.since;
+  let by = h.segments || chat.segments;
+  if (thread) {
+    // Where the agent left off, in the thread's own count: the start of the
+    // segment that followed it.
+    const k = h.since ? chat.segments.findIndex((x) => x.from === h.since) : -1;
+    since = h.since ? (thread.segments[k]?.from ?? thread.items.length) : 0;
+    ({ items } = thread);
+    by = thread.segments;
+  }
   return buildHandoff({
-    items: chat.items,
-    since: h.since,
+    items,
+    since,
     from: h.from,
     to: chat.provider,
     model: row?.model || chat.usage?.model || undefined,
@@ -142,7 +158,26 @@ function handoffFor(chat, text, images = []) {
     used: h.used || 0,
     message: text,
     images: images.length,
+    reader: thread ? reader : null,
   });
+}
+
+/* A switched chat as it stands on disk, every session before the one it is
+   going to, read by the same replay main answers conn_thread_read with. Null
+   for a fork, whose history belongs to the chat it was forked from, and when
+   there is nothing on disk or it cannot be read. */
+async function threadOnDisk(chat) {
+  if (chat.handoff?.segments) return null;
+  const segs = (chat.segments || []).slice(0, -1).filter((x) => x.session);
+  if (!segs.length) return null;
+  try {
+    // Read as stored, not the lighter window the chat is drawn from: the
+    // handoff copies the history word for word.
+    return await readThread(segs, (session, provider) =>
+      conn().agent.transcript(session, chat.project, { whole: true, provider }));
+  } catch {
+    return null;
+  }
 }
 
 // One conversation. `key` is ours and outlives the session under it: a chat
@@ -278,6 +313,9 @@ export function useAgent() {
   // Both CLIs and whether each is installed, so the picker can draw a locked
   // row for one that is missing instead of leaving it off the list.
   const [providers, setProviders] = useState([]);
+  // Read when a handoff is built, which happens outside any render.
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
   // How hard the model thinks, and which levels this build of the CLI takes.
   // Empty means the CLI's own default rather than a level we picked for it.
   const [effort, setEffort] = useState('');
@@ -315,6 +353,22 @@ export function useAgent() {
      before the first session existed; and the board, which belongs to the
      chat's first session only. Each is sent again only when it changes. */
   const written = useRef({ segments: new Map(), titles: new Map(), boards: new Map(), started: new Set() });
+  // The sessions each chat here ran on, the one it is on now included, for
+  // conn_thread_read: a switch not yet written to disk is still this chat's.
+  const threadSent = useRef(null);
+  useEffect(() => {
+    const list = chats.map((c) => ({
+      key: c.key,
+      segments: (c.segments?.length ? c.segments : [{ provider: c.provider, session: c.session }])
+        .filter((x) => x.session)
+        .map(({ provider: p, session, cut }) => ({ provider: p, session, ...(Number.isInteger(cut) && { cut }) })),
+    })).filter((t) => t.segments.length);
+    const json = JSON.stringify(list);
+    if (threadSent.current === json) return;
+    threadSent.current = json;
+    conn().agent.threadSegments?.(list);
+  }, [chats]);
+
   // Which chats have a handoff waiting on their next message, by the session
   // the phone knows them by. Main hands a phone message for one of these to
   // this window rather than to the session the chat is leaving.
@@ -1002,7 +1056,19 @@ export function useAgent() {
     // shows only what was typed; the handoff row above it says what went.
     const owed = chat?.handoff && !carried.current.has(chat.handoff.marker) ? chat.handoff : null;
     if (owed) carried.current.add(owed.marker);
-    const carry = owed ? handoffFor(chat, text, images) : null;
+    // Read off disk so the ids it names can be read back; meanwhile a second
+    // message waits in the queue, as it does while the rest is read in.
+    let thread = null;
+    if (owed) {
+      reading.current.add(key);
+      try {
+        thread = await threadOnDisk(chat);
+      } finally {
+        reading.current.delete(key);
+      }
+    }
+    const reader = providersRef.current.find((p) => p.id === chat.provider)?.threadRead ? THREAD_TOOL : null;
+    const carry = owed ? handoffFor(chat, text, images, { thread, reader }) : null;
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
