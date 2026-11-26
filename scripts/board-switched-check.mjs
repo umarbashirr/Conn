@@ -58,6 +58,47 @@ await check('a card keeps its sessions when it crosses windows', () => {
   assert.equal(cleanCards([{ id: A, session: A, title: 't', segments: [...segments, { provider: 'Bad!', session: 'x' }] }])[0].segments, undefined, 'a malformed list is dropped whole');
 });
 
+// 2. Opening a card opens the whole chat, here or in another window.
+await check('a session id names the whole chat it belongs to', () => {
+  const { recordOf } = require('../src/shared/chat-segments.js');
+  const records = { [A]: bare };
+  assert.deepEqual(recordOf(records, A), { head: A, segments: bare });
+  assert.deepEqual(recordOf(records, C), { head: A, segments: bare }, 'a later session answers with the chat');
+  assert.equal(recordOf(records, 'eeeeeeee-5555'), null);
+  assert.equal(recordOf(records, ''), null);
+});
+await check('opening a card in another window sends its sessions, and that window opens it whole', async () => {
+  const state = require('../cli/state');
+  const { Bridge } = require('../src/main/bridge.js');
+  const { createBoard } = require('../src/main/board.js');
+  const opened = [];
+  const peer = new Bridge({ cwds: [path.join(home, 'p')], board: { cards: () => [], open: (c) => { opened.push(c); return { ok: true }; } } });
+  await peer.start();
+  try {
+    const FAKE_PID = process.ppid;
+    for (const f of fs.readdirSync(path.join(home, '.conn', 'projects'))) {
+      const file = path.join(home, '.conn', 'projects', f);
+      const s = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (s.url === peer.url) fs.writeFileSync(file, JSON.stringify({ ...s, pid: FAKE_PID }));
+    }
+    assert.ok(state.windows().some((w) => w.pid === FAKE_PID));
+    const mine = createBoard({ pid: process.pid });
+    assert.deepEqual(await mine.openOn(FAKE_PID, { key: null, session: A, project: '/w', title: 'Fix login', segments }), { ok: true });
+    assert.deepEqual(opened.at(-1).segments, bare, 'the sessions go with the open');
+    await mine.openOn(FAKE_PID, { key: 'k', session: B, project: '/w', title: 'plain' });
+    assert.equal(opened.at(-1).segments, undefined, 'a plain chat sends none');
+  } finally {
+    await peer.stop?.();
+  }
+  const main = read('src/main/index.js');
+  const relay = main.slice(main.indexOf("send('board:open'") - 400, main.indexOf("send('board:open'") + 500);
+  assert.ok(/const segments = cleanSegments\(card\?\.segments\)/.test(relay), 'the receiving main cleans them');
+  const store = read('src/renderer/ui/shell/board-store.js');
+  assert.ok(/openHere\(\{ key, session, project, title, segments, vetted: true \}\)/.test(store), 'and the window opens it even before its rail lists it');
+  assert.ok(/\.\.\.\(segs && \{ segments: segs \}\)/.test(store), 'opening passes the sessions on');
+  assert.ok(/agent\.segmentsOf\?\.\(s\.id\)/.test(read('src/renderer/ui/useAgent.js')), 'and open() looks a bare id up');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nboard-switched-check: all passed');
 process.exit(failures.length ? 1 : 0);
