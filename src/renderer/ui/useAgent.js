@@ -407,9 +407,8 @@ export function useAgent() {
   const reading = useRef(new Set());
   const carried = useRef(new Set());
   const intended = useRef(new Map());
-  // For listeners registered once, which would otherwise close over the first
-  // render's sendTo.
-  const sendToRef = useRef(null);
+  // Phone sends this window has taken, by the id the phone gave each one.
+  const phoneTaken = useRef(new Set());
   const serial = useRef(null);
   if (!serial.current) serial.current = createSerial();
 
@@ -897,21 +896,24 @@ export function useAgent() {
 
     // A message from the phone for a chat switched here but not yet sent on:
     // only this window holds the handoff it has to carry, so it goes from here.
-    offs.push(conn().agent.onPhoneTurn?.(({ id, chat, text, images }) => {
+    /* It goes in the chat's queue and the phone is answered at once: reading
+       the rest of a long chat in before the handoff is sent can outlast the
+       phone's wait, and a message the window then sent anyway would go twice
+       once the phone tried again. The queue sends it, with the handoff, as it
+       sends any other. A phone send the window has already taken, by its
+       turn id, is answered and not queued again. */
+    offs.push(conn().agent.onPhoneTurn?.(({ id, turnId, chat, text, images }) => {
       if (!chat || !chatsRef.current.some((c) => c.key === chat)) {
         conn().agent.phoneTurnTaken?.(id, { ok: false, error: 'That chat is not open in Conn any more.' });
         return;
       }
-      // Answered once the message is in the chat, as a bubble or queued.
-      let answered = false;
-      const answer = (result) => {
-        if (answered) return;
-        answered = true;
-        conn().agent.phoneTurnTaken?.(id, result);
-      };
-      Promise.resolve(sendToRef.current?.(chat, text, images || [], { taken: () => answer({ ok: true }) }))
-        .then(() => answer({ ok: false, error: 'Conn could not take the message.' }))
-        .catch((e) => answer({ ok: false, error: e.message }));
+      if (turnId && phoneTaken.current.has(turnId)) {
+        conn().agent.phoneTurnTaken?.(id, { ok: true });
+        return;
+      }
+      if (turnId) phoneTaken.current.add(turnId);
+      edit(chat, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images: images || [] }] }));
+      conn().agent.phoneTurnTaken?.(id, { ok: true });
     }) ?? (() => {}));
 
     // `conn ask` from the terminal can open a chat too.
@@ -1078,15 +1080,13 @@ export function useAgent() {
   // chatsRef has not caught up. `resent` marks a message sent again at the end.
   // `committed` is the chat as React last committed it, from the queue's flush;
   // anything else reads the ref.
-  // `taken` is told once the message is in the chat, as a bubble or queued.
-  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed, taken } = {}) => {
+  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed } = {}) => {
     if (!text.trim() && !(images || []).length) return;
     // Mid-switch, the session this would go to is the one being left; while
     // the rest of a transcript is read in, the handoff is about to go with the
     // message ahead of this one. Either way it waits in the queue.
     if (switching.current.has(key) || reading.current.has(key)) {
       edit(key, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images }] }));
-      taken?.();
       return;
     }
     let chat = committed || chatsRef.current.find((c) => c.key === key);
@@ -1128,7 +1128,6 @@ export function useAgent() {
         { id, kind: 'user', text, images, ...(resent && { resent }) },
       ],
     }));
-    taken?.();
     try {
       const res = await conn().agent.send(
         key, session === undefined ? chat?.session || null : session, carry ? wrapMessage(carry.text, text) : text, images,
@@ -1158,7 +1157,6 @@ export function useAgent() {
     }
   }, [edit, patch, readWhole]);
 
-  sendToRef.current = sendTo;
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
   // One chat as it stands now, for code that runs outside React's render.
   const chatOf = useCallback((key) => chatsRef.current.find((c) => c.key === key) || null, []);

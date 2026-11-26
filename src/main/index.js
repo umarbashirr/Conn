@@ -1703,7 +1703,7 @@ const phoneRelay = createRelay({
   },
 });
 
-async function deliverTurn({ chat, text, images, project, session, provider, from }) {
+async function deliverTurn({ chat, text, images, project, session, provider, from, nonce }) {
   try {
     const phone = from === 'phone';
     // The handoff such a chat owes its next message lives in the window, so a
@@ -1711,7 +1711,8 @@ async function deliverTurn({ chat, text, images, project, session, provider, fro
     // The phone hears back only once the window has the message in the chat.
     const pendingKey = phone && session ? pendingHandoffs.get(session) : null;
     if (pendingKey) {
-      const res = await phoneRelay.forward({ chat: pendingKey, text, images });
+      // The phone's own id for this send, so a repeat of it is not sent twice.
+      const res = await phoneRelay.forward({ chat: pendingKey, text, images, ...(typeof nonce === 'string' && nonce && { turnId: nonce.slice(0, 200) }) });
       return res.ok ? { ok: true, forwarded: true } : res;
     }
     // The phone names a switched chat by its first session, but the chat is
