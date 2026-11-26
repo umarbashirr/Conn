@@ -7,7 +7,7 @@
    An answer is the chat's items in the handoff's own labelled form, oldest
    first, capped near CAP tokens, and when more remain it says how to ask for
    them: `next` is the arguments of the call that continues. */
-const { tokens } = require('./handoff');
+const { tokens, CONTEXT } = require('./handoff');
 
 const NAME = 'conn_thread_read';
 const CAP = 8000;
@@ -109,19 +109,20 @@ function pick(all, args = {}, { cap = CAP } = {}) {
   };
 }
 
-// The text an agent gets back.
+// The text an agent gets back. It opens the way a handoff does: what it
+// carries is history, not a request.
 function answer({ entries, missing = [], next, total }) {
-  const lines = [`${entries.length} of this chat's ${total} items, oldest first.`];
+  const lines = [CONTEXT, `${entries.length} of this chat's ${total} items, oldest first.`];
   if (missing.length) lines.push(`Not in this chat: ${missing.join(', ')}.`);
   for (const e of entries) lines.push(e.text);
   if (next) lines.push(`More: call ${NAME} with ${JSON.stringify(next)}`);
   return lines.join('\n');
 }
 
-// How many items an answer carried, read back off its first line, for the
+// How many items an answer carried, read back off its count line, for the
 // transcript's row.
 const countOf = (text) => {
-  const m = /^(\d+) of this chat's \d+ items/.exec(String(text || ''));
+  const m = /^(\d+) of this chat's \d+ items/m.exec(String(text || ''));
   return m ? Number(m[1]) : null;
 };
 

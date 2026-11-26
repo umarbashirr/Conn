@@ -89,7 +89,7 @@ export function threadReadTitle(state, output) {
   // Claude hands the result over as text or blocks; codex as the MCP result
   // itself, { content: [blocks] }.
   const text = toolText(Array.isArray(output?.content) ? output.content : output);
-  const m = /^(\d+) of this chat's \d+ items/.exec(text || '');
+  const m = /^(\d+) of this chat's \d+ items/m.exec(text || '');
   if (!m) return 'Read earlier items';
   const n = Number(m[1]);
   return `Read ${n} earlier ${n === 1 ? 'item' : 'items'}`;
