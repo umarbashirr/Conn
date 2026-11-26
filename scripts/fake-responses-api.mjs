@@ -11,7 +11,10 @@
    conn_thread_read the way a codex model in code mode does: one `exec` call
    whose JavaScript awaits tools.mcp__conn__conn_thread_read(<json>) and
    returns what it got. The next request carries that output back, and the
-   turn ends `codex read: <the tool's answer>`. */
+   turn ends `codex read: <the tool's answer>`.
+
+   Each POST's log line also has `seen`: the handoffs its input holds as
+   injected items and whether one was pasted into the user turn (handoffsIn). */
 import fs from 'node:fs';
 import http from 'node:http';
 
@@ -25,6 +28,35 @@ const userText = (input) => {
   return parts.filter((p) => p?.type === 'input_text').map((p) => p.text || '').join('\n');
 };
 
+/* What a request's input holds of Conn's handoffs, logged as `seen` beside its
+   body: every handoff handed over as thread items, as the messages it came in
+   (role and text, one per message, from its delivery="injected" header to its
+   closing tag), and whether the newest user message has a handoff pasted into
+   it, with the delivery its tag names. */
+const textIn = (m) => (Array.isArray(m?.content) ? m.content.map((c) => c?.text || '').join('') : '');
+function handoffsIn(input) {
+  const msgs = (Array.isArray(input) ? input : []).filter((m) => m?.type === 'message' || m?.role);
+  const injected = [];
+  let block = null;
+  let lastBlockEnd = -1;
+  msgs.forEach((m, i) => {
+    const t = textIn(m);
+    if (/^\s*<conn-handoff[^>]*\bdelivery="injected"/.test(t)) block = [{ role: m.role, text: t }];
+    else if (block) {
+      block.push({ role: m.role, text: t });
+      if (t.trim() === '</conn-handoff>') { injected.push(block); block = null; lastBlockEnd = i; }
+    }
+  });
+  const lastAt = msgs.findLastIndex((m) => m.role === 'user');
+  const lastText = textIn(msgs[lastAt]);
+  const pasted = /<conn-handoff/.test(lastText) && !/^\s*<conn-handoff[^>]*\bdelivery="injected"/.test(lastText);
+  // What this user turn was handed, read the way a pasted handoff reads: the
+  // block injected just ahead of it, if one was, then the message.
+  const ahead = lastAt >= 0 && lastBlockEnd === lastAt - 1 ? injected.at(-1) : null;
+  const handed = ahead ? `${ahead.map((x) => x.text).join('\n')}\n\nUser message:\n${lastText}` : lastText;
+  return { injected, pasted, pastedDelivery: pasted ? (/delivery="([^"]+)"/.exec(lastText)?.[1] || 'inline') : null, user: lastText, handed, injectedAhead: !!ahead };
+}
+
 let n = 0;
 const server = http.createServer((req, res) => {
   let body = '';
@@ -32,7 +64,7 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     let o = {};
     try { o = JSON.parse(body || '{}'); } catch {}
-    fs.appendFileSync(LOG, `${J({ at: Date.now(), method: req.method, url: req.url, body: o })}\n`);
+    fs.appendFileSync(LOG, `${J({ at: Date.now(), method: req.method, url: req.url, body: o, ...(req.method === 'POST' && { seen: handoffsIn(o.input) }) })}\n`);
     if (req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(J({ data: [], models: [] }));

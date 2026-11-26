@@ -110,8 +110,11 @@ const markOf = (text) => /MARK-(\d+)/.exec(text || '')?.[0] || null;
 
 // What codex was handed: the user text of its requests.
 const codexUserTexts = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [])
-  .flatMap((r) => (Array.isArray(r?.body?.input) ? r.body.input : []).filter((x) => x.role === 'user'))
-  .map((x) => (x.content || []).map((c) => c.text || '').join('\n'));
+  .flatMap((r) => [
+    // An injected handoff, read as the text it carries.
+    ...(r?.seen?.injectedAhead ? [r.seen.handed] : []),
+    ...(Array.isArray(r?.body?.input) ? r.body.input : []).filter((x) => x.role === 'user').map((x) => (x.content || []).map((c) => c.text || '').join('\n')),
+  ]);
 // The codex app-server processes this app started, oldest first, each as its argv.
 const codexLaunches = () => {
   const out = [];

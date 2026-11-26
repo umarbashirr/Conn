@@ -1,0 +1,169 @@
+{
+ "thread": {
+  "id": "01a2171e-8a37-70c0-a34b-f2cfb6a74af6",
+  "environments": [
+   {
+    "environmentId": "local",
+    "cwd": "/tmp/conn-verify-probe-k7DzTM",
+    "runtimeWorkspaceRoots": [
+     "/tmp/conn-verify-probe-k7DzTM"
+    ]
+   }
+  ],
+  "extra": null,
+  "sessionId": "01a2171e-8a37-70c0-a34b-f2cfb6a74af6",
+  "forkedFromId": null,
+  "attachedToThreadId": null,
+  "parentThreadId": null,
+  "preview": "typed after the first handoff",
+  "ephemeral": false,
+  "section": null,
+  "sectionEnteredAt": null,
+  "projectId": null,
+  "historyMode": "paginated",
+  "modelProvider": "fake",
+  "model": "gpt-6.2-sol",
+  "reasoningEffort": null,
+  "createdAt": 1795684207,
+  "updatedAt": 1795684207,
+  "recencyAt": 1795684207,
+  "status": {
+   "type": "idle"
+  },
+  "path": "codex-inject-rollout.jsonl",
+  "cwd": "/tmp/conn-verify-probe-k7DzTM",
+  "cliVersion": "0.171.0",
+  "originator": "probe",
+  "source": "vscode",
+  "canAcceptDirectInput": true,
+  "threadSource": null,
+  "agentNickname": null,
+  "agentRole": null,
+  "gitInfo": null,
+  "name": null,
+  "daybreakEnabled": null,
+  "turns": [
+   {
+    "id": "01a2171e-8b39-7343-b4f7-5cb0be058d6f",
+    "rootTurnId": "01a2171e-8b39-7343-b4f7-5cb0be058d6f",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a2171e-8b69-78d2-b86c-060b15418b88",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "typed after the first handoff",
+        "text_elements": []
+       }
+      ],
+      "startedAtMs": 1795684207470,
+      "completedAtMs": 1795684207470
+     },
+     {
+      "type": "agentMessage",
+      "moderation": null,
+      "id": "msg_1",
+      "text": "codex heard: typed after the first handoff",
+      "phase": null,
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null,
+      "startedAtMs": 1795684207568,
+      "completedAtMs": 1795684207569
+     }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1795684207,
+    "completedAt": 1795684207,
+    "durationMs": 162
+   },
+   {
+    "id": "01a2171e-8c13-75a0-bb21-9e31c2238967",
+    "rootTurnId": "01a2171e-8c13-75a0-bb21-9e31c2238967",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a2171e-8c25-73e2-9b65-195779c6a21f",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "a plain codex turn",
+        "text_elements": []
+       }
+      ],
+      "startedAtMs": 1795684207654,
+      "completedAtMs": 1795684207655
+     },
+     {
+      "type": "agentMessage",
+      "moderation": null,
+      "id": "msg_2",
+      "text": "codex heard: a plain codex turn",
+      "phase": null,
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null,
+      "startedAtMs": 1795684207691,
+      "completedAtMs": 1795684207692
+     }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1795684207,
+    "completedAt": 1795684207,
+    "durationMs": 66
+   },
+   {
+    "id": "01a2171e-8c86-7243-a045-2691e5713d55",
+    "rootTurnId": "01a2171e-8c86-7243-a045-2691e5713d55",
+    "items": [
+     {
+      "type": "userMessage",
+      "id": "01a2171e-8c9a-7bc2-aece-1a6076310ce2",
+      "clientId": null,
+      "content": [
+       {
+        "type": "text",
+        "text": "typed after the second handoff",
+        "text_elements": []
+       }
+      ],
+      "startedAtMs": 1795684207771,
+      "completedAtMs": 1795684207771
+     },
+     {
+      "type": "agentMessage",
+      "moderation": null,
+      "id": "msg_3",
+      "text": "codex heard: typed after the second handoff",
+      "phase": null,
+      "memoryCitation": null,
+      "delivery": null,
+      "questions": null,
+      "startedAtMs": 1795684207807,
+      "completedAtMs": 1795684207807
+     }
+    ],
+    "itemsView": "full",
+    "status": "completed",
+    "error": null,
+    "startedAt": 1795684207,
+    "completedAt": 1795684207,
+    "durationMs": 67
+   }
+  ]
+ },
+ "readState": {
+  "firstUnread": {
+   "type": "turn",
+   "turnId": "01a2171e-8b39-7343-b4f7-5cb0be058d6f"
+  },
+  "revision": "4c9d8c42-f16d-4b64-9462-d811d3e5778b"
+ }
+}

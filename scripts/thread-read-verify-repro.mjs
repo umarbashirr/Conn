@@ -87,7 +87,8 @@ const openRow = async (title) => {
   await sleep(6000);
 };
 const requests = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
-const codexUser = () => requests().map((r) => (r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || '');
+// What each turn was handed, an injected handoff read as the text it carries.
+const codexUser = () => requests().map((r) => r.seen?.handed ?? ((r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || ''));
 // What codex's exec call got back from the tool on the turn that started at
 // request `from`. Every request carries the whole thread, so a turn's first
 // request already repeats each earlier turn's outputs: only an output after the

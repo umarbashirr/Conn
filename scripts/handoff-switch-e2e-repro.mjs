@@ -49,6 +49,8 @@ const main = (expr) => evaluate(s, expr, { main: true });
 const codexRequests = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []);
 const lastCodexUser = () => {
   const r = codexRequests().at(-1);
+  // An injected handoff reads as the text it carries.
+  if (r?.seen?.handed !== undefined) return r.seen.handed;
   const users = (r?.body?.input || []).filter((m) => m.role === 'user');
   return users.at(-1)?.content?.map((c) => c.text).join('\n') || '';
 };

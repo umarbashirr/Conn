@@ -31,6 +31,8 @@ const { classify } = require('../shared/turn-error');
 const { codexFiles } = require('../shared/unified-diff');
 const { todoInput } = require('../shared/plan');
 const shellEnv = require('./shell-env');
+const { wrapMessage, withDelivery } = require('../shared/handoff');
+const { injectOutcome } = require('../shared/handoff-delivery');
 
 
 /* Approval requests, old names and new. codex kept the flat ones working while
@@ -135,9 +137,19 @@ const CODEX_INSTRUCTIONS = [
 const CONN_UP_MS = 10000;
 const CONN_SAID_MS = 1500;
 
+// How long an inject may go unanswered before the thread it was sent to is
+// treated as one it may or may not have landed on. Appending to a thread is
+// local work, so this is long only next to how fast it normally answers.
+const INJECT_MS = 15000;
+
 class CodexSession extends EventEmitter {
-  constructor({ cwd, resume, model, mode, effort, bridgeEnv, previews, shared }) {
+  // Tests shorten it; see scripts/handoff-inject-repro.mjs.
+  static injectMs = INJECT_MS;
+
+  constructor({ cwd, resume, model, mode, effort, bridgeEnv, previews, shared, server }) {
     super();
+    // How a server is made, which a plain-node check swaps for a fake one.
+    this.server = server || ((o) => new AppServer(o));
     this.cwd = cwd;
     this.resume = resume || null;
     this.model = model || null;
@@ -168,6 +180,13 @@ class CodexSession extends EventEmitter {
     // What codex is set to right now, which is not always what the mode says.
     // #policy() below is what closes the gap.
     this.applied = { sandbox: null, approvalPolicy: null };
+    // A handoff being handed over as thread items: while it is, a server that
+    // dies is the delivery's to deal with, not the end of the chat.
+    this.delivering = false;
+    // Set once a thread/inject_items comes back as a method this codex lacks.
+    this.noInject = false;
+    // Threads an inject went unanswered on, which are never sent another.
+    this.unsure = new Set();
   }
 
   async start() {
@@ -175,14 +194,26 @@ class CodexSession extends EventEmitter {
     const bin = codexBinary();
     if (!bin) throw new Error('No codex on your PATH. Install the Codex CLI, then open a new chat.');
     this.emit('stderr', `using codex binary at ${bin}\n`);
+    this.bin = bin;
+    await this.#boot(this.resume);
+    this.emit('ready', { sessionId: this.sessionId, model: this.model, mode: this.mode });
+    return this;
+  }
 
+  // A server and a thread on it: the one resumed, or a new one.
+  async #boot(resume) {
     const { sandbox, approvalPolicy } = CODEX_MODE[this.mode];
 
-    this.rpc = new AppServer({ bin, cwd: this.cwd, config: this.#config() });
-    this.rpc.on('stderr', (d) => this.emit('stderr', d));
-    this.rpc.on('notification', (m, p) => this.#note(m, p));
-    this.rpc.on('request', (m, p, respond) => this.#ask(m, p, respond));
-    this.rpc.on('closed', (why) => {
+    const rpc = this.server({ bin: this.bin, cwd: this.cwd, config: this.#config() });
+    this.rpc = rpc;
+    this.connStatus = null;
+    rpc.on('stderr', (d) => this.emit('stderr', d));
+    rpc.on('notification', (m, p) => this.#note(m, p));
+    rpc.on('request', (m, p, respond) => this.#ask(m, p, respond));
+    rpc.on('closed', (why) => {
+      // A server this session has already moved off, or one that died while a
+      // handoff was in flight on it, which starts a new one in its place.
+      if (rpc !== this.rpc || this.delivering) return;
       if (!this.closed) this.emit('error', why);
       this.closed = true;
       this.busy = false;
@@ -194,7 +225,7 @@ class CodexSession extends EventEmitter {
     // is nothing to click. Opting in exposes more of the protocol rather than
     // destabilising what we already use, and if codex ever stops sending these
     // the model falls back to prose on its own. See #question.
-    await this.rpc.start({ clientInfo: CLIENT, capabilities: { experimentalApi: true } });
+    await rpc.start({ clientInfo: CLIENT, capabilities: { experimentalApi: true } });
 
     const params = {
       cwd: this.cwd,
@@ -205,15 +236,13 @@ class CodexSession extends EventEmitter {
       ...(this.previews ? { developerInstructions: CODEX_INSTRUCTIONS } : {}),
       ...(this.model ? { model: this.model } : {}),
     };
-    const res = this.resume
-      ? await this.rpc.request('thread/resume', { ...params, threadId: this.resume })
-      : await this.rpc.request('thread/start', params);
+    const res = resume
+      ? await rpc.request('thread/resume', { ...params, threadId: resume })
+      : await rpc.request('thread/start', params);
 
     this.applied = { sandbox, approvalPolicy };
     this.sessionId = res?.thread?.id || null;
     this.model = res?.model || this.model;
-    this.emit('ready', { sessionId: this.sessionId, model: this.model, mode: this.mode });
-    return this;
   }
 
   /* Everything codex cannot be told through the protocol: the preview tools and
@@ -267,12 +296,23 @@ class CodexSession extends EventEmitter {
   // --- what the panel calls -------------------------------------------------
 
   send(textIn, images = []) {
+    const body = this.#body(textIn);
+    const input = this.#turnInput(body, images);
+    this.#said(body);
+    if (this.busy) this.#steer(input);
+    else this.#start(input);
+  }
+
+  #body(textIn) {
     const body = this.preface ? `${this.preface}\n\n${textIn}` : textIn;
     this.preface = null;
+    return body;
+  }
 
-    // Pictures ahead of the words, for the reason blocks() gives on the claude
-    // side: a prompt that refers back to a picture the model has already seen
-    // lands better than one that arrives first.
+  // Pictures ahead of the words, for the reason blocks() gives on the claude
+  // side: a prompt that refers back to a picture the model has already seen
+  // lands better than one that arrives first.
+  #turnInput(body, images) {
     const input = [];
     for (const img of images || []) {
       // Two shapes and only these two. A data url is the one form that needs no
@@ -283,28 +323,140 @@ class CodexSession extends EventEmitter {
       else if (img?.path) input.push({ type: 'localImage', path: img.path });
     }
     input.push({ type: 'text', text: body });
+    return input;
+  }
 
+  #said(body) {
     this.#emit({
       type: 'user',
       message: { role: 'user', content: [{ type: 'text', text: body }] },
       parent_tool_use_id: null,
       session_id: this.sessionId || '',
     });
-
-    if (this.busy) this.#steer(input);
-    else this.#start(input);
   }
 
-  #start(input) {
+  /* A message that carries a handoff. `handoff` is { text, items, whole }:
+     the handoff as text, the same as thread items (see handoffItems), and for
+     a chat this agent was in before, the whole chat as text, for a thread
+     that has none of it.
+
+     The items go onto the thread first and the turn carries only what was
+     typed. A refusal sends the text in front of the message instead, in the
+     same turn. An inject left unanswered leaves this thread in doubt, so the
+     session moves to a new thread on a new server and the text goes there;
+     the chat hears of the new thread as it hears of any, through 'ready'.
+     Resolves, once the handoff has gone one of those ways and before the turn
+     has run, to { delivery, whole, sessionId }, or { lost: true } when no new
+     thread could be had.
+
+     Busy from the first moment, with the turn's start promised, so a message
+     sent meanwhile steers into this turn after the handoff rather than going
+     ahead of it. #connReady still comes between the thread and the turn. */
+  sendHandoff(textIn, images, handoff) {
+    if (this.busy || this.noInject || !Array.isArray(handoff?.items) || !handoff.items.length) {
+      this.send(wrapMessage(handoff.text, textIn), images);
+      return Promise.resolve({ delivery: 'inline', sessionId: this.sessionId });
+    }
+    const typed = this.#body(textIn);
+    const inline = (text) => this.#turnInput(wrapMessage(text, typed), images);
+    this.#said(typed);
+    let told;
+    const answered = new Promise((resolve) => { told = resolve; });
     this.busy = true;
     this.startedAt = Date.now();
-    this.starting = this.#connReady().then(() => this.rpc?.request('turn/start', {
+    this.starting = (async () => {
+      let input = this.#turnInput(typed, images);
+      const how = await this.#inject(handoff.items);
+      if (how === 'injected') {
+        told({ delivery: 'injected', sessionId: this.sessionId });
+      } else if (how === 'refused') {
+        input = inline(handoff.text);
+        told({ delivery: 'inline', sessionId: this.sessionId });
+      } else {
+        try {
+          await this.#newThread();
+        } catch (e) {
+          told({ lost: true });
+          this.#gone(`codex could not start a new thread for the handoff: ${e?.message || e}`);
+          throw e;
+        }
+        input = inline(withDelivery(handoff.whole || handoff.text, 'new-thread'));
+        told({ delivery: 'new-thread', whole: !!handoff.whole, sessionId: this.sessionId });
+      }
+      await this.#connReady();
+      return this.rpc?.request('turn/start', this.#turnParams(input));
+    })();
+    this.starting.then((res) => { this.turnId = res?.turn?.id || null; })
+      .catch((e) => {
+        this.busy = false;
+        // Already told, unless it failed before the handoff went anywhere.
+        told({ delivery: null, sessionId: this.sessionId });
+        if (!this.closed) this.emit('error', e?.message || String(e));
+      });
+    return answered;
+  }
+
+  /* One thread/inject_items, as `injected`, `refused` or `unsure`. A thread
+     whose inject went unanswered is never sent another one. */
+  async #inject(items) {
+    const thread = this.sessionId;
+    if (this.unsure.has(thread)) return 'unsure';
+    if (!thread || !this.rpc) return 'refused';
+    this.delivering = true;
+    try {
+      await this.rpc.request('thread/inject_items', { threadId: thread, items }, CodexSession.injectMs);
+      return 'injected';
+    } catch (e) {
+      const { how, unsupported } = injectOutcome(e);
+      if (unsupported) this.noInject = true;
+      if (how === 'unsure') this.unsure.add(thread);
+      this.emit('stderr', `thread/inject_items ${how}: ${e?.message || e}\n`);
+      return how;
+    } finally {
+      this.delivering = false;
+    }
+  }
+
+  /* A new thread for this chat's stretch, on a new server: the old one either
+     died or let a request go unanswered, and nothing more sent to it can be
+     trusted to arrive. The chat learns the new thread through 'ready'. */
+  async #newThread() {
+    const old = this.rpc;
+    this.delivering = true;
+    try {
+      old?.close();
+      await this.#boot(null);
+    } finally {
+      this.delivering = false;
+    }
+    this.turnId = null;
+    this.emit('ready', { sessionId: this.sessionId, model: this.model, mode: this.mode });
+  }
+
+  // The session ending the way a dead server ends it.
+  #gone(why) {
+    if (this.closed) return;
+    this.emit('error', why);
+    this.closed = true;
+    this.busy = false;
+    this.rpc?.close();
+    this.emit('closed');
+  }
+
+  #turnParams(input) {
+    return {
       threadId: this.sessionId,
       input,
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
       ...this.#policy(),
-    }));
+    };
+  }
+
+  #start(input) {
+    this.busy = true;
+    this.startedAt = Date.now();
+    this.starting = this.#connReady().then(() => this.rpc?.request('turn/start', this.#turnParams(input)));
     this.starting?.then((res) => { this.turnId = res?.turn?.id || null; })
       .catch((e) => {
         this.busy = false;

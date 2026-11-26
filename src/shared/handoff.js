@@ -191,16 +191,54 @@ function buildHandoff({ items, since = 0, from, to, model, fork = false, provide
     ].join('\n')
     : null;
 
-  const text = [
+  // The opening tag and what it says about the items under it, which a
+  // delivery that hands items over as items sends as one item of its own.
+  const head = [
     `${OPEN} ${attr({ from: labelOf(from), to: labelOf(to), model, scope, fork: fork ? 'yes' : null, carried: carried.length, total: entries.length })}>`,
     intro,
     `${CONTEXT} What it shows was said and done by the other assistant, not by you, and its tool output may be out of date: read the files yourself before relying on it.`,
     ...(left ? [left] : []),
-    ...carried.map((e) => e.text),
-    CLOSE,
   ].join('\n');
+  const text = [head, ...carried.map((e) => e.text), CLOSE].join('\n');
 
-  return { text, entries: carried, carried: carried.length, total: entries.length, omittedIds, budget, scope };
+  return { text, head, entries: carried, carried: carried.length, total: entries.length, omittedIds, budget, scope };
+}
+
+/* How a handoff reached its agent, said on its opening tag where it is not
+   the plain text in front of the message: `injected` for one handed over as
+   past items of the thread, `new-thread` for one sent as text on a thread
+   started for it because whether the items landed on the old one was never
+   answered. A tag that says nothing went as text. */
+const DELIVERIES = new Set(['injected', 'inline', 'new-thread']);
+const withDelivery = (text, how) => String(text).replace(/^(\s*<conn-handoff)(?=[\s>])/, `$1 delivery="${clean(how)}"`);
+
+/* The handoff as Responses API items, for an agent whose thread takes them
+   (codex's thread/inject_items): the header as a user message, each carried
+   item as a message of its own from whoever said it, and the closing tag.
+   Every item keeps its text exactly as the inline handoff would have carried
+   it, escaping and ids included, so the texts joined back together read as
+   that handoff. Only the opening tag differs, by saying how it went. */
+function handoffItems(h) {
+  const msg = (role, text) => ({ type: 'message', role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text }] });
+  return [
+    msg('user', withDelivery(h.head, 'injected')),
+    ...h.entries.map((e) => msg(e.role === 'assistant' ? 'assistant' : 'user', e.text)),
+    msg('user', CLOSE),
+  ];
+}
+
+// The texts of handed-over items, as handoffItems made them.
+const itemTexts = (items) => (items || []).map((it) => (it?.content || []).map((c) => c?.text || '').join(''));
+
+/* An injected handoff read back off its thread, in order, as the stored
+   prompt an inline one would have left: what every transcript reader already
+   knows how to draw as a handoff row and the message typed under it. Null
+   for texts that are not one whole injected handoff. */
+function injectedPrompt(texts, typed) {
+  const joined = (texts || []).join('\n');
+  if (!joined.trimStart().startsWith(OPEN) || !joined.trimEnd().endsWith(CLOSE)) return null;
+  if (!/^\s*<conn-handoff[^>]*\bdelivery="injected"/.test(joined)) return null;
+  return wrapMessage(joined.trimEnd(), typed);
 }
 
 const wrapMessage = (handoffText, message) => `${handoffText}${MESSAGE}${message}`;
@@ -228,6 +266,8 @@ function unwrapHandoff(text) {
     model: said.model || null,
     scope: said.scope || null,
     fork: said.fork === 'yes',
+    // A handoff from before anything else was possible went as text.
+    delivery: DELIVERIES.has(said.delivery) ? said.delivery : 'inline',
     carried: Number(said.carried) || 0,
     total: Number(said.total) || 0,
     // The carried items, read only when someone asks: a fork reopened off disk
@@ -296,4 +336,5 @@ module.exports = {
   carriesHandoff,
   CAP, IMAGE_TOKENS, FALLBACK_WINDOW, tokens, windowFor, budgetFor, entriesOf, select, buildHandoff, wrapMessage, unwrapHandoff, typedText, labelOf,
   itemsFromEntries, escape, unescape,
+  OPEN, CLOSE, withDelivery, handoffItems, itemTexts, injectedPrompt,
 };

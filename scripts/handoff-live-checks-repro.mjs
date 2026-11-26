@@ -54,7 +54,8 @@ console.log(`session ${s.dir}`);
 const page = (e) => evaluate(s, e);
 const main = (e) => evaluate(s, e, { main: true });
 const codexUsers = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [])
-  .map((r) => (r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || '');
+  // An injected handoff reads as the text it carries.
+  .map((r) => r.seen?.handed ?? ((r.body?.input || []).filter((m) => m.role === 'user').at(-1)?.content?.map((c) => c.text).join('\n') || ''));
 const stubPrompts = () => (fs.existsSync(STUB_LOG) ? fs.readFileSync(STUB_LOG, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : []).filter((e) => e.method === 'session/prompt');
 const segments = () => { try { return JSON.parse(fs.readFileSync(path.join(s.home, '.conn/chat-segments.json'), 'utf8')); } catch { return {}; } };
 const rows = async () => {

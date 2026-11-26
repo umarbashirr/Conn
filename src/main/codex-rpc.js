@@ -96,7 +96,10 @@ class AppServer extends EventEmitter {
       if (!entry) return;
       this.pending.delete(msg.id);
       clearTimeout(entry.timer);
-      if (msg.error) entry.reject(new Error(msg.error.message || 'codex refused the request'));
+      // An answer, even a refusal, says codex took the request in. The code
+      // goes with it so a caller can tell a method this codex lacks from one
+      // that failed while running.
+      if (msg.error) entry.reject(Object.assign(new Error(msg.error.message || 'codex refused the request'), { code: msg.error.code, answered: true }));
       else entry.resolve(msg.result);
       return;
     }
@@ -117,13 +120,13 @@ class AppServer extends EventEmitter {
   }
 
   request(method, params = {}, timeout = 0) {
-    if (this.closed) return Promise.reject(new Error('codex app-server is not running'));
+    if (this.closed) return Promise.reject(Object.assign(new Error('codex app-server is not running'), { unsent: true }));
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       const timer = timeout
         ? setTimeout(() => {
           this.pending.delete(id);
-          reject(new Error(`codex did not answer ${method} in time`));
+          reject(Object.assign(new Error(`codex did not answer ${method} in time`), { unanswered: true }));
         }, timeout)
         : null;
       this.pending.set(id, { resolve, reject, timer });
@@ -138,9 +141,10 @@ class AppServer extends EventEmitter {
   #die(why) {
     if (this.closed) return;
     this.closed = true;
+    // Whatever was still waiting may or may not have been done before it died.
     for (const [, entry] of this.pending) {
       clearTimeout(entry.timer);
-      entry.reject(new Error(why));
+      entry.reject(Object.assign(new Error(why), { unanswered: true }));
     }
     this.pending.clear();
     this.emit('closed', why);
