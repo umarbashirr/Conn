@@ -97,6 +97,7 @@ try {
   fs.writeFileSync(path.join(s.home, '.codex/config.toml'), [
     'model_provider = "fake"', '', '[model_providers.fake]', 'name = "fake"',
     `base_url = "http://127.0.0.1:${port}/v1"`, 'wire_api = "responses"', 'request_max_retries = 0', 'stream_max_retries = 0', '',
+    '[features]', 'plugins = false', '', // codex's plugin sync would reach github.com and chatgpt.com: see handoff-harness.mjs
   ].join('\n'));
   await main("(() => { req('./codex-history').close(); const { Driver } = req('./driver'); const orig = Driver.prototype.current; Driver.prototype.current = function (o) { const r = orig.call(this, o); return r.models.length ? r : { ...r, models: [{ value: 'claude-opus-5-5', displayName: 'Opus 5.5 (stand-in)' }] }; }; const { AcpRpc } = req('./providers/acp-rpc'); const request = AcpRpc.prototype.request; AcpRpc.prototype.request = function (method, ...rest) { if (method === 'session/delete') return Promise.reject(new Error('stub: this agent refuses to delete')); return request.call(this, method, ...rest); }; return 1; })()");
   await click(s, 'Later').catch(() => {});
