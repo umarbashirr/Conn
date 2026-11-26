@@ -102,7 +102,9 @@ export function PermMark({ perm }) {
   );
 }
 
-export function ToolRow({ name, input, state, at, end, right, thumb = null, defaultOpen = false, children }) {
+// `title` replaces the verb and name the row would lead with, for a call whose
+// result says it better.
+export function ToolRow({ name, input, state, at, end, right, thumb = null, defaultOpen = false, title: told = null, children }) {
   const [open, setOpen] = useState(defaultOpen);
   // The input arrives after the row does, so a row can turn into a diff a beat
   // later. Follow defaultOpen until the reader takes over.
@@ -125,7 +127,7 @@ export function ToolRow({ name, input, state, at, end, right, thumb = null, defa
   useTick(running);
   const held = running && at ? Date.now() - at : 0;
   const took = running ? null : callSpan({ at, end });
-  const title = toolTitle(name, state);
+  const title = told || toolTitle(name, state);
 
   return (
     <div className={cn('rounded-md', failed && 'bg-destructive/5')}>

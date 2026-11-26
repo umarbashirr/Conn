@@ -82,6 +82,32 @@ const DONE = {
 
 const IN_FLIGHT = new Set(['input-available', 'input-streaming']);
 
+// The blocks of an MCP result codex handed over as its JSON, or null.
+const mcpContent = (output) => {
+  if (typeof output !== 'string' || !output.startsWith('{')) return null;
+  try {
+    const content = JSON.parse(output)?.content;
+    return Array.isArray(content) ? content : null;
+  } catch {
+    return null;
+  }
+};
+
+// conn_thread_read's row: how many of this chat's earlier items came back.
+export function threadReadTitle(state, output) {
+  if (IN_FLIGHT.has(state)) return 'Reading earlier items';
+  if (state === 'output-error') return 'Read earlier items';
+  // Claude hands the result over as text or blocks. Codex hands over its MCP
+  // result, { content: [blocks], structuredContent, _meta }, as that object's
+  // JSON (codex.js and codex-history.js both pass it through text()), where the
+  // newline before the count is an escape the pattern below cannot anchor on.
+  const text = toolText(mcpContent(output) || output);
+  const m = /^(\d+) of this chat's \d+ items/m.exec(text || '');
+  if (!m) return 'Read earlier items';
+  const n = Number(m[1]);
+  return `Read ${n} earlier ${n === 1 ? 'item' : 'items'}`;
+}
+
 // The word a row leads with. Browser tools are named by what they are, not by
 // a verb, so they never take one. A failed call keeps its name too: "Ran" or
 // "Edited" in red would claim the work happened.

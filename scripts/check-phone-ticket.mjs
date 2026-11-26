@@ -374,6 +374,9 @@ try {
     () => frames.some((frame) => frame.of === 'send' && frame.nonce === 'n7' && frame.ok === true),
     'photo send',
   );
+  // The phone's id for the send rides along: deliverTurn hands it to the
+  // window as the turn's id when the chat has a switch waiting there, so a
+  // repeat of the same send is taken once.
   assert.deepEqual(turns.at(-1), {
     chat: 'h:codex:019a6c',
     text: '[attached image] IMG_0412.jpg\n\nwhy is this red?',
@@ -381,6 +384,7 @@ try {
     project,
     session: '019a6c',
     provider: 'codex',
+    nonce: 'n7',
   });
 
   phone.send(JSON.stringify({
@@ -401,6 +405,7 @@ try {
     project,
     session: null,
     provider: 'claude',
+    nonce: 'n-old',
   });
 
   const beforeRejects = turns.length;

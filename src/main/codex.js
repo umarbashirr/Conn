@@ -129,6 +129,12 @@ const CODEX_INSTRUCTIONS = [
   'Use them for anything to do with a page. Any other browser tool or skill you have drives a different window that nobody can see.',
 ].join(' ');
 
+// How long a turn waits for codex to start Conn's MCP server: once codex has
+// said it is starting it, and when codex has said nothing about it. See
+// #connReady.
+const CONN_UP_MS = 10000;
+const CONN_SAID_MS = 1500;
+
 class CodexSession extends EventEmitter {
   constructor({ cwd, resume, model, mode, effort, bridgeEnv, previews, shared }) {
     super();
@@ -233,7 +239,11 @@ class CodexSession extends EventEmitter {
          installed Conn launched from the desktop has no node on its PATH, and
          a real node cannot read the archive, so the server never started and
          codex saw no browser tools. */
-      const { command, args, env } = this.previews;
+      // The chat this session belongs to rides in the server's environment, so
+      // its calls name it rather than the chat on screen; conn_thread_read
+      // reads only that chat.
+      const { command, args } = this.previews;
+      const env = { ...this.previews.env, ...this.bridgeEnv };
       out.push(`mcp_servers.conn.command=${JSON.stringify(command)}`);
       out.push(`mcp_servers.conn.args=${JSON.stringify(args)}`);
       for (const [k, v] of Object.entries(env)) {
@@ -288,13 +298,13 @@ class CodexSession extends EventEmitter {
   #start(input) {
     this.busy = true;
     this.startedAt = Date.now();
-    this.starting = this.rpc?.request('turn/start', {
+    this.starting = this.#connReady().then(() => this.rpc?.request('turn/start', {
       threadId: this.sessionId,
       input,
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
       ...this.#policy(),
-    });
+    }));
     this.starting?.then((res) => { this.turnId = res?.turn?.id || null; })
       .catch((e) => {
         this.busy = false;
@@ -522,7 +532,36 @@ class CodexSession extends EventEmitter {
     });
   }
 
+  /* Codex starts the MCP servers it is given alongside the thread, and a turn
+     sent before Conn's is up goes out without its tools, conn_thread_read
+     among them, which the handoff on that very turn tells the agent to use.
+     So a turn waits until codex says the conn server is ready, failed or gone:
+     up to CONN_UP_MS once it has said it is starting, and only CONN_SAID_MS if
+     it has said nothing at all, for a codex that does not report it. */
+  #connReady() {
+    if (!this.previews) return Promise.resolve();
+    const settled = () => this.connStatus && this.connStatus !== 'starting';
+    if (settled()) return Promise.resolve();
+    const began = Date.now();
+    return new Promise((resolve) => {
+      const tick = () => {
+        if (settled() || this.closed) return resolve();
+        if (Date.now() - began >= (this.connStatus === 'starting' ? CONN_UP_MS : CONN_SAID_MS)) {
+          // Waited once; the turns after this one go without waiting.
+          this.connStatus = 'unconfirmed';
+          return resolve();
+        }
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
+  }
+
   #note(method, params) {
+    if (method === 'mcpServer/startupStatus/updated') {
+      if (params?.name === 'conn') this.connStatus = params.status;
+      return;
+    }
     if (method === 'item/agentMessage/delta') {
       if (params.itemId) this.#write(params.itemId, 'text', params.delta || '');
       return;

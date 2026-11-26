@@ -231,7 +231,7 @@ contextBridge.exposeInMainWorld('conn', {
     active: (chat, session) => ipcRenderer.send('agent:active', { chat, session }),
     history: () => ipcRenderer.invoke('agent:history'),
     search: (query) => ipcRenderer.invoke('agent:search', { query }),
-    transcript: (id, project, { limit, end, provider } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider }),
+    transcript: (id, project, { limit, end, provider, whole } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider, whole }),
     // The sessions a chat that changed agent is made of, oldest first.
     setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
     // The switched chat a session id belongs to, as { head, segments }, or null.
@@ -268,6 +268,8 @@ contextBridge.exposeInMainWorld('conn', {
     phoneTurnTaken: (id, result) => ipcRenderer.send('agent:phoneTurnTaken', { id, ...result }),
     // The chats with a handoff waiting on their next message, as { head, key }.
     pendingHandoffs: (list) => ipcRenderer.send('agent:pendingHandoffs', { list }),
+    // The sessions each open chat ran on, for conn_thread_read, as { key, segments }.
+    threadSegments: (list) => ipcRenderer.send('agent:threadSegments', { list }),
     onDecided: on('agent:decided'),
     notify: (note) => ipcRenderer.send('agent:notify', note),
     onReveal: on('agent:reveal'),

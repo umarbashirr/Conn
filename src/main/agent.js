@@ -7,6 +7,7 @@ const { EventEmitter } = require('events');
 const fs = require('fs');
 const path = require('path');
 const { browserTools, toolContent, planBatch, runBatch, batchContent, INSTRUCTIONS, ALWAYS_LOADED } = require('../shared/browser-tools');
+const threadTool = require('../shared/thread-tool');
 const { claudeBinary, takesThinkingDisplay } = require('./driver');
 const { SDK_MODE, isMode, normalizeMode, decide } = require('./modes');
 const { ruleFor, hookWatch, toolLists } = require('./permission-rules');
@@ -143,7 +144,25 @@ class AgentSession extends EventEmitter {
   browserHandlers(z) {
     if (!this.invoke) return [];
     const table = browserTools(z);
-    return table.map((t) => ({
+    // Reading this chat's earlier items, which a handoff names by id. Main
+    // knows which chat this session is, so nothing the agent passes can name
+    // another.
+    const thread = {
+      name: threadTool.NAME,
+      description: threadTool.DESCRIPTION,
+      schema: threadTool.schema(z),
+      alwaysLoad: false,
+      handler: async (args, extra) => {
+        const actor = await this.#actorFor(extra);
+        try {
+          const { result } = await this.invoke('thread_read', args, actor, { report: true });
+          return { content: [{ type: 'text', text: String(result ?? '') }] };
+        } catch (e) {
+          return { content: [{ type: 'text', text: `error: ${e.message}` }], isError: true };
+        }
+      },
+    };
+    return [...table.map((t) => ({
       name: t.name,
       description: t.description,
       schema: t.schema,
@@ -158,7 +177,7 @@ class AgentSession extends EventEmitter {
         const { result, caused } = await this.invoke(route, mapped, actor, { report: true });
         return toolContent(t, result, fs.readFileSync, { args, caused });
       },
-    }));
+    })), thread];
   }
 
   // The CLI asked about the batch as a whole, and decide() let it through

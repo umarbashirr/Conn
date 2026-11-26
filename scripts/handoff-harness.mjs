@@ -75,9 +75,13 @@ export async function safeBoot({ codexPort }) {
   const env = JSON.parse(await main('JSON.stringify(process.env)'));
   assertSafeEnv(env, 'app');
   fs.mkdirSync(path.join(s.home, '.codex'), { recursive: true });
+  // codex 0.171.0 syncs its plugin marketplace at startup, account or not:
+  // api.github.com, github.com and chatgpt.com, seen through a proxy that
+  // refused them. Off, it reaches nothing but the fake.
   fs.writeFileSync(path.join(s.home, '.codex/config.toml'), [
     'model_provider = "fake"', '', '[model_providers.fake]', 'name = "fake"',
     `base_url = "http://127.0.0.1:${codexPort}/v1"`, 'wire_api = "responses"', 'request_max_retries = 0', 'stream_max_retries = 0', '',
+    '[features]', 'plugins = false', '',
   ].join('\n'));
   // The history server may have started before the config; it lists by provider.
   await main("(() => { req('./codex-history').close(); const { Driver } = req('./driver'); const orig = Driver.prototype.current; Driver.prototype.current = function (o) { const r = orig.call(this, o); return r.models.length ? r : { ...r, models: [{ value: 'claude-opus-5-5', displayName: 'Opus 5.5 (stand-in)' }] }; }; return 1; })()");

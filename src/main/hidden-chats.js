@@ -26,14 +26,22 @@ function hideParts({ hidden, head, segments = [], left, meta = {} }) {
   return run;
 }
 
-// Show again: every hidden part of the chat comes back, joined again when
-// there are two or more.
-function showAgain({ hidden, records, session }) {
+/* Show again: every hidden part of the chat comes back, joined again when
+   there are two or more. When the chat's first part was the one deleted, the
+   part it now starts on would be named by its own first message, which is the
+   handoff it was given, so the chat's name goes with it. `titles` is
+   chat-titles.js. */
+function showAgain({ hidden, records, titles, session }) {
   const parts = hidden.group(session);
   if (!parts.length) return { ok: false };
   for (const p of parts) hidden.forget(p.session);
   const run = parts.find((p) => p.segments)?.segments || null;
   if (run) records.set(run[0].session, run);
+  const first = run ? run[0].session : parts[0].session;
+  const title = parts.find((p) => p.title)?.title;
+  if (titles && title && parts[0].chat && first !== parts[0].chat) {
+    try { titles.set(first, title); } catch {}
+  }
   return { ok: true, sessions: parts.map((p) => p.session), joined: !!run };
 }
 

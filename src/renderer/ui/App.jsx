@@ -50,7 +50,7 @@ import { FOLD_AT_CALLS, runs } from '@/lib/runs';
 import { linksOf, turnSources, withoutLinks } from '@/lib/sources';
 import { isLive, subagentsIn } from '@/lib/subagents';
 import { parseTestRun } from '@/lib/test-runs';
-import { imageSrc, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
+import { imageSrc, threadReadTitle, toolImages, toolLabel, toolName, toolRecording, toolSummary, toolText } from '@/lib/tools';
 import { attachPerms, turnEdits } from '@/lib/turns';
 
 import { useAgent } from './useAgent';
@@ -71,7 +71,7 @@ import { mentionsIn } from './lib/tokens.js';
 import { imageHead, plainText } from '../../shared/attachments.js';
 import { markUp } from '@/lib/attachments';
 import { withAnswers } from '../../shared/ask-answers.js';
-import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
+import { isInternalAnswerArtifact } from '../../shared/assistant-output.js';
 
 // Everything clipped to a message becomes a preamble above what was typed. An
 // element picked out of the preview is described in full; a picture travels as
@@ -1247,6 +1247,8 @@ function Item({ item, agent, mark, calls }) {
           state={item.state}
           at={item.at}
           end={item.end}
+          // "Read 6 earlier items" says what came back better than a verb and the tool's name.
+          title={label === 'conn_thread_read' ? threadReadTitle(item.state, item.output) : null}
           thumb={images.at(-1) ?? null}
           defaultOpen={item.state === 'output-error' || !!run?.failed || !!recording}
           right={(

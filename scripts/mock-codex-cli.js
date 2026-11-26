@@ -142,6 +142,16 @@ function onMessage(msg) {
     });
   }
   if (msg.method === 'thread/start') {
+    // MOCK_CODEX_MCP_MS: say the conn server is starting, and that it is ready
+    // that many ms later, writing each moment to MOCK_CODEX_TIMELINE.
+    const mcpMs = Number(process.env.MOCK_CODEX_MCP_MS || 0);
+    if (mcpMs) {
+      setTimeout(() => notify('mcpServer/startupStatus/updated', { name: 'conn', status: 'starting', threadId: 'mock-thread' }), 0);
+      setTimeout(() => {
+        mark('ready');
+        notify('mcpServer/startupStatus/updated', { name: 'conn', status: 'ready', threadId: 'mock-thread' });
+      }, mcpMs);
+    }
     return send({ jsonrpc: '2.0', id: msg.id, result: { thread: { id: 'mock-thread' }, model: 'mock-codex-model' } });
   }
   if (EDITS && msg.method === 'thread/list') {
@@ -168,6 +178,7 @@ function onMessage(msg) {
       result: { thread: { id: msg.params?.threadId, createdAt: 1, turns: [{ id: 'mock-turn', startedAt: 1, items }] } },
     });
   }
+  if (msg.method === 'turn/start') mark('turn');
   if (msg.method === 'turn/start') {
     send({ jsonrpc: '2.0', id: msg.id, result: { turn: { id: 'mock-turn', status: 'inProgress' } } });
     if (/limit/i.test(JSON.stringify(msg.params?.input || ''))) {
@@ -192,6 +203,10 @@ function onMessage(msg) {
     return notify('turn/completed', { threadId: 'mock-thread', turn: { id: 'mock-turn', status: 'interrupted' } });
   }
   send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: `unknown method ${msg.method}` } });
+}
+
+function mark(what) {
+  if (process.env.MOCK_CODEX_TIMELINE) fs.appendFileSync(process.env.MOCK_CODEX_TIMELINE, `${what} ${Date.now()}\n`);
 }
 
 function notify(method, params) {

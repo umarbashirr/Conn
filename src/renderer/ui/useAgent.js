@@ -2,7 +2,7 @@ import { chatTitle, TITLE_MAX, RENAME_MAX } from '../../shared/chat-title';
 import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
-import { isInternalAnswerArtifact } from '../../shared/assistant-output.mjs';
+import { isInternalAnswerArtifact } from '../../shared/assistant-output.js';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { chatActivity } from '@/lib/activity';
@@ -17,8 +17,10 @@ import { bucketOf } from '@/lib/tools';
 import { account, blankUsage, byModel, storedContext, totals, withStop } from '@/lib/usage';
 import { hasUndecidedPerm } from './shell/chat-attention.js';
 import { toast } from './shell/toast';
-import { buildHandoff, itemsFromEntries, labelOf, unwrapHandoff, windowFor, wrapMessage } from '../../shared/handoff';
-import { cutFor, headOf, persistable, providerAt, stitch, switchChat, withSession } from '../../shared/chat-segments';
+import { buildHandoff, labelOf, windowFor, wrapMessage } from '../../shared/handoff';
+import { readThread, replay, replayStored } from '../../shared/replay';
+import { NAME as THREAD_TOOL } from '../../shared/thread-tool';
+import { cutFor, headOf, persistable, providerAt, switchChat, withSession } from '../../shared/chat-segments';
 import { createSerial, modelEntry } from '../../shared/model-pick';
 import { deleteNote } from '../../shared/delete-note';
 
@@ -85,110 +87,6 @@ function interrupted(items) {
   }), { id: uid('i'), kind: 'note', text: 'interrupted' }];
 }
 
-const strip = (t) => t.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
-
-// A stored prompt that carried a handoff is drawn as the handoff row and then
-// what was typed, never as the history that went with it. A fork's transcript
-// has nothing before that prompt, so what it carried is drawn back above the
-// row: that is what the fork was given.
-function userRows(id, said, extra) {
-  const u = unwrapHandoff(said);
-  if (!u.handoff) return [{ id, kind: 'user', text: said, ...extra }];
-  const { from, to, model, carried, total, scope, fork } = u;
-  return [
-    ...(fork ? itemsFromEntries(u.entries(), `${id}:c:`) : []),
-    { id: `${id}:handoff`, kind: 'handoff', from, to, model, carried, total, scope, ...(fork && { fork }) },
-    { id, kind: 'user', text: u.text.trim(), handoff: true, ...extra },
-  ];
-}
-
-
-// Stored messages back into items. Used for a whole chat and again for one
-// subagent's transcript, where `parent` is the Agent row they belong under.
-// A row's id names the stored message it came from, counted from the start of
-// the transcript (`first` is where these messages start), so a message read
-// again in a wider window is the same row and keeps its place under the reader.
-function replay(messages, parent, first = 0) {
-  let out = [];
-  const own = parent ? `${parent}:` : 'h';
-  for (const [i, m] of messages.entries()) {
-    const id = `${own}${first + i}`;
-    const content = m.message?.content;
-    const base = parent ? { parent } : {};
-    const forkAt = m.uuid ? { forkAt: m.uuid } : {};
-    if (typeof content === 'string') {
-      if (m.type === 'user' && !parent) out.push(...userRows(id, strip(content), { ...forkAt, ...base }));
-      continue;
-    }
-    if (!Array.isArray(content)) continue;
-
-    if (m.type === 'assistant') {
-      if (m.error && !parent) {
-        const turnError = classify.claude({ error: m.error, text: content.map((b) => b.text || '').join('\n') });
-        out.push({ id, kind: 'note', ended: true, error: true, text: turnError.message, turnError });
-        continue;
-      }
-      for (const [k, b] of content.entries()) {
-        const plan = b.type === 'tool_use' && b.name === 'TodoWrite' ? planOf(b.input) : null;
-        if (plan) out = withPlan(out, { parent, ...plan });
-        else if (b.type === 'tool_use') out.push({ id: b.id, kind: 'tool', name: b.name, input: b.input, state: 'output-available', ...base });
-        else if (b.type === 'text' && b.text?.trim() && !isInternalAnswerArtifact(b.text)) {
-          out.push({ id: `${id}.${k}`, kind: 'assistant', text: b.text, ...base });
-        }
-        else if (b.type === 'thinking' && b.thinking?.trim()) out.push({ id: `${id}.${k}`, kind: 'reasoning', text: b.thinking, ...base });
-      }
-      continue;
-    }
-    const said = strip(content.filter((b) => b.type === 'text').map((b) => b.text || '').join('\n'));
-    // A subagent's first user message is the prompt it was handed, which its
-    // row already shows. Its later ones are tool results.
-    if (said && !parent) out.push(...userRows(id, said, { ...forkAt, ...base }));
-    for (const b of content) {
-      if (b.type !== 'tool_result') continue;
-      const i = out.findIndex((n) => n.id === b.tool_use_id);
-      if (i < 0) continue;
-      out[i] = {
-        ...out[i],
-        state: b.is_error ? 'output-error' : 'output-available',
-        output: b.content,
-        // What the Agent call recorded about itself: counts, timing, and the
-        // report, all straight from the stored result.
-        ...(m.agent ? {
-          kind: 'agent',
-          agentId: m.agent.id,
-          agentType: m.agent.type,
-          status: m.agent.status === 'completed' ? 'done' : m.agent.status,
-          tools: m.agent.tools,
-          ms: m.agent.ms,
-          tokens: m.agent.tokens,
-          stats: m.agent.stats,
-        } : {}),
-      };
-    }
-  }
-  return out;
-}
-
-// A stored chat's window back into items. The agents it ran are named in their
-// own meta files, which is how a replayed row knows its type and where to find
-// its transcript. Their rows draw folded and read nothing until opened.
-function replayStored(t, first) {
-  const byToolUse = new Map((t.subagents || []).map((a) => [a.toolUseId, a]));
-  return replay(t.messages, null, first).map((it) => {
-    const meta = byToolUse.get(it.id);
-    return meta ? {
-      ...it,
-      kind: 'agent',
-      agentId: meta.id,
-      agentType: meta.type,
-      description: meta.description || it.input?.description || '',
-      depth: meta.depth,
-      status: 'done',
-      loaded: false,
-    } : it;
-  });
-}
-
 const editedAfter = (items, at) =>
   items.slice(at + 1).some((it) => it.kind === 'agent' || (it.kind === 'tool' && bucketOf(it) === 'edit'));
 
@@ -227,15 +125,30 @@ function widened(c, fresh, span, session) {
 // The handoff a chat's next message carries, sized against the model it is
 // going to. A fork names the segments of the chat it was copied from, so the
 // items it carries still say which agent did them.
-function handoffFor(chat, text, images = []) {
+/* `thread` is the chat as it stands on disk (see threadOnDisk), whose ids are
+   the ones conn_thread_read finds again later, and `reader` that tool's name
+   when the agent the chat goes to has it. Without a thread the handoff is
+   built from the window's own items, whose ids nothing could read back, so it
+   names no tool. */
+function handoffFor(chat, text, images = [], { thread = null, reader = null } = {}) {
   const h = chat.handoff;
-  const by = h.segments || chat.segments;
   // The row's own name for the model goes in the header, so the row reads the
   // same after a reopen as it does now.
   const row = chat.items.find((it) => it.id === h.marker);
+  let items = chat.items;
+  let since = h.since;
+  let by = h.segments || chat.segments;
+  if (thread) {
+    // Where the agent left off, in the thread's own count: the start of the
+    // segment that followed it.
+    const k = h.since ? chat.segments.findIndex((x) => x.from === h.since) : -1;
+    since = h.since ? (thread.segments[k]?.from ?? thread.items.length) : 0;
+    ({ items } = thread);
+    by = thread.segments;
+  }
   return buildHandoff({
-    items: chat.items,
-    since: h.since,
+    items,
+    since,
     from: h.from,
     to: chat.provider,
     model: row?.model || chat.usage?.model || undefined,
@@ -245,7 +158,26 @@ function handoffFor(chat, text, images = []) {
     used: h.used || 0,
     message: text,
     images: images.length,
+    reader: thread ? reader : null,
   });
+}
+
+/* A switched chat as it stands on disk, every session before the one it is
+   going to, read by the same replay main answers conn_thread_read with. Null
+   for a fork, whose history belongs to the chat it was forked from, and when
+   there is nothing on disk or it cannot be read. */
+async function threadOnDisk(chat) {
+  if (chat.handoff?.segments) return null;
+  const segs = (chat.segments || []).slice(0, -1).filter((x) => x.session);
+  if (!segs.length) return null;
+  try {
+    // Read as stored, not the lighter window the chat is drawn from: the
+    // handoff copies the history word for word.
+    return await readThread(segs, (session, provider) =>
+      conn().agent.transcript(session, chat.project, { whole: true, provider }));
+  } catch {
+    return null;
+  }
 }
 
 // One conversation. `key` is ours and outlives the session under it: a chat
@@ -381,6 +313,9 @@ export function useAgent() {
   // Both CLIs and whether each is installed, so the picker can draw a locked
   // row for one that is missing instead of leaving it off the list.
   const [providers, setProviders] = useState([]);
+  // Read when a handoff is built, which happens outside any render.
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
   // How hard the model thinks, and which levels this build of the CLI takes.
   // Empty means the CLI's own default rather than a level we picked for it.
   const [effort, setEffort] = useState('');
@@ -418,6 +353,22 @@ export function useAgent() {
      before the first session existed; and the board, which belongs to the
      chat's first session only. Each is sent again only when it changes. */
   const written = useRef({ segments: new Map(), titles: new Map(), boards: new Map(), started: new Set() });
+  // The sessions each chat here ran on, the one it is on now included, for
+  // conn_thread_read: a switch not yet written to disk is still this chat's.
+  const threadSent = useRef(null);
+  useEffect(() => {
+    const list = chats.map((c) => ({
+      key: c.key,
+      segments: (c.segments?.length ? c.segments : [{ provider: c.provider, session: c.session }])
+        .filter((x) => x.session)
+        .map(({ provider: p, session, cut }) => ({ provider: p, session, ...(Number.isInteger(cut) && { cut }) })),
+    })).filter((t) => t.segments.length);
+    const json = JSON.stringify(list);
+    if (threadSent.current === json) return;
+    threadSent.current = json;
+    conn().agent.threadSegments?.(list);
+  }, [chats]);
+
   // Which chats have a handoff waiting on their next message, by the session
   // the phone knows them by. Main hands a phone message for one of these to
   // this window rather than to the session the chat is leaving.
@@ -1105,7 +1056,19 @@ export function useAgent() {
     // shows only what was typed; the handoff row above it says what went.
     const owed = chat?.handoff && !carried.current.has(chat.handoff.marker) ? chat.handoff : null;
     if (owed) carried.current.add(owed.marker);
-    const carry = owed ? handoffFor(chat, text, images) : null;
+    // Read off disk so the ids it names can be read back; meanwhile a second
+    // message waits in the queue, as it does while the rest is read in.
+    let thread = null;
+    if (owed) {
+      reading.current.add(key);
+      try {
+        thread = await threadOnDisk(chat);
+      } finally {
+        reading.current.delete(key);
+      }
+    }
+    const reader = providersRef.current.find((p) => p.id === chat.provider)?.threadRead ? THREAD_TOOL : null;
+    const carry = owed ? handoffFor(chat, text, images, { thread, reader }) : null;
     // The bubble parses the attachment preamble into badges, so it keeps the
     // whole text. A note typed against an element lives in that preamble.
     edit(key, (c) => ({
@@ -1532,37 +1495,24 @@ export function useAgent() {
      its rows from h0. */
   const openSegments = useCallback(async (chat, segs) => {
     try {
-      const ids = [...new Set(segs.map((x) => x.session))];
-      const reads = await Promise.all(ids.map(async (session, n) => {
-        const provider = segs.find((x) => x.session === session).provider;
-        // One agent's transcript gone missing leaves its stretch out rather
-        // than the whole chat unopenable.
-        const t = await conn().agent.transcript(session, chat.project, { limit: WHOLE, provider })
-          .catch(() => (n ? { messages: [], total: 0 } : Promise.reject(new Error(`no transcript for session ${session}`))));
-        const tag = (id) => (n && id ? `s${n}:${id}` : id);
-        const items = replayStored(t, storedWindow(t).from).map((it) => ({
-          ...it,
-          id: tag(it.id),
-          ...(it.parent && { parent: tag(it.parent) }),
-          ...(it.kind === 'agent' && { session }),
-        }));
-        return [session, { items, usage: t.usage, context: storedContext(t) }];
-      }));
-      const byId = Object.fromEntries(reads.map(([id, r]) => [id, r.items]));
-      const sizes = Object.fromEntries(reads.map(([id, r]) => [id, r.context]));
-      const stitched = stitch(segs, byId);
+      // One agent's transcript gone missing leaves its stretch out rather than
+      // the whole chat unopenable. See readThread.
+      const thread = await readThread(segs, (session, provider) =>
+        conn().agent.transcript(session, chat.project, { limit: WHOLE, provider }));
+      const sizes = Object.fromEntries(Object.entries(thread.reads).map(([id, r]) => [id, storedContext(r.t)]));
       // A segment's window size is its session's, as last saved or, failing
       // that, as its transcript last reported.
-      const segments = stitched.segments.map((x) => (x.context ? x : { ...x, ...(sizes[x.session] && { context: sizes[x.session] }) }));
-      const last = reads.find(([id]) => id === segs[segs.length - 1].session)?.[1];
+      const segments = thread.segments.map((x) => (x.context ? x : { ...x, ...(sizes[x.session] && { context: sizes[x.session] }) }));
+      const lastSession = segs[segs.length - 1].session;
+      const last = thread.reads[lastSession];
       edit(chat.key, (c) => {
-        const usage = last?.usage ? account(c.usage, last.usage) : c.usage;
+        const usage = last?.t.usage ? account(c.usage, last.t.usage) : c.usage;
         return {
           ...c,
-          items: stitched.items,
+          items: thread.items,
           segments,
           stored: null,
-          usage: last?.context ? { ...usage, context: last.context } : usage,
+          usage: sizes[lastSession] ? { ...usage, context: sizes[lastSession] } : usage,
         };
       });
     } catch (e) {
