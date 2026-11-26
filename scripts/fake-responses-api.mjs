@@ -4,7 +4,8 @@
    $CODEX_HOME/config.toml (see handoff-switch-e2e-repro.mjs). Every request body
    is appended to the log file named by the first argument, one JSON object per
    line, so a test can read exactly what codex was handed. Each turn answers
-   `codex heard: <last line of the last user message>`. Prints `port <n>`. */
+   `codex heard: <last line of the last user message>`. Prints `port <n>`.
+   FAKE_FAIL_ONCE names a file: the first turn naming fail-once-token fails. */
 import fs from 'node:fs';
 import http from 'node:http';
 
@@ -29,6 +30,15 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(J({ data: [], models: [] }));
+      return;
+    }
+    // A turn naming fail-once-token fails the first time it is seen, while the
+    // file FAKE_FAIL_ONCE names does not exist yet, to make a turn to retry.
+    const once = process.env.FAKE_FAIL_ONCE;
+    if (once && userText(o.input).includes('fail-once-token') && !fs.existsSync(once)) {
+      fs.writeFileSync(once, 'failed');
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(J({ error: { message: 'the stand-in failed this turn on purpose', type: 'server_error' } }));
       return;
     }
     const said = userText(o.input).trim().split('\n').at(-1) || '';

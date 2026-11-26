@@ -8,6 +8,8 @@
    STUB_ACP_NAME     which agent it plays (default: the name it was run as)
    STUB_ACP_INIT_MS  delay before answering initialize, to make a switch slow
    STUB_ACP_DELETE   1 to advertise session/delete; otherwise it refuses
+   STUB_ACP_DELETE_GATE  a file: session/delete is advertised, and allowed only
+                     while the file exists (an agent that starts to allow it)
    STUB_ACP_LOG      file to append { name, method, params } to */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -21,7 +23,8 @@ if (process.argv.includes('--version')) {
 
 const NAME = process.env.STUB_ACP_NAME || path.basename(process.argv[1] || 'stub');
 const INIT_MS = Number(process.env.STUB_ACP_INIT_MS || 0);
-const DELETE = process.env.STUB_ACP_DELETE === '1';
+const GATE = process.env.STUB_ACP_DELETE_GATE || '';
+const DELETE = process.env.STUB_ACP_DELETE === '1' || !!GATE;
 const LOG = process.env.STUB_ACP_LOG || '';
 const STORE = path.join(os.homedir(), '.stub-acp', `${NAME}.json`);
 const MODELS = [
@@ -83,6 +86,7 @@ async function handle({ id, method, params = {} }) {
   }
   if (method === 'session/delete') {
     if (!DELETE) return fail(id, 'delete is not supported');
+    if (GATE && !fs.existsSync(GATE)) return fail(id, 'this agent will not delete that chat yet');
     const db = load();
     delete db[params.sessionId];
     save(db);
