@@ -64,7 +64,7 @@ await check('a chat that left one part comes back as that part, and a retry keep
   showAgain({ hidden, records, session: B });
   records.forget(B);
   const main = read('src/main/index.js');
-  assert.ok(/hideParts\(\{/.test(main) && /showAgain\(\{ hidden: hiddenSessions, records: chatSegments, session \}\)/.test(main) && /afterRetry\(\{ hidden: hiddenSessions, session, removed \}\)/.test(main), 'main hides, shows and retries by chat');
+  assert.ok(/hideParts\(\{/.test(main) && /showAgain\(\{ hidden: hiddenSessions, records: chatSegments, titles: chatTitles, session \}\)/.test(main) && /afterRetry\(\{ hidden: hiddenSessions, session, removed \}\)/.test(main), 'main hides, shows and retries by chat');
 });
 
 // A phone send is taken once, at once.

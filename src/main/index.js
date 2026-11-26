@@ -2644,7 +2644,7 @@ function registerIpc() {
   // try deleting again once its agent can.
   ipcMain.handle('agent:hidden', () => hiddenSessions.list());
   // Every hidden part of the chat comes back, joined again into one chat.
-  ipcMain.handle('agent:unhide', (_e, { session } = {}) => showAgain({ hidden: hiddenSessions, records: chatSegments, session }));
+  ipcMain.handle('agent:unhide', (_e, { session } = {}) => showAgain({ hidden: hiddenSessions, records: chatSegments, titles: chatTitles, session }));
   // Each hidden part of the chat is asked once more; what still will not go
   // stays hidden, as what is left of that chat.
   ipcMain.handle('agent:deleteHidden', async (_e, { session } = {}) => {
