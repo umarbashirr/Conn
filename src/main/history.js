@@ -333,6 +333,17 @@ function located(cwd, id) {
   return { dir, file: path.join(dir, name) };
 }
 
+// What says a transcript has changed since it was last read: its size and
+// when it was written. Null when there is no transcript to stat.
+function stamp(cwd, id) {
+  try {
+    const st = fs.statSync(located(cwd, id).file);
+    return `${st.mtimeMs}:${st.size}`;
+  } catch {
+    return null;
+  }
+}
+
 // Deleting a chat for good. The transcript is the chat: drop the file and
 // `claude --resume` stops offering it, the rail stops listing it, and nothing
 // here has a second copy to go stale. A session that spawned agents or wrote a
@@ -734,4 +745,4 @@ async function readSubagent(cwd, session, agentId) {
   return { id: agentId, truncated: out.length > tail.length, messages: slimmed };
 }
 
-module.exports = { listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };
+module.exports = { stamp, listSessions, search, readSession, readSubagent, listSubagents, deleteSession, forkBefore, projectDir, LANDS_WITHIN };

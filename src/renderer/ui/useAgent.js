@@ -883,8 +883,21 @@ export function useAgent() {
 
     // A message from the phone for a chat switched here but not yet sent on:
     // only this window holds the handoff it has to carry, so it goes from here.
-    offs.push(conn().agent.onPhoneTurn?.(({ chat, text, images }) => {
-      if (chat && chatsRef.current.some((c) => c.key === chat)) sendToRef.current?.(chat, text, images || []);
+    offs.push(conn().agent.onPhoneTurn?.(({ id, chat, text, images }) => {
+      if (!chat || !chatsRef.current.some((c) => c.key === chat)) {
+        conn().agent.phoneTurnTaken?.(id, { ok: false, error: 'That chat is not open in Conn any more.' });
+        return;
+      }
+      // Answered once the message is in the chat, as a bubble or queued.
+      let answered = false;
+      const answer = (result) => {
+        if (answered) return;
+        answered = true;
+        conn().agent.phoneTurnTaken?.(id, result);
+      };
+      Promise.resolve(sendToRef.current?.(chat, text, images || [], { taken: () => answer({ ok: true }) }))
+        .then(() => answer({ ok: false, error: 'Conn could not take the message.' }))
+        .catch((e) => answer({ ok: false, error: e.message }));
     }) ?? (() => {}));
 
     // `conn ask` from the terminal can open a chat too.
@@ -1046,13 +1059,15 @@ export function useAgent() {
   // chatsRef has not caught up. `resent` marks a message sent again at the end.
   // `committed` is the chat as React last committed it, from the queue's flush;
   // anything else reads the ref.
-  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed } = {}) => {
+  // `taken` is told once the message is in the chat, as a bubble or queued.
+  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed, taken } = {}) => {
     if (!text.trim() && !(images || []).length) return;
     // Mid-switch, the session this would go to is the one being left; while
     // the rest of a transcript is read in, the handoff is about to go with the
     // message ahead of this one. Either way it waits in the queue.
     if (switching.current.has(key) || reading.current.has(key)) {
       edit(key, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images }] }));
+      taken?.();
       return;
     }
     let chat = committed || chatsRef.current.find((c) => c.key === key);
@@ -1094,6 +1109,7 @@ export function useAgent() {
         { id, kind: 'user', text, images, ...(resent && { resent }) },
       ],
     }));
+    taken?.();
     try {
       const res = await conn().agent.send(
         key, session === undefined ? chat?.session || null : session, carry ? wrapMessage(carry.text, text) : text, images,

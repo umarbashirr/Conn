@@ -236,6 +236,8 @@ contextBridge.exposeInMainWorld('conn', {
     onEcho: on('agent:echo'),
     // A phone message for a chat whose handoff only this window holds.
     onPhoneTurn: on('agent:phoneTurn'),
+    // Whether that message made it into the chat, so the phone can be told.
+    phoneTurnTaken: (id, result) => ipcRenderer.send('agent:phoneTurnTaken', { id, ...result }),
     // The chats with a handoff waiting on their next message, as { head, key }.
     pendingHandoffs: (list) => ipcRenderer.send('agent:pendingHandoffs', { list }),
     onDecided: on('agent:decided'),

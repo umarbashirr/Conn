@@ -30,6 +30,8 @@ const canvasIds = require('./canvas-ids');
 const chatSegments = require('./chat-segments');
 const hiddenSessions = require('./hidden-sessions');
 const { deleteChat } = require('./delete-chat');
+const { createStitchCache } = require('./stitch-cache');
+const { createRelay } = require('./window-relay');
 const { collapseRows, foldHits, followers, persistable, stitch } = require('../shared/chat-segments');
 const { mayApplyModel } = require('../shared/model-pick');
 const { carriesHandoff, unwrapHandoff } = require('../shared/handoff');
@@ -299,21 +301,23 @@ function phoneLive() {
    splits at the message that carried a handoff, the same cut the window makes.
    The chat's first session has to be readable; a later one that is not leaves
    its stretch out. */
-/* The same for the phone, which asks again on every refresh. Kept per chat
-   until one of its sessions has been written since, going by the times the
-   last listing saw; a session the listing has not seen is read fresh. */
-const stitchedCache = new Map();
-async function readStitchedCached(dir, segs) {
-  const key = `${dir}\0${JSON.stringify(segs.map((x) => x.session))}`;
-  const stamps = segs.map((x) => sessionAt.get(x.session));
-  const stamp = stamps.every((a) => a) ? stamps.join(',') : null;
-  const kept = stitchedCache.get(key);
-  if (stamp && kept?.stamp === stamp) return kept.messages;
-  const messages = await readStitched(dir, segs);
-  if (stamp) stitchedCache.set(key, { stamp, messages });
-  if (stitchedCache.size > 20) stitchedCache.delete(stitchedCache.keys().next().value);
-  return messages;
-}
+/* The same for the phone, which asks again on every refresh. A session's
+   stamp is what has touched it: every message a session run here has sent,
+   counted as it arrives, and for a transcript on disk its size and when it was
+   written, statted on each read. A session with neither, one this run has
+   never seen that the rail has not listed, is read fresh. */
+const sessionWrites = new Map();
+const wrote = (session) => { if (session) sessionWrites.set(session, (sessionWrites.get(session) || 0) + 1); };
+const readStitchedCached = createStitchCache({
+  read: (dir, segs) => readStitched(dir, segs),
+  stampOf: (dir, session, p) => {
+    const file = rowOf(p)?.history?.stamp?.(dir, session) || null;
+    const seen = sessionWrites.get(session) || 0;
+    const listed = sessionAt.get(session) || 0;
+    if (!file && !seen && !listed) return null;
+    return `${file || ''}#${seen}@${listed}`;
+  },
+});
 
 async function readStitched(dir, segs) {
   const read = {};
@@ -1224,6 +1228,7 @@ async function ensureAgent({ chat = 'main', resume, project, provider: want } = 
   sessions.set(chat, agent);
 
   agent.on('message', (m) => {
+    wrote(agent.sessionId);
     // A subagent that finishes has stopped touching the page, whether or not
     // the turn around it has, so hand the pane on at that point rather than
     // making the next agent wait out the idle timer.
@@ -1588,6 +1593,7 @@ async function createWindow() {
   win.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
     if (!isMainFrame || isSameDocument) return;
     for (const chat of [...sessions.keys()]) stopChat(chat);
+    phoneRelay.failAll('Conn reloaded before it took the message. Send it again.');
     // The floating box is drawn by the page that is going away.
     composerFloat.dispose();
   });
@@ -1657,16 +1663,24 @@ function shareLive(dir, name) {
 // Chats the window has switched to another agent and not sent on yet, by the
 // session the phone knows each as: first session -> window chat key.
 const pendingHandoffs = new Map();
+const phoneRelay = createRelay({
+  send: (payload) => {
+    if (!win || win.isDestroyed()) return false;
+    win.webContents.send('agent:phoneTurn', payload);
+    return true;
+  },
+});
 
 async function deliverTurn({ chat, text, images, project, session, provider, from }) {
   try {
     const phone = from === 'phone';
     // The handoff such a chat owes its next message lives in the window, so a
     // phone message for it is sent from there, to the agent it was switched to.
+    // The phone hears back only once the window has the message in the chat.
     const pendingKey = phone && session ? pendingHandoffs.get(session) : null;
-    if (pendingKey && win && !win.isDestroyed()) {
-      win.webContents.send('agent:phoneTurn', { chat: pendingKey, text, images });
-      return { ok: true, forwarded: true };
+    if (pendingKey) {
+      const res = await phoneRelay.forward({ chat: pendingKey, text, images });
+      return res.ok ? { ok: true, forwarded: true } : res;
     }
     // The phone names a switched chat by its first session, but the chat is
     // on its newest one now, on whichever agent that is.
@@ -2531,6 +2545,10 @@ function registerIpc() {
     } catch (e) {
       return { error: e.message };
     }
+  });
+  // The window's answer to a phone message handed to it: in the chat, or why not.
+  ipcMain.on('agent:phoneTurnTaken', (_e, { id, ok, error } = {}) => {
+    phoneRelay.settle(id, { ok: !!ok, error });
   });
   ipcMain.on('agent:pendingHandoffs', (_e, { list } = {}) => {
     pendingHandoffs.clear();
