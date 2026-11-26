@@ -16,6 +16,7 @@ class ControlOverlay {
     this.host = null;
     this.tab = null;
     this.caption = '';
+    this.mode = 'agent';
   }
 
   #make() {
@@ -31,12 +32,14 @@ class ControlOverlay {
   }
 
   #tell() {
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.send('overlay:state', { caption: this.caption });
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.send('overlay:state', { caption: this.caption, mode: this.mode });
   }
 
   // Over `tab`, filling `bounds` of `host`. Re-stacked on top each time, because
   // a page moved between windows is added again and lands above everything.
-  show(host, bounds, { tab, caption }) {
+  // `mode` is 'agent' while an agent drives, a shield over the whole page, or
+  // 'human' once the person has it, when the view is only the Hand back pill.
+  show(host, bounds, { tab, caption, mode = 'agent' }) {
     if (!this.view) this.#make();
     if (this.host !== host) {
       try { this.host?.contentView.removeChildView(this.view); } catch { /* window already gone */ }
@@ -46,8 +49,9 @@ class ControlOverlay {
     this.view.setBounds(bounds);
     this.view.setVisible(true);
     this.tab = tab;
-    if (caption !== this.caption) {
+    if (caption !== this.caption || mode !== this.mode) {
       this.caption = caption;
+      this.mode = mode;
       this.#tell();
     }
   }

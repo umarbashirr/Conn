@@ -78,7 +78,9 @@ function collapseRows(rows, records) {
       hidden.add(s.session);
       at = Math.max(at, other.at || 0);
     }
-    heads.set(head, { ...row, at, segments: segs });
+    // The agent the chat is on now, which is the last segment's, for what
+    // draws the chat by who is running it.
+    heads.set(head, { ...row, at, segments: segs, agent: segs[segs.length - 1].provider });
   }
   return rows
     .filter((r) => !hidden.has(r.id))
@@ -262,4 +264,14 @@ function withSession(c, sessionId, provider) {
   return { ...c, segments: segs, session: sessionId };
 }
 
-module.exports = { cutFor, withSession, cleanSegments, persistable, followers, foldHits, collapseRows, providerAt, priorOf, stitch, headOf, switchChat };
+/* The switched chat a session id belongs to, as { head, segments }, whether
+   the id is its first session or a later one. Null for a session of a chat
+   that never changed agent. */
+function recordOf(records, id) {
+  if (typeof id !== 'string' || !id) return null;
+  const head = records?.[id] ? id : followers(records).get(id);
+  return head ? { head, segments: records[head] } : null;
+}
+
+module.exports = {
+  recordOf, cutFor, withSession, cleanSegments, persistable, followers, foldHits, collapseRows, providerAt, priorOf, stitch, headOf, switchChat };

@@ -35,10 +35,13 @@ const callerChat = (req) => {
 };
 
 class Bridge {
-  constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow }) {
+  constructor({ run, debug, captureWindow, command, ask, decide, cwd, cwds, focusWindow, board }) {
     this.run = run || (() => { throw new Error('no window'); });
     this.debug = debug === true;
     this.focusWindow = focusWindow || null;
+    // { cards(), open(card) }: what this window's Board shows of itself to the
+    // others, and how another window's Board brings one of these chats up.
+    this.board = board || null;
     this.cwds = normalize(cwds || [cwd || process.cwd()]);
     this.captureWindow = captureWindow || null;
     this.command = command || null;
@@ -139,6 +142,24 @@ class Bridge {
       if (!this.focusWindow) return send(404, { error: 'no window' });
       this.focusWindow(from);
       return send(200, { ok: true, cwd: from || this.cwd });
+    }
+
+    // Another window's Board reading this one's chats.
+    if (url.pathname === '/board' && req.method === 'GET') {
+      if (!this.board) return send(404, { error: 'no board' });
+      return send(200, { cards: this.board.cards() });
+    }
+    // Another window's Board asking this one to open a chat it holds.
+    if (url.pathname === '/board/open' && req.method === 'POST') {
+      if (!this.board) return send(404, { error: 'no board' });
+      let body = '';
+      for await (const chunk of req) {
+        body += chunk;
+        if (body.length > 10000) return send(413, { error: 'body too large' });
+      }
+      let card;
+      try { card = JSON.parse(body || '{}'); } catch (e) { return send(400, { error: 'invalid JSON body: ' + e.message }); }
+      return send(200, this.board.open(card) || { ok: true });
     }
 
     if (url.pathname.startsWith('/debug/')) {

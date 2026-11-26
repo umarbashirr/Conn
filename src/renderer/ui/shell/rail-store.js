@@ -154,7 +154,11 @@ function rows(dir, sessions) {
       row.waiting = c.waiting;
       row.agents = c.agents;
       row.shells = c.shells;
+      row.failed = c.failed;
       row.activity = c.activity;
+      // The agent it is on now. A chat that changed agent is stored under its
+      // first session, whose provider is the first agent's.
+      row.agent = c.provider;
       // A name typed in the rail beats the first message, including for the
       // moment before that name has been written down.
       if (c.renamed && c.title) row.title = c.title;
@@ -170,6 +174,9 @@ function rows(dir, sessions) {
       waiting: c.waiting,
       agents: c.agents,
       shells: c.shells,
+      failed: c.failed,
+      provider: c.provider,
+      agent: c.provider,
       activity: c.activity,
     });
   }

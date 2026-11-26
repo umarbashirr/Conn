@@ -289,6 +289,7 @@ async function startMobileGate({
           project: dir,
           session: parsed.session,
           provider: parsed.provider,
+          nonce,
         });
       } catch (err) {
         result = { error: failure(err) };

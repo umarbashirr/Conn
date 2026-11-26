@@ -169,6 +169,10 @@ const standIn = (claude) => `(() => {
   // page is a view of its own too, the one window the shell opened, and is drawn
   // wherever it is. Children come in stacking order, so it lands on top.
   const isFloat = (view) => !!view.webContents?.opener;
+  // The control overlay is drawn wherever it is too. Over a page an agent
+  // drives it fills the pane, but once the person has the page it is only the
+  // Hand back pill at the bottom, which no placed box matches.
+  const isOverlay = (view) => /[\\/]overlay[\\/]overlay\.html$/.test(view.webContents?.getURL?.() || '');
   const shownViews = () => {
     const windows = BrowserWindow.getAllWindows();
     const win = windows.find((w) => /index\.html/.test(w.webContents.getURL())) || windows[0];
@@ -179,7 +183,7 @@ const standIn = (claude) => `(() => {
       const b = view.getBounds();
       const inWindow = b.width > 0 && b.height > 0 && b.x < width && b.y < height && b.x + b.width > 0 && b.y + b.height > 0;
       const wc = view.webContents;
-      return ((placed && near(b, placed)) || isFloat(view)) && inWindow && view.__shown !== false && wc && !wc.isDestroyed();
+      return ((placed && near(b, placed)) || isFloat(view) || isOverlay(view)) && inWindow && view.__shown !== false && wc && !wc.isDestroyed();
     });
     return { width, height, views };
   };

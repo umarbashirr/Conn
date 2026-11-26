@@ -19,6 +19,27 @@ contextBridge.exposeInMainWorld('conn', {
     onState: on('win:state'),
   },
 
+  // The Board: every chat in every window, and Claude Code outside Conn.
+  board: {
+    publish: (cards) => ipcRenderer.invoke('board:publish', { cards }),
+    peers: () => ipcRenderer.invoke('board:peers'),
+    openPeer: (pid, card) => ipcRenderer.invoke('board:openPeer', { pid, card }),
+    outside: () => ipcRenderer.invoke('board:outside'),
+    // Another window's Board asked this one to open a chat.
+    onOpen: on('board:open'),
+  },
+
+  // Saved pipelines, and the runs of them this window may drive.
+  pipelines: {
+    list: (dir) => ipcRenderer.invoke('pipelines:list', { dir }),
+    example: () => ipcRenderer.invoke('pipelines:example'),
+    runs: () => ipcRenderer.invoke('runs:list'),
+    saveRun: (run) => ipcRenderer.invoke('runs:save', { run }),
+    removeRun: (id) => ipcRenderer.invoke('runs:remove', { id }),
+    // The folders runs still need, kept open when the window is full.
+    hold: (dirs) => ipcRenderer.invoke('pipelines:hold', { dirs }),
+  },
+
   project: {
     info: () => ipcRenderer.invoke('project:info'),
     // No dir means "ask with the system folder picker".
@@ -183,6 +204,7 @@ contextBridge.exposeInMainWorld('conn', {
     background: (chat, toolUseId) => ipcRenderer.invoke('agent:background', { chat, toolUseId }),
     subagent: (session, agentId, project) => ipcRenderer.invoke('agent:subagent', { session, agentId, project }),
     mode: (chat, mode) => ipcRenderer.invoke('agent:mode', { chat, mode }),
+    prefs: (chat, prefs) => ipcRenderer.invoke('agent:prefs', { chat, ...prefs }),
     models: (chat, provider) => ipcRenderer.invoke('agent:models', { chat, provider }),
     // `provider` is the CLI the model was picked under: two can share a name.
     setModel: (chat, model, provider) => ipcRenderer.invoke('agent:setModel', { chat, model, provider }),
@@ -212,6 +234,8 @@ contextBridge.exposeInMainWorld('conn', {
     transcript: (id, project, { limit, end, provider } = {}) => ipcRenderer.invoke('agent:transcript', { id, project, limit, end, provider }),
     // The sessions a chat that changed agent is made of, oldest first.
     setSegments: (head, segments) => ipcRenderer.invoke('agent:setSegments', { head, segments }),
+    // The switched chat a session id belongs to, as { head, segments }, or null.
+    segmentsOf: (id) => ipcRenderer.invoke('agent:segmentsOf', { id }),
     resume: (chat, id, project) => ipcRenderer.invoke('agent:resume', { chat, id, project }),
     deleteSession: (id, project) => ipcRenderer.invoke('agent:deleteSession', { id, project }),
     // What deletes left on disk, kept out of the rail. See Settings › Chat.

@@ -263,12 +263,119 @@ small JPEG copy. The full-size PNG stays on disk.
 bar completes from your history and bookmarks and suggests searches. Pick Google, DuckDuckGo or Bing
 in Settings.
 
-**Hands off while the agent works.** While an agent is changing a page in the preview, a see-through
-layer covers it, so a stray scroll or click cannot move the page out from under the agent. Its own
-clicks and typing still reach the page. Press **Take control** on that layer to get the page back.
-It stays yours until you press **Hand back** in the toolbar, and any agent that tries to change it
-meanwhile is told you have it and to ask you. Reading the page still works. The layer goes away
-when the agent's turn ends.
+**Hands off while the agent works.** While an agent is changing a page in the preview, a clear layer
+covers it, so a stray scroll or click cannot move the page out from under the agent. The page is shown
+as it is, with a thin edge round it. Its own clicks and typing still reach the page. Reach for the page
+and **Take control** appears at the bottom of it. Press it to get the page back. It stays yours until
+you hand it back: **Hand back to the agent** floats at the bottom of the page for as long as you have
+it, and the **You have control** chip at the top of the window does the same. Any agent that tries to
+change it meanwhile is told you have it, stops, and waits. Its chat then offers **Hand back and
+continue**, which gives the page back and tells the agent to carry on. Reading the page still works.
+The layer goes away when the agent's turn ends.
+
+## The Board
+
+`Ctrl+Shift+M`, or **Board** at the top of the rail, shows every agent at once, sorted by what it
+wants from you. It takes the chat's place and leaves the rail up. Press `Esc` or `Ctrl+Shift+M` again
+to go back.
+
+![The Board with chats from this window, another window and the terminal](media/board.png)
+
+| Lane | A chat is here when |
+| --- | --- |
+| **Needs you** | a permission or question card is waiting, or its last turn failed and you have not looked |
+| **Working** | a turn is running, or a subagent or background shell it started still is |
+| **Done** | its turn ended while you were reading another chat, and you have not opened it since |
+| **Recent** | none of those, and it moved in the last 24 hours |
+
+A card names the chat, its folder (a worktree is shown under the repository it was cut from), the
+agent, and what it is doing now. Click it to open the chat. Chats you marked completed stay off the
+Board, as they do in the rail. The number beside **Board** in the rail counts this window's chats
+that need you.
+
+**Every window.** The Board also shows the chats of every other Conn window, marked **other
+window**. Clicking one brings that window forward with the chat open, because a chat is only ever
+driven from the window that holds it. Each window answers on its own bridge, behind the same token as
+the rest of it.
+
+**Claude Code outside Conn.** Sessions you started with `claude` in a terminal, or in the background
+with `claude --bg`, are listed from `claude agents --json`, marked **terminal** or **background**.
+They are read only. A background card shows the `claude attach` command that opens it, and clicking
+the card copies it. This needs a Claude Code new enough to have `claude agents`; with an older one the
+Board leaves those sessions out.
+
+The other windows and the CLI are asked every few seconds while the Board is open, and not at all
+while it is closed.
+
+## Pipelines
+
+A pipeline is a workflow you repeat, saved once: plan, build, review, fix. Start one and each stage
+runs in a chat of its own, in order, with what the earlier stages said handed on. **Run pipeline** on
+the Board, or **Run pipeline** in the palette (`Ctrl+K`), lists the ones you have.
+
+![A pipeline waiting at its gate, its plan in Needs you](media/pipeline-gate.png)
+
+A pipeline is a YAML file. Put it in `.conn/pipelines/` in a project to keep it with that project,
+or in `~/.conn/pipelines/` to have it in every project. **Create an example** in the dialog writes
+this one to `~/.conn/pipelines/feature.yml`:
+
+```yaml
+name: Feature
+description: Plan, build, review and fix a change in its own worktree
+input: What should be built?      # asked when you start it; {{input}} in a prompt
+worktree: true                    # run every stage in a new worktree cut from the folder
+stages:
+  - id: plan
+    prompt: |
+      Plan this change. Reply with a short numbered plan and nothing else.
+
+      {{input}}
+    mode: plan
+    gate: true                    # stop here until you press Continue
+  - id: build
+    prompt: |
+      Implement this plan. Keep the change focused and run the tests.
+
+      {{plan}}
+    mode: auto
+  - id: review
+    prompt: Review the uncommitted changes for bugs. Reply with findings, or "No findings."
+    mode: plan
+  - id: fix
+    prompt: |
+      Fix these review findings. If there are none, say so and stop.
+
+      {{review}}
+    mode: auto
+    same: build                   # continue the build stage's chat instead of a new one
+```
+
+| Field | Means |
+| --- | --- |
+| `name` | What the pipeline is called. Required. |
+| `description` | One line under the name in the list. |
+| `input` | The question asked when you start it. Its answer is `{{input}}`. |
+| `worktree` | `true` cuts a new worktree from the folder and runs every stage there. |
+| `stages[].id` | The stage's name, lowercase. `{{<id>}}` in a later prompt is this stage's final reply. |
+| `stages[].prompt` | What the stage is asked. Required. |
+| `stages[].title` | How the stage is shown. The id, capitalised, if left out. |
+| `stages[].mode` | `plan`, `ask`, `auto` or `bypass`, as on the composer. Your default if left out. |
+| `stages[].provider`, `model` | Which agent and model run the stage. Yours if left out. |
+| `stages[].gate` | `true` stops the run after this stage until you press **Continue**. |
+| `stages[].same` | An earlier stage's id: send this one in that stage's chat. |
+
+A file with a mistake is still listed, with the reason, and cannot be started: a `{{name}}` that is
+not an earlier stage, a `same` that points forward, a mode that does not exist. Files are read again
+every time the list opens, so an edit shows up without a restart.
+
+**While it runs.** The run is a card at the top of the Board, with its stages in order. Click a stage
+to open its chat. Each stage's chat is also in the rail, named after the pipeline and the stage. A
+stage at a gate puts its chat in **Needs you**: read it, reply in that chat if it needs changing, then
+press **Continue**. The next stage gets the latest reply, so a plan you talked over goes on as it
+stands after that. **Stop** stops the stage that is running. A stage whose turn fails stops the run
+there; **Retry** sends it again in the same chat. A run is saved after every step under
+`~/.conn/runs/`, so it is still on the Board after a restart. One that was mid-stage when Conn closed
+comes back stopped, and **Retry** picks it up.
 
 ## Worktrees
 

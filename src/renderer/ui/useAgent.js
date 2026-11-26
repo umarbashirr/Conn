@@ -3,9 +3,12 @@ import { classify } from '../../shared/turn-error';
 import { newCanvasId } from '../../shared/canvas';
 import { followsWindowProvider, shownModel } from '../../shared/run-choice';
 import { isInternalAnswerArtifact } from '../../shared/assistant-output.js';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import { chatActivity } from '@/lib/activity';
+import { lastTurnFailed } from '@/lib/board';
+import { boardState, subscribeBoard } from './shell/board-store.js';
+import { chatsGone, turnEnded } from '@/lib/turn-events';
 import { moveDraft, ownedStorageKey } from '@/lib/drafts';
 import { planOf, withPlan } from '@/lib/plan';
 import { settle } from '@/lib/reasoning';
@@ -29,6 +32,10 @@ const WHOLE = 1000000;
 // A model as the picker names it, for the handoff row.
 const modelName = (models, value, provider) => (modelEntry(models, value, provider)?.displayName || value)
   .replace(/\s*\((recommended|default|1M context)\)\s*$/i, '');
+
+// Whether the Board is covering the chat column. A chat behind it is not on
+// screen, whichever one is active.
+const boardUp = () => boardState().open;
 
 const uid = (p) => `${p}${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
 // An agent or background shell that has not reported back.
@@ -239,6 +246,7 @@ export function useAgent() {
     if (keep.length === all.length) return;
 
     const gone = new Set(all.filter((c) => !keep.includes(c)).map((c) => c.key));
+    chatsGone([...gone]);
     for (const [k, st] of streams.current) {
       if (!gone.has(k.split('\0')[0])) continue;
       if (st.raf) cancelAnimationFrame(st.raf);
@@ -281,6 +289,7 @@ export function useAgent() {
   // Read inside the IPC listeners, which are registered once and would
   // otherwise close over the first render's chats.
   const chatsRef = useRef(chats);
+  const boardOpen = useSyncExternalStore(subscribeBoard, boardUp, boardUp);
   const activeRef = useRef(activeKey);
   useEffect(() => { chatsRef.current = chats; }, [chats]);
 
@@ -295,9 +304,8 @@ export function useAgent() {
   const reading = useRef(new Set());
   const carried = useRef(new Set());
   const intended = useRef(new Map());
-  // For listeners registered once, which would otherwise close over the first
-  // render's sendTo.
-  const sendToRef = useRef(null);
+  // Phone sends this window has taken, by the id the phone gave each one.
+  const phoneTaken = useRef(new Set());
   const serial = useRef(null);
   if (!serial.current) serial.current = createSerial();
 
@@ -667,7 +675,7 @@ export function useAgent() {
       if (msg.type === 'result') {
         const secs = msg.duration_ms ? `${(msg.duration_ms / 1000).toFixed(1)}s` : '';
         const failed = msg.is_error === true || (msg.subtype && msg.subtype !== 'success');
-        const away = chat !== activeRef.current;
+        const away = chat !== activeRef.current || boardUp();
         edit(chat, (c) => {
           const turnError = failed && !c.stopped
             ? msg.turnError ?? classify.claude({ ...c.failure, result: msg })
@@ -694,7 +702,8 @@ export function useAgent() {
           };
         });
         window.connRail?.refresh();
-        if (msg.duration_ms >= LONG_TURN_MS) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
+        if (msg.duration_ms >= LONG_TURN_MS && !chatsRef.current.find((c) => c.key === chat)?.quiet) notify(chat, failed ? 'Ended with an error' : `Done in ${secs}`);
+        turnEnded({ chat, failed, error: failed ? (msg.turnError?.message || (msg.subtype === 'error_during_execution' ? 'The turn was stopped or broke off.' : 'The turn ended with an error.')) : null });
       }
     }));
 
@@ -742,7 +751,7 @@ export function useAgent() {
 
     offs.push(conn().agent.onError(({ chat, error }) => {
       const key = chat || activeRef.current;
-      const away = key !== activeRef.current;
+      const away = key !== activeRef.current || boardUp();
       const now = Date.now();
       dropThoughts(key);
       edit(key, (c) => {
@@ -754,6 +763,7 @@ export function useAgent() {
           items: [...c.items.map((it) => settle(it, now)), { id: uid('e'), kind: 'note', ended: true, error: true, text: turnError.message, turnError }],
         };
       });
+      turnEnded({ chat: key, failed: true, error: classify.text(chatsRef.current.find((c) => c.key === key)?.provider, error).message });
       const finished = away && chatsRef.current.find((c) => c.key === key);
       if (finished) toastEnd(finished, true);
     }));
@@ -764,6 +774,8 @@ export function useAgent() {
     // went with it. A row left saying running would count up forever.
     offs.push(conn().agent.onClosed(({ chat } = {}) => {
       if (!chat) return;
+      // Parking an idle chat closes its session too, which ends no turn.
+      if (chatsRef.current.find((c) => c.key === chat)?.busy) turnEnded({ chat, failed: true, error: 'The session ended mid-turn.' });
       const now = Date.now();
       edit(chat, (c) => {
         const cut = c.items.some(isRunning);
@@ -781,21 +793,24 @@ export function useAgent() {
 
     // A message from the phone for a chat switched here but not yet sent on:
     // only this window holds the handoff it has to carry, so it goes from here.
-    offs.push(conn().agent.onPhoneTurn?.(({ id, chat, text, images }) => {
+    /* It goes in the chat's queue and the phone is answered at once: reading
+       the rest of a long chat in before the handoff is sent can outlast the
+       phone's wait, and a message the window then sent anyway would go twice
+       once the phone tried again. The queue sends it, with the handoff, as it
+       sends any other. A phone send the window has already taken, by its
+       turn id, is answered and not queued again. */
+    offs.push(conn().agent.onPhoneTurn?.(({ id, turnId, chat, text, images }) => {
       if (!chat || !chatsRef.current.some((c) => c.key === chat)) {
         conn().agent.phoneTurnTaken?.(id, { ok: false, error: 'That chat is not open in Conn any more.' });
         return;
       }
-      // Answered once the message is in the chat, as a bubble or queued.
-      let answered = false;
-      const answer = (result) => {
-        if (answered) return;
-        answered = true;
-        conn().agent.phoneTurnTaken?.(id, result);
-      };
-      Promise.resolve(sendToRef.current?.(chat, text, images || [], { taken: () => answer({ ok: true }) }))
-        .then(() => answer({ ok: false, error: 'Conn could not take the message.' }))
-        .catch((e) => answer({ ok: false, error: e.message }));
+      if (turnId && phoneTaken.current.has(turnId)) {
+        conn().agent.phoneTurnTaken?.(id, { ok: true });
+        return;
+      }
+      if (turnId) phoneTaken.current.add(turnId);
+      edit(chat, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images: images || [] }] }));
+      conn().agent.phoneTurnTaken?.(id, { ok: true });
     }) ?? (() => {}));
 
     // `conn ask` from the terminal can open a chat too.
@@ -919,6 +934,8 @@ export function useAgent() {
         waiting: hasUndecidedPerm(c.items),
         agents: c.items.filter((it) => it.kind === 'agent' && it.status === 'running').length,
         shells: c.items.filter((it) => it.kind !== 'agent' && isRunning(it)).length,
+        failed: lastTurnFailed(c.items),
+        provider: c.provider,
         activity: chatActivity(c.items, c.busy, !c.endedUnseen),
       })),
     });
@@ -927,15 +944,18 @@ export function useAgent() {
   useEffect(() => {
     const due = chats.filter((c) => c.toastDue && !c.busy && (c.toastDue === 'error' || !c.items.some(outlivesTurn)));
     if (!due.length) return;
-    for (const c of due) if (c.key !== activeKey) toastEnd(c, c.toastDue === 'error');
+    for (const c of due) if ((c.key !== activeKey || boardOpen) && !c.quiet) toastEnd(c, c.toastDue === 'error');
     const keys = new Set(due.map((c) => c.key));
     setChats((cur) => cur.map((c) => (keys.has(c.key) ? { ...c, toastDue: null } : c)));
-  }, [chats, activeKey]);
+  }, [chats, activeKey, boardOpen]);
 
+  // A chat is read once it is on screen, which it is not while the Board
+  // covers it. Closing the Board on it is what reads it.
   useEffect(() => {
+    if (boardOpen) return;
     if (!chats.some((c) => c.key === activeKey && c.endedUnseen)) return;
     setChats((cur) => cur.map((c) => (c.key === activeKey && c.endedUnseen ? { ...c, endedUnseen: false, toastDue: null } : c)));
-  }, [activeKey, chats]);
+  }, [activeKey, chats, boardOpen]);
 
   // The rest of a chat opened with only its end read in, before a handoff is
   // built from it. Returns the chat as it is once that is in, or as it was if
@@ -957,15 +977,13 @@ export function useAgent() {
   // chatsRef has not caught up. `resent` marks a message sent again at the end.
   // `committed` is the chat as React last committed it, from the queue's flush;
   // anything else reads the ref.
-  // `taken` is told once the message is in the chat, as a bubble or queued.
-  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed, taken } = {}) => {
+  const sendTo = useCallback(async (key, text, images = [], { session, resent, committed } = {}) => {
     if (!text.trim() && !(images || []).length) return;
     // Mid-switch, the session this would go to is the one being left; while
     // the rest of a transcript is read in, the handoff is about to go with the
     // message ahead of this one. Either way it waits in the queue.
     if (switching.current.has(key) || reading.current.has(key)) {
       edit(key, (c) => ({ ...c, queued: [...c.queued, { id: uid('q'), text, images }] }));
-      taken?.();
       return;
     }
     let chat = committed || chatsRef.current.find((c) => c.key === key);
@@ -1007,7 +1025,6 @@ export function useAgent() {
         { id, kind: 'user', text, images, ...(resent && { resent }) },
       ],
     }));
-    taken?.();
     try {
       const res = await conn().agent.send(
         key, session === undefined ? chat?.session || null : session, carry ? wrapMessage(carry.text, text) : text, images,
@@ -1020,6 +1037,7 @@ export function useAgent() {
     } catch (e) {
       const said = e.cause === 'said';
       if (owed) carried.current.delete(owed.marker);
+      turnEnded({ chat: key, failed: true, error: said ? e.message : `could not reach the agent: ${e.message}` });
       edit(key, (c) => ({
         ...c,
         busy: false,
@@ -1036,8 +1054,9 @@ export function useAgent() {
     }
   }, [edit, patch, readWhole]);
 
-  sendToRef.current = sendTo;
   const send = useCallback((text, images = []) => sendTo(activeRef.current, text, images), [sendTo]);
+  // One chat as it stands now, for code that runs outside React's render.
+  const chatOf = useCallback((key) => chatsRef.current.find((c) => c.key === key) || null, []);
 
   // The other CLIs cannot go back to a message, so for them it is sent again
   // at the end.
@@ -1325,6 +1344,7 @@ export function useAgent() {
     switchTo(next.key);
   }, [switchTo]);
 
+
   /* Pointing the chat on screen at another folder, which is what the chip under
      the box is for. A chat nobody has typed in yet moves: the chip names the
      folder the next message runs in, and picking one from it is how you say
@@ -1387,6 +1407,7 @@ export function useAgent() {
       // Deleting the last chat leaves the pane on a blank one rather than on
       // nothing at all.
       const next = rest.length ? rest : [blankChat(focusedProject.current, providerRef.current, startMode.current)];
+      chatsGone(chatsRef.current.filter((c) => !next.includes(c)).map((c) => c.key));
       chatsRef.current = next;
       setChats(next);
       if (activeRef.current === key) {
@@ -1436,6 +1457,52 @@ export function useAgent() {
     }
   }, [edit]);
 
+  /* A chat started for someone else: a pipeline's stage. It joins the list
+     without taking the screen, so a run can start its next stage while you
+     read something else, and carries its name from the start so the rail
+     never shows it as the first line of a prompt. Its mode, model and CLI are
+     set on it alone; the composer's pickers stay as they are. */
+  const spawn = useCallback(async ({ project, provider: runs, mode: m, model: wanted, title, resume } = {}) => {
+    // A saved stage chat that later changed agent resumes on the session it is
+    // on now and draws every stretch, never its first or a later session alone.
+    const rec = resume ? await conn().agent.segmentsOf?.(resume).catch(() => null) : null;
+    const whole = rec?.segments?.length > 1 ? rec.segments : null;
+    const last = whole?.[whole.length - 1];
+    const next = {
+      ...blankChat(project || focusedProject.current, runs || providerRef.current, m || startMode.current),
+      title: String(title || 'New chat').slice(0, RENAME_MAX),
+      renamed: !!title,
+      // Whoever started it says when it is done, so the usual "is done" toast
+      // and notification stay out of the way.
+      quiet: true,
+      // A saved chat taken up again, after the window that ran it went away:
+      // the next message resumes that session, and its history is replayed
+      // so opening it shows what it already did.
+      ...(resume && { session: resume }),
+      ...(whole && {
+        provider: last.provider,
+        session: last.session,
+        segments: whole.map((x) => ({ ...x, from: 0 })),
+      }),
+    };
+    if (resume && !whole) {
+      const t = await conn().agent.transcript(resume, next.project).catch(() => null);
+      if (t) {
+        const span = storedWindow(t);
+        const items = replayStored(t, span.from);
+        Object.assign(next, { items, stored: storedOf(resume, span, items.length), usage: t.usage ? account(next.usage, t.usage) : next.usage });
+      }
+    }
+    chatsRef.current = [...chatsRef.current, next];
+    setChats(chatsRef.current);
+    if (whole) await openSegments(next, whole);
+    // The stage's model belongs to the CLI it was set up on, which is not the
+    // one a chat that changed agent is on now.
+    const model = whole && last.provider !== runs ? undefined : wanted;
+    await conn().agent.prefs?.(next.key, { mode: next.mode, model, provider: next.provider }).catch(() => {});
+    return next.key;
+  }, [openSegments]);
+
   // Open a stored chat. One already in memory is just brought forward, live
   // turn and all. One off disk is replayed here and resumed on the next
   // message, so clicking through the rail costs nothing.
@@ -1446,6 +1513,14 @@ export function useAgent() {
     // the shells beside it should be the ones that chat is talking about.
     if (s.project && s.project !== focusedProject.current && s.project !== chatsDir.current) {
       conn().project.focus(s.project).catch(() => {});
+    }
+
+    // A caller with only a session id (a Board card, a pipeline stage) may be
+    // holding a chat that changed agent, or one of its later sessions. Main
+    // knows which chat it belongs to, and the chat opens whole.
+    if (!s.key && s.id && !(s.segments?.length > 1)) {
+      const rec = await conn().agent.segmentsOf?.(s.id).catch(() => null);
+      if (rec?.segments?.length > 1) s = { ...s, id: rec.head, segments: rec.segments };
     }
 
     const known = chatsRef.current.find((c) => (s.key ? c.key === s.key : headOf(c) === s.id));
@@ -1795,7 +1870,7 @@ export function useAgent() {
     usage,
     models, model, driver, provider, providers, effort, efforts, longContext,
     chats, activeKey, checking,
-    send, redo, retryTurn, editsSince, undoEdits, enqueue, unqueue, editQueued, sendNow, sendNext,
+    send, sendTo, spawn, chatOf, redo, retryTurn, editsSince, undoEdits, enqueue, unqueue, editQueued, sendNow, sendNext,
     decide, interrupt, reset, setProject, clear, open, removeChat, renameChat, switchTo, changeModel, forkTo, forgetModel,
     changeProvider, changeMode, recheck,
     changeEffort, changeLongContext,
