@@ -99,6 +99,21 @@ await check('opening a card in another window sends its sessions, and that windo
   assert.ok(/agent\.segmentsOf\?\.\(s\.id\)/.test(read('src/renderer/ui/useAgent.js')), 'and open() looks a bare id up');
 });
 
+// 3. The card is drawn by the agent the chat is on now.
+await check('a saved switched chat is drawn by its last agent', () => {
+  const { collapseRows } = require('../src/shared/chat-segments.js');
+  const [row] = collapseRows([{ id: A, at: 1, provider: 'claude' }, { id: B, at: 2, provider: 'codex' }], { [A]: [{ provider: 'claude', session: A }, { provider: 'codex', session: B }] });
+  assert.equal(row.agent, 'codex');
+  assert.equal(cardsFromRail([{ dir: '/w', rows: [{ ...row, title: 't' }] }])[0].provider, 'codex');
+});
+await check('an open switched chat is drawn by the agent it is on, and stays one card', () => {
+  const rail = read('src/renderer/ui/shell/rail-store.js');
+  assert.ok(/row\.agent = c\.provider;/.test(rail), 'the live half names the agent it is on now');
+  assert.ok(/session: headOf\(c\)/.test(read('src/renderer/ui/useAgent.js')), 'and is matched to its saved row by its first session');
+  const [card] = cardsFromRail([{ dir: '/w', rows: [{ id: A, key: 'k1', title: 't', provider: 'claude', agent: 'copilot', segments: bare, at: now, busy: true }] }]);
+  assert.equal(card.provider, 'copilot');
+});
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log(failures.length ? `\n${failures.length} failed: ${failures.join(', ')}` : '\nboard-switched-check: all passed');
 process.exit(failures.length ? 1 : 0);
