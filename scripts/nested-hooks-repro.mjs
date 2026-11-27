@@ -6,11 +6,17 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import childProcess, { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 
 const require = createRequire(import.meta.url);
 const { z } = require('zod');
+const originalExec = childProcess.execFileSync;
+let scans = 0;
+childProcess.execFileSync = (...args) => {
+  if (args[1]?.[0] === 'ls-files') scans++;
+  return originalExec(...args);
+};
 const { hookWatch } = require('../src/main/permission-rules.js');
 const { planBatch } = require('../src/shared/browser-tools.js');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'conn-nested-hooks-'));
@@ -51,7 +57,10 @@ try {
     write(agent, declaration('agent-guard', 'fill'));
     write(path.join(project, 'node_modules/pkg/.claude/skills/ignored/SKILL.md'), declaration('ignored', 'hover'));
     write(path.join(project, '.git/pkg/.claude/skills/ignored/SKILL.md'), declaration('ignored', 'hover'));
-    if (git) execFileSync('git', ['add', 'packages/x'], { cwd: project });
+    if (git) {
+      write(path.join(project, '.gitignore'), 'packages/y/\n');
+      execFileSync('git', ['add', 'packages/x'], { cwd: project });
+    }
     check(`${git ? 'git' : 'fallback'} discovers nested skills, commands and agents`, () => {
       const watch = hookWatch(project);
       assert.equal(watch('mcp__conn__browser_evaluate'), `skill nested-guard (${skill})`);
@@ -64,10 +73,12 @@ try {
       assert.equal(planBatch([actions[0]], z, watched(project)).length, 1);
     });
     check(`${git ? 'git' : 'fallback'} refreshes edits without rediscovering folders`, () => {
+      const before = scans;
       write(skill, declaration('changed-guard', 'text'));
       const watch = hookWatch(project);
       assert.equal(watch('mcp__conn__browser_evaluate'), null);
       assert.equal(watch('mcp__conn__browser_text'), `skill changed-guard (${skill})`);
+      assert.equal(scans, before, 'the next batch does not repeat Git discovery');
     });
     check(`${git ? 'git' : 'fallback'} respects disableAllHooks`, () => {
       write(path.join(project, '.claude/settings.json'), '{"disableAllHooks":true}');
@@ -88,6 +99,7 @@ try {
     console.log(`20,000 files, 50 nested skills: first ${cold.toFixed(2)} ms; cached average ${((performance.now() - warm) / 100).toFixed(2)} ms`);
   }
 } finally {
+  childProcess.execFileSync = originalExec;
   if (originalConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
   else process.env.CLAUDE_CONFIG_DIR = originalConfig;
   fs.rmSync(tmp, { recursive: true, force: true });
