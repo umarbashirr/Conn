@@ -6,6 +6,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const yaml = require('js-yaml');
 const shellEnv = require('./shell-env');
 
@@ -185,12 +186,51 @@ function upToRoot(dir) {
   return dirs;
 }
 
+// Discover nested hook folders once per project in this process. Their files
+// still use declaration()'s mtime/size cache, so edits are seen by the next
+// batch. Git skips dependency trees but includes gitignored declarations,
+// which Claude can still load. Plain folders use a walk
+// that never follows symlinks or enters node_modules and .git.
+const nestedFolders = new Map();
+function nestedClaudeFolders(project) {
+  const root = path.resolve(project);
+  if (nestedFolders.has(root)) return nestedFolders.get(root);
+  const found = new Set();
+  try {
+    const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude=node_modules/', '--exclude=.git/', '-z', '--', ':(glob)**/.claude/**'], {
+      cwd: root, encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    });
+    for (const file of files.split('\0')) {
+      const parts = file.split('/');
+      if (parts.some((p) => p === 'node_modules' || p === '.git' || p === '..')) continue;
+      const at = parts.indexOf('.claude');
+      if (at > 0) found.add(path.join(root, ...parts.slice(0, at + 1)));
+    }
+  } catch {
+    const pending = [root];
+    while (pending.length) {
+      const dir = pending.pop();
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name === 'node_modules' || entry.name === '.git') continue;
+        const child = path.join(dir, entry.name);
+        if (entry.name === '.claude') {
+          if (dir !== root) found.add(child);
+        } else pending.push(child);
+      }
+    }
+  }
+  const folders = [...found].sort();
+  nestedFolders.set(root, folders);
+  return folders;
+}
+
 /* The files whose frontmatter can declare hooks the CLI runs while that
    skill, command or agent is at work, as tried against the CLI's own runs:
    skills/<name>/SKILL.md, commands/**.md and agents/**.md in each of
    `folders`, and an enabled plugin's skills. The CLI ignores what a plugin's
-   agents and commands declare. The .claude folders the CLI finds deeper in
-   the project as it works are not looked for. */
+   agents and commands declare. */
 function declarers(folders, plugins) {
   return [
     ...folders.flatMap((dir) => [
@@ -303,7 +343,7 @@ const pluginAgents = ({ id, root, manifest }) => [
  * A hook a skill, command or agent declares runs only while that one is at
  * work, which Conn cannot tell, so it counts as always on. The .claude folders
  * they are read from are the project's, each one above it up to the
- * repository's root, and the user's config folder.
+ * repository's root, nested folders in the project, and the user's config folder.
  * A managed disableAllHooks turns every hook off. Elsewhere disableAllHooks
  * takes the value of the last file that sets it, and true there, or a managed
  * allowManagedHooksOnly, leaves only what the managed settings bring: their
@@ -316,7 +356,7 @@ function hookWatch(project) {
   const off = sources.map((s) => s.json.disableAllHooks).filter((v) => v !== undefined).at(-1) === true;
   const kept = off || policy.some((s) => s.json.allowManagedHooksOnly === true) ? policy : sources;
   const plugins = pluginRoots(Object.assign({}, ...kept.map((s) => s.json.enabledPlugins)));
-  const folders = kept === sources ? [...(project ? upToRoot(project).map((d) => path.join(d, '.claude')) : []), configDir()] : [];
+  const folders = kept === sources ? [...(project ? [...upToRoot(project).map((d) => path.join(d, '.claude')), ...nestedClaudeFolders(project)] : []), configDir()] : [];
   const watches = [
     ...kept.flatMap((s) => preToolUse(s.json.hooks, s.file)),
     ...plugins.flatMap(pluginHooks),
@@ -331,7 +371,8 @@ function hookWatch(project) {
  * takes it away from the caller, or null. The CLI applies a list to the call
  * it sees, which for a browser batch is the batch, so a step a list takes
  * away has to be refused here. Read when a batch is planned, from the same
- * folders and plugins as hookWatch, a plugin's agents and commands included.
+ * ancestor and config folders as hookWatch, a plugin's agents and commands
+ * included. Nested project folders are currently checked only for hooks.
  * A skill's list binds only while that skill is at work, which Conn cannot
  * tell, so every skill's binds every caller. An agent's binds that agent
  * alone, and `binds` picks by name the agents the caller may be. A list that
